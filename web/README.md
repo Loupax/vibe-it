@@ -53,6 +53,31 @@ coordinator runs it through `coordinator/ci_then_push.sh --install web`. Then:
 
     web https://example.com
 
+### Using your own CEF build (H.264) on another PC
+
+The default install uses the stock CEF download, which has no H.264/AAC. A CEF built with
+proprietary codecs (`tools/cef-build/`, ~5 h) can be reused on other PCs without rebuilding:
+only the CEF directory (~600 MB) moves; `web` and `web-host-cef` rebuild from this repo in minutes.
+Keep the archive in private storage only: never in this public repo or its Releases (codec patents).
+
+Pack it on the machine that built it:
+
+    tar -C ~/.cache/web-cef-build -czf cef-156.0.31-codecs.tar.gz dist
+
+Unpack it on the other PC and install (Rust toolchain needed; no Chromium checkout):
+
+    mkdir -p ~/.cache/web-cef-build
+    tar -C ~/.cache/web-cef-build -xzf cef-156.0.31-codecs.tar.gz
+    CEF_PATH=$HOME/.cache/web-cef-build/dist web/install.sh
+
+`CEF_PATH` must hold `<version>/cef_linux_x86_64/` (with its `archive.json`), and that version
+must be the CEF release the `cef` crate in `host-cef/Cargo.toml` is made for: crate 156.7.0 =
+CEF 156.0.31 today (the crate has its own numbering). After a crate bump the old archive no longer
+fits: rebuild with `tools/cef-build/` (its README says how to find the matching CEF) and pack again.
+`coordinator/ci_then_push.sh --install web` uses `~/.cache/web-cef-build/dist` automatically when
+it exists. To check H.264 works: `python3 -I web/tools/codec-probe/serve.py 18731 /tmp/probe`,
+then `web http://127.0.0.1:18731/probe.html?tag=x` (H264 should be listed on the page). Without `CEF_PATH`, `install.sh` goes back to the stock CEF.
+
 Uninstall (state lives apart, in `~/.local/state/web`, and is kept unless you remove it):
 
     rm -f ~/.local/bin/web && rm -rf ~/.local/lib/web
