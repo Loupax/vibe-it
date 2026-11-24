@@ -205,6 +205,38 @@ stop early on a hard failure.
       it like `:new`: no `window.opener`, no popup blocking (a real click). Middle-click on anything not a link
       stays as it is (no paste, DECISIONS.md "No middle-click paste"; autoscroll off). KEYS.md rows, unit tests
       for the disposition rule, a c4_live step: middle-click a link -> a new current buffer at its URL.
+- [ ] C-AUTOFOCUS [M] (user, 2026-11-24: "moving to INPUT mode when input elements get focus confuses me [...] I'm
+      thinking of not changing modes on autofocus, but should make sure that once I hit i, the autofocused input
+      gets focus"; "include gi too") Only focus the user caused switches to INPUT; the page's own focus
+      (`autofocus`, a late `el.focus()`) leaves the mode alone. Amends DECISIONS.md "Focusing an editable switches
+      to INPUT" (2026-11-23) and KEYS.md T29/T32/T13 (dated).
+      - User-caused = `editable-focused true` within `CLICK_FOCUS_MS` of a mouse press (the `last_click` that
+        `new_popup` already uses) or of a key the shell gave the page in NORMAL (Enter, T19; the T18 find+Enter,
+        timed from the real press: Chromium moves the focus at `find-clear`), or of `gi`. Those switch to INPUT
+        as today (a click on "Reply" that makes the page focus a textarea still counts).
+      - Page focus in NORMAL (or G/SEARCH/COMMAND/PICK: an open line or the picker is no longer cancelled): the
+        mode stays, and the shell asks the host to blur the field and remember it ("parked"), so NORMAL's scroll
+        keys, which are real arrow/PageDown keys to whatever has focus (T13), scroll the page instead of moving
+        the field's caret. Guard against pages that refocus on blur: blur at most once per buffer per
+        `CLICK_FOCUS_MS`; after that leave the field focused (and NORMAL).
+      - `i`: INPUT as now, and if the current buffer has a parked field, the host focuses it again, so typing
+        lands in the field the page picked. The park ends at a cross-document load and at any later editable
+        focus (so `i` after Esc Esc out of a field you clicked does not jump to an old one).
+      - `gi` (new, as Vimium): focus the last text field focused in this document (the parked one included) if
+        it is still connected and rendered, else the first visible text field (input text/search/url/tel/email/
+        password/number, textarea, contenteditable; not disabled/readonly; in the viewport first, else the first
+        in the document), and enter INPUT when the focus arrives. No field: status message, mode unchanged.
+        `g` is already a sequence prefix (`gg`): add a KEY_SEQUENCES row.
+      - Host (PROTOCOL.md): e.g. `blur-field` and `focus-field last|first`. Suggested: a focusin listener
+        injected at context creation (as `CTRL_SHIFT_JS`) keeps the frame's last editable; the host remembers
+        the frame of the last `editable-focused true` (the process message's frame) and runs the script there,
+        falling back to the main frame; the outcome comes back as a console line (as `find_start.js` does).
+      - Tests to update: `keys_t32_a_page_focus_enters_input_and_a_blur_changes_nothing`, the C-ENTER test near
+        `c_enter_tests.rs:208`, `keys_t68_an_editable_focus_closes_it_into_input`, `c3_rclick_live.py`. New: unit
+        tests for the user-caused window (fake clock), park/restore/clear, the refocus guard, `gi`; a live step
+        with a local autofocus page: opens in NORMAL, `j` scrolls, `i` types into the autofocused field, `gi` on
+        a page with two fields, a click into a field still gives INPUT. Needs CEF: live checks on the user's
+        machine.
 - [-] C-VRESIZE DROPPED (user, 2026-11-24: "it's generic, I can't resize this terminal either": KWin/desktop,
       not web; no agent ran)
 - [x] C-EXTERNAL [S] (DONE 2026-11-23, 5e6c5f4, #719: :openExternal [url], $BROWSER/xdg-open, detached, no shell,
