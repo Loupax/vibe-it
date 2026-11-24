@@ -222,7 +222,7 @@ stop early on a hard failure.
       `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` after the global one; state directory defaults to
       `$XDG_STATE_HOME/web/profiles/NAME/` (`--state-dir` still wins), so C-SINGLE and --forget-site find that
       profile's instance. USAGE, STASH.md, args tests, a live step with two profiles side by side.
-- [ ] [WIP] C-CMDHIST [S] (user, 2026-11-24: "When I'm entering a command I should be able to use up or down keys to
+- [x] C-CMDHIST [S] (DONE 2026-11-24, 00c6c63, #741: CMD_HISTORY_MAX 1000; / line has none; KEYS T125-T128) (user, 2026-11-24: "When I'm entering a command I should be able to use up or down keys to
       navigate history. If already typed something, that should be used as filtering.") A history of the `:`
       lines run, browsed with Up/Down in the `:` line, as vim's cmdline history. Found (2026-11-24): there is
       none today; history.rs is the URL visit history (STASH.md), not commands, and Up/Down in the `:` line
@@ -246,7 +246,7 @@ stop early on a hard failure.
       (STASH.md "Forget site"); say so in STASH.md. STASH.md section, KEYS.md rows (next T number),
       help.html "Command line", unit tests in src/tests/c_cmdhist_tests.rs (incl. reload from a file, trim,
       dedup), a live step (run lines, restart web with the same state dir, Up recalls them).
-- [ ] C-REPEAT [XS] (after C-CMDHIST; DECISIONS.md 2026-11-24 "Repeating the last command: vim's @:") vim's
+- [ ] [WIP] C-REPEAT [XS] (after C-CMDHIST; DECISIONS.md 2026-11-24 "Repeating the last command: vim's @:") vim's
       `@:`, as close to vim's contract as web allows (user, 2026-11-24: "Create a @: and we can map it to . on
       the scripting layer if we want. Let's stay as closer to the vim contract as possible so muscle memory
       takes over"). Not scriptable with SCRIPTING.md's API (nothing tells a script which line ran last), so
@@ -262,7 +262,7 @@ stop early on a hard failure.
         line` (vim's E30).
       - No counts (`3@:`): web has no counts anywhere; a count needs its own item.
       `.` stays unbound (config.rs BINDINGS). KEYS.md rows, help.html, unit tests in src/tests/c_repeat_tests.rs.
-- [ ] C-EDITURL [S] (user, 2026-11-24; DECISIONS.md "Editing the page's URL in the `:` line") "an easy way to edit
+- [ ] [WIP] C-EDITURL [S] (user, 2026-11-24; DECISIONS.md "Editing the page's URL in the `:` line") "an easy way to edit
       the currently visited page. I'm thinking `:go ` to automatically fill with the currently open page, if it
       exists, and have it pre selected so the user can either wipe it clean, or move the cursor to the end so
       they can alter the ending". Built into web: SCRIPTING.md's API has no hook on `:` line edits, and
