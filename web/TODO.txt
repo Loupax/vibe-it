@@ -155,23 +155,32 @@ stop early on a hard failure.
       release, focus loss (C-FOCUSKEYS) and mode change. Must not change NORMAL: bindings that ignore repeat
       (action_ignores_repeat, T14/T55) stay as they are, and keys forwarded to the page keep the engine's repeat.
       KEYS.md rows, unit tests (fake clock), a live step holding Backspace in `:`.
-- [ ] C-BELL [M] NEEDS USER (design first) (user, 2026-11-24: "We should plan a discreet notification feedback.
-      Maybe a visual bell that causes the status bar to flash? :ls should show which buffers have unread
-      notifications") A quiet way to say a buffer wants attention, no popups, no sound. Plan, for the user's OK
-      before building:
-      - What counts as a notification: the page's Web Notifications API (`new Notification`, service-worker
-        showNotification; today the engine's default, probably denied), title changes in a background buffer
-        (chat "(3) ..." counters), audio starting, a finished download, a crash. Which are in, and the
-        permission story for the Notifications API (granted per site? always? `:forgetSite` clears it?).
-      - The visual bell: the status bar flashes briefly (colour inverted or accent, ~150 ms, config.rs), once
-        per notification, rate-limited; current buffer vs background buffer may differ (e.g. the current one
-        flashes, a background one only marks).
-      - Unread state per buffer, cleared when the buffer is shown; the status bar shows a small count/marker
-        of buffers with unread notifications (e.g. `[2!]`), and the notification's text where it fits.
-      - `:ls` / `:bufferList`: an extra marker next to vim's `%`/`#` (e.g. `!`) on buffers with unread
-        notifications, the latest notification's title in the detail column; maybe a filter for them.
-      - Host protocol: a host->shell event (e.g. `notify <id> <title> <body>`) in PROTOCOL.md.
-      Output: a short proposal (DECISIONS.md entry + KEYS.md rows) and the follow-up build items.
+- [ ] C-BELL [M] (user, 2026-11-24: "We should plan a discreet notification feedback. Maybe a visual bell that
+      causes the status bar to flash? :ls should show which buffers have unread notifications"; narrowed the same
+      day: "focus on catching notify events if possible") Only the page's own Web Notifications are notifications
+      (no title-counter or audio heuristics). Step 1 is a spike, with a report before building:
+      - Can CEF give us the page's notifications? Check `new Notification(...)` and
+        ServiceWorkerRegistration.showNotification on a local test page: what Notification.permission and
+        requestPermission() say under our CEF runtime (Chrome-style or Alloy), and whether any CEF handler or
+        Chromium hook sees the notification (permission prompt handler, Chrome's notification platform bridge
+        going to D-Bus/libnotify). If nothing exposes them: a script injected at document start (renderer
+        OnContextCreated or a V8 extension) that reports permission as granted and forwards each notification's
+        title/body/tag to the host over a CEF process message. Say which works and what it costs. Push
+        messages to closed pages need Google's push service and are out of scope; only open buffers notify.
+      - Then build: host->shell `notify <id> <title> <body>` (PROTOCOL.md); per-buffer unread state, cleared
+        when the buffer is shown; the visual bell: the status bar flashes briefly (inverted or accent colour,
+        ~150 ms, config.rs), rate-limited, for any buffer; the bar shows how many buffers have unread
+        notifications (e.g. `[2!]`); `:ls`/`:bufferList` puts `!` after vim's `%`/`#` on those buffers and the
+        latest notification's title in the detail column. No sound, no desktop popups.
+      KEYS.md rows, unit tests, a live step with the local test page.
+- [ ] C-NOTIFLIST [S] (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
+      navigate and see notifications using keyboard only") `:notifications` opens the picker (C-PICK, T58-T68)
+      over the notifications received this session, newest first: label = the buffer number and title, detail =
+      the notification's body and the site's hostname, unread ones marked; typing filters; Enter shows that
+      buffer (T78) and marks the notification read; a closed buffer's notifications stay listed (Enter then does
+      nothing but say so, or reopens the URL: decide in the item). Kept in memory only, capped (config.rs).
+      Maybe a key to dismiss one or all. Feasibility is mostly C-BELL's: once notifications reach the shell,
+      the picker already does the rest. KEYS.md rows, unit tests, a live step.
 - [-] C-VRESIZE DROPPED (user, 2026-11-24: "it's generic, I can't resize this terminal either": KWin/desktop,
       not web; no agent ran)
 - [x] C-EXTERNAL [S] (DONE 2026-11-23, 5e6c5f4, #719: :openExternal [url], $BROWSER/xdg-open, detached, no shell,
