@@ -38,3 +38,5 @@ x11rb = { version = "0.13", features = ["xkb", "allow-unsafe-code", "dl-libxcb"]
 xkbcommon-dl = { version = "0.4", features = ["x11"] }
 # C6e: the shell window's own zwp_text_input_v3 on the desktop (client side; smithay has the server side).
 wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+# C-SCRIPT: the user's init.js (SCRIPTING.md): QuickJS, no std/os modules, no module loader.
+rquickjs = { version = "0.14", default-features = false, features = ["std"] }

@@ -107,6 +107,14 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   `:ls` marks `!`. `NOTIFY_SITES` goes to the host as `--notify-sites`. Tests
   `src/tests/c_bell_tests.rs`, live check `test/c_bell_live.py` (on a private D-Bus with a fake
   notification server).
+- **User scripts** (C-SCRIPT, `src/script.rs`, SCRIPTING.md, KEYS.md "User commands", T115-T117):
+  QuickJS (rquickjs, no std/os modules, no module loader) runs `$XDG_CONFIG_HOME/web/init.js` at
+  start (`Keys::load_scripts`, a list of files so C-PROFILE adds one); `web.cmd` only queues its line
+  and `Keys` runs the lines after each call into JS returns (DECISIONS.md "web.cmd queues"), so no
+  borrow is held across a call; `web.command` names reach `dispatch_command` and the completion;
+  `ready` fires at the first `tab-created`. `SCRIPT_BUDGET_MS` via the interrupt handler,
+  `SCRIPT_DEPTH_MAX`. Tests `src/tests/c_script_tests.rs`, live check `test/c_script_live.py`
+  (a temporary XDG_CONFIG_HOME, private D-Bus).
 - **Buffers** (C4, `src/buffers.rs`, KEYS.md "Buffers", T77-T92): every buffer is a page of the
   host (PROTOCOL.md "Several pages"); `Keys::buffers` holds them, `Keys` keeps the current one's
   URL, title, search and popup return and swaps them on a switch. The compositor keeps every page

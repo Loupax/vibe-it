@@ -11,6 +11,19 @@ user's words; an item's result goes in its PR body and commit message, large rep
 PROMPTS.md files are frozen until removed. Repo-wide: root README.md, COORDINATOR_PROMPT.md,
 coordinator/AGENT_RULES.md, scratchy/AGENTS.md.
 
+## 2026-11-24 web.cmd queues its line (C-SCRIPT)
+
+The implementer's choice (C-SCRIPT), not asked. `web.cmd(line)` only appends the line to a queue; the shell
+runs the lines a call queued right after that call into QuickJS returns. The alternative, running the command
+inside `web.cmd`, needs the JS function to reach `Keys` (the shell's state) while `Keys` itself is in the middle
+of calling into JS (`:Name` -> the user's function -> `web.cmd`): a `RefCell` borrowed across the call, or
+`Keys` behind `Rc<RefCell<..>>` everywhere. With the queue no JS ever runs while the shell is borrowed and no
+borrow is held across a call. Nothing is lost: a script cannot read anything back from a command (no getters,
+SCRIPTING.md), and a queued line naming a user command runs that command's function before the next line, so
+the order is the one synchronous calls would give. Lines queued at the top level of init.js wait for `ready`
+(no engine host before it). Depth: user commands nested through `web.cmd` past `SCRIPT_DEPTH_MAX` stop the whole
+chain with an error.
+
 ## 2026-11-24 User scripts: init.js per profile plus a global one, QuickJS in the shell
 
 User: "I want to be able to expose configuration similar to how nvim does it. I'm thinking using
