@@ -576,3 +576,6 @@ Started C-BARREPEAT (Sonnet), C-MIDCLICK (Sonnet), C-BELL spike only (Opus, repo
 ## 2026-11-24 C-BELL spike merged (#727, 8f9dc86)
 Shim route recommended; step 2 queued after C-MIDCLICK (shared page.rs/buffers). NOTIFY_SITES default All (my pick, user can change).
 Spike agent killed 6 of its own private-bus KDE processes by PID (wallet dialog in the nest); user's instances untouched. New: C-WALLET.
+
+## 2026-11-24 #728 merged (user's C-AUTOFOCUS item)
+Queue (user: no reprioritising): C-MIDCLICK (running) -> C-BELL step 2 -> C-AUTOFOCUS.

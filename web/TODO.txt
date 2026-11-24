@@ -205,7 +205,7 @@ stop early on a hard failure.
       it like `:new`: no `window.opener`, no popup blocking (a real click). Middle-click on anything not a link
       stays as it is (no paste, DECISIONS.md "No middle-click paste"; autoscroll off). KEYS.md rows, unit tests
       for the disposition rule, a c4_live step: middle-click a link -> a new current buffer at its URL.
-- [ ] C-AUTOFOCUS [M] (user, 2026-11-24: "moving to INPUT mode when input elements get focus confuses me [...] I'm
+- [ ] C-AUTOFOCUS [M] (after C-BELL step 2: shares renderer injection and the shell key path) (user, 2026-11-24: "moving to INPUT mode when input elements get focus confuses me [...] I'm
       thinking of not changing modes on autofocus, but should make sure that once I hit i, the autofocused input
       gets focus"; "include gi too") Only focus the user caused switches to INPUT; the page's own focus
       (`autofocus`, a late `el.focus()`) leaves the mode alone. Amends DECISIONS.md "Focusing an editable switches
