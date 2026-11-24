@@ -339,6 +339,9 @@ pub const HISTORY: bool = true;
 /// At startup a history file with more lines than this keeps only the newest ones.
 pub const HISTORY_MAX_LINES: usize = 50_000;
 
+/// C-CMDHIST: the `:` lines kept (memory and `DIR/cmdhistory`); vim's 'history' option.
+pub const CMD_HISTORY_MAX: usize = 1000;
+
 // ---------- user scripts (SCRIPTING.md, C-SCRIPT) ----------
 
 /// Every call into a user script (the file itself, a user command, the `ready` handler) may run this

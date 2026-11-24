@@ -628,6 +628,8 @@ pub struct Keys {
     pub help_url: String,
     /// The kept query, the host's find session, the last result (T7, T15-T25).
     pub search: SearchState,
+    /// C-CMDHIST: the `:` lines Enter ran (`cmdhist.rs`).
+    pub cmd_history: crate::cmdhist::CmdHistory,
     state_dir: Option<PathBuf>,
     sink: Option<ExtSink>,
     /// Key codes held down (a press of one already down is an OS repeat).
@@ -720,6 +722,7 @@ impl Keys {
             title: String::new(),
             help_url,
             search: SearchState::default(),
+            cmd_history: crate::cmdhist::CmdHistory::open(state_dir.clone()),
             state_dir,
             sink,
             down: HashSet::new(),
@@ -1234,6 +1237,7 @@ impl Keys {
 
     fn open_line(&mut self) {
         self.vim_mode = VimMode::Command;
+        self.cmd_history.end_browse();
         self.line.clear();
         self.ghost = None;
         // A new cache per line: the history is read once per line (KEYS.md "Per keystroke cost").
@@ -1419,7 +1423,13 @@ impl Keys {
     /// A key in the `:` line (T26-T28, T45-T53).
     fn command_line_key(&mut self, key: &KeyInput) {
         let s = key.sym;
-        if s == Keysym::Escape {
+        let updown = matches!(s, Keysym::Up | Keysym::KP_Up | Keysym::Down | Keysym::KP_Down);
+        if !updown {
+            self.cmd_history.end_browse(); // C-CMDHIST: any other key ends browsing, keeping the text
+        }
+        if updown {
+            self.history_key(matches!(s, Keysym::Up | Keysym::KP_Up));
+        } else if s == Keysym::Escape {
             self.close_line();
         } else if s == Keysym::Return || s == Keysym::KP_Enter {
             let mut input = std::mem::take(&mut self.line.text);
@@ -1427,6 +1437,7 @@ impl Keys {
                 input = g.accepted(&input);
             }
             self.close_line();
+            self.cmd_history.record(&input);
             self.run_command_line(&input);
         } else if s == Keysym::Tab || s == Keysym::ISO_Left_Tab {
             let back = key.shift || s == Keysym::ISO_Left_Tab;
@@ -1455,6 +1466,27 @@ impl Keys {
             self.line_edit_key(key);
             self.recompute_ghost();
         }
+    }
+
+    /// C-CMDHIST (KEYS.md T125-T128): Up/Down recall the `:` lines run, filtered by what was typed.
+    /// A recalled line shows no ghost (Enter runs exactly it).
+    fn history_key(&mut self, up: bool) {
+        let text = if up {
+            self.cmd_history.up(&self.line.text)
+        } else {
+            self.cmd_history.down()
+        };
+        if let Some(t) = text {
+            self.line.text = t;
+            self.line.cursor = self.line.text.len();
+            self.ghost = None;
+        }
+    }
+
+    /// The `:` line run last (C-REPEAT's `@:` reads it), kept across restarts.
+    #[allow(dead_code)] // read by C-REPEAT
+    pub fn last_command_line(&self) -> Option<&str> {
+        self.cmd_history.last()
     }
 
     pub(crate) fn line_edit_key(&mut self, key: &KeyInput) {

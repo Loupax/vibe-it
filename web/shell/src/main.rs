@@ -9,6 +9,7 @@ mod args;
 mod bookmarks;
 mod buffers;
 mod clipboard;
+mod cmdhist;
 mod completion;
 mod config;
 mod control;

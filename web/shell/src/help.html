@@ -95,6 +95,11 @@ single match <code>Tab</code> selects it (after a command name a space follows).
 <code>Right</code> or <code>End</code> accept the ghost into the line.
 <code>Delete</code> hides it until your next edit, so <code>Enter</code> runs
 only what you typed.</p>
+<p><code>Up</code> and <code>Down</code> walk the command lines you ran before (kept across
+restarts, separately for each profile). What you had typed filters them: type
+<code>go</code>, then <code>Up</code> recalls the newest line starting with <code>go</code>;
+<code>Down</code> goes newer, and past the newest your typed text comes back. Any other key ends
+the walk and keeps the text. A recalled line shows no ghost.</p>
 <p><code>:go</code> suggests from the pages you visited: sites you visit most
 first (<code>you</code> suggests YouTube's home page even if you mostly watched
 videos), then single pages. <code>https://</code>, <code>http://</code> and

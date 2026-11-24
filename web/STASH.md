@@ -163,6 +163,19 @@ suggestion: the first match is shown, Tab walks down the list (KEYS.md T45-T53).
 
 - `--forget-site` does not touch history (yet).
 
+## Command history (C-CMDHIST)
+
+`DIR/cmdhistory`, next to `history`, mode 0600 (dir 0700): one line per `:` line that Enter ran (ghost
+included; not lines run by bindings, `web.cmd` or mappings), no timestamp, no newline inside a line
+(control characters are stripped, as in the history file; a line is cut at 4095 bytes). Each run appends
+one line with a single `write` on an `O_APPEND` file (a crash loses nothing). At start the file is read, a
+repeated line keeps only its newest place, the newest `CMD_HISTORY_MAX` (config.rs, 1000) are kept, and if
+that changed the file it is rewritten as a temp file `.cmdhistory.tmp-<pid>` renamed over it. C-SINGLE
+runs one web per state directory, so there is one writer. The state directory is per profile
+(C-PROFILE), so each profile has its own history. With no state directory (the tests) it is memory only.
+The last line survives a restart (C-REPEAT's `@:` reads it, as vim's shada keeps the `:` register).
+`--forget-site` does not touch it, as it does not touch the URL history. KEYS.md T125-T128.
+
 ## Bookmarks (C-BOOKMARKS)
 
 `DIR/bookmarks`, next to `history`: plain UTF-8, one bookmark per line, `url<TAB>title`, in the
