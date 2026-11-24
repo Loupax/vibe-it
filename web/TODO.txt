@@ -183,7 +183,11 @@ stop early on a hard failure.
         notifications (e.g. `[2!]`); `:ls`/`:bufferList` puts `!` after vim's `%`/`#` on those buffers and the
         latest notification's title in the detail column. No sound, no desktop popups.
       KEYS.md rows, unit tests, a live step with the local test page.
-- [WIP] C-BELL-CRASH [S] BUG URGENT (user, 2026-11-24: "I get a segfault when trying to visit gmail") Renderer FATAL
+- [ ] C-BELL-SAMETURN [S] optional (from #734) A new frame's window reached in the turn that created it through
+      frames[i], contentDocument.defaultView, window.open or a nested iframe made in that turn still has Chromium's
+      (denied, natively blocked) Notification. Cover it only if a real site needs it.
+- [x] C-BELL-CRASH [S] (DONE 2026-11-24, 0d51243, #734: shim defines a configurable Notification after Blink's install
+      (microtask / parser MutationObserver / iframe contentWindow getter); repro tools/notify-probe/iframes.html) BUG (user, 2026-11-24: "I get a segfault when trying to visit gmail") Renderer FATAL
       "V8 error: Maybe value is Nothing (v8::FromJust)" in blink::bindings::IDLMemberInstaller::InstallExposedConstructs
       <- LocalWindowProxy::InstallConditionalFeatures <- a subframe's about:blank commit
       (SynchronouslyCommitAboutBlankForBug778318) from Node.insertBefore of an iframe. Cause: notify.rs defines

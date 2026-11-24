@@ -592,3 +592,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-24 C-NOTIFLIST merged (#733, c921dcd; I moved its prompt entry from root PROMPTS.md to web/); web reinstalled. New optional C-NOTIFCLICK.
 
 ## 2026-11-24 C-BELL-CRASH: Gmail renderer abort from notify.rs non-configurable Notification; fix agent (Opus) started
+
+## 2026-11-24 C-BELL-CRASH merged (#734, 0d51243); web reinstalled
