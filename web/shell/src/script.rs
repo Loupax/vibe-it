@@ -34,18 +34,27 @@ pub struct ScriptFile {
 }
 
 /// The scripts web loads at start, in order: `$XDG_CONFIG_HOME/web/init.js` (default
-/// `~/.config/web/init.js`). C-PROFILE appends the profile's.
-pub fn init_files(env: &dyn Fn(&str) -> Option<String>) -> Vec<ScriptFile> {
+/// `~/.config/web/init.js`), then with `--profile NAME` `.../web/profiles/NAME/init.js`
+/// (its errors are labelled with that path).
+pub fn init_files(env: &dyn Fn(&str) -> Option<String>, profile: Option<&str>) -> Vec<ScriptFile> {
     let set = |k: &str| env(k).filter(|v| !v.is_empty());
     let config = match (set("XDG_CONFIG_HOME"), set("HOME")) {
         (Some(x), _) if Path::new(&x).is_absolute() => PathBuf::from(x),
         (_, Some(h)) => Path::new(&h).join(".config"),
         _ => return Vec::new(),
     };
-    vec![ScriptFile {
+    let mut files = vec![ScriptFile {
         path: config.join("web").join("init.js"),
         label: "init.js".to_string(),
-    }]
+    }];
+    if let Some(name) = profile {
+        let path = config.join("web").join("profiles").join(name).join("init.js");
+        files.push(ScriptFile {
+            label: path.display().to_string(),
+            path,
+        });
+    }
+    files
 }
 
 /// An error out of a script: what the status bar shows (`init.js:LINE: message`) and the full

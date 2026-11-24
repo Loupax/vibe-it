@@ -325,7 +325,7 @@ fn c_script_missing_file_is_not_an_error_and_paths() {
     k.script_ready();
     let env =
         |pairs: &'static [(&'static str, &'static str)]| move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| v.to_string());
-    let f = init_files(&env(&[("XDG_CONFIG_HOME", "/x"), ("HOME", "/h")]));
+    let f = init_files(&env(&[("XDG_CONFIG_HOME", "/x"), ("HOME", "/h")]), None);
     assert_eq!(
         f,
         vec![ScriptFile {
@@ -333,15 +333,29 @@ fn c_script_missing_file_is_not_an_error_and_paths() {
             label: "init.js".into()
         }]
     );
-    let f = init_files(&env(&[("XDG_CONFIG_HOME", ""), ("HOME", "/h")]));
+    let f = init_files(&env(&[("XDG_CONFIG_HOME", ""), ("HOME", "/h")]), None);
     assert_eq!(f[0].path, std::path::PathBuf::from("/h/.config/web/init.js"));
-    let f = init_files(&env(&[("XDG_CONFIG_HOME", "rel"), ("HOME", "/h")]));
+    let f = init_files(&env(&[("XDG_CONFIG_HOME", "rel"), ("HOME", "/h")]), None);
     assert_eq!(
         f[0].path,
         std::path::PathBuf::from("/h/.config/web/init.js"),
         "a relative XDG_CONFIG_HOME is ignored"
     );
-    assert!(init_files(&env(&[])).is_empty());
+    assert!(init_files(&env(&[]), None).is_empty());
+}
+
+#[test]
+fn c_profile_init_files_second() {
+    let env =
+        |pairs: &'static [(&'static str, &'static str)]| move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| v.to_string());
+    let f = init_files(&env(&[("XDG_CONFIG_HOME", "/x"), ("HOME", "/h")]), Some("work"));
+    assert_eq!(f.len(), 2);
+    assert_eq!(f[0].path, std::path::PathBuf::from("/x/web/init.js"));
+    assert_eq!(f[0].label, "init.js");
+    assert_eq!(f[1].path, std::path::PathBuf::from("/x/web/profiles/work/init.js"));
+    assert_eq!(f[1].label, "/x/web/profiles/work/init.js", "errors name the profile script's path");
+    let f = init_files(&env(&[("HOME", "/h")]), Some("p"));
+    assert_eq!(f[1].path, std::path::PathBuf::from("/h/.config/web/profiles/p/init.js"));
 }
 
 #[test]
