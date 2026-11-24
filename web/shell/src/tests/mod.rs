@@ -7,6 +7,7 @@ mod c6_tests;
 mod c6b_tests;
 mod c6c_tests;
 mod c6d_tests;
+mod c6e_tests;
 mod c6h_tests;
 mod c_bookmarks_tests;
 mod c_enter_tests;

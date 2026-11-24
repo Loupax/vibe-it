@@ -125,7 +125,22 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   backend reports (1 under the nest's Xwayland, which then scales the window up). Tests
   `src/tests/c6b_tests.rs`, live check `test/c6b_live.py`.
 
-Not in C2/C3/C5/C6 (later items): frame pacing, dmabuf, IME.
+- **Input methods** (C6e, `src/ime.rs`): the shell is the text-input-v3 server for the page
+  (`zwp_text_input_manager_v3` on its display; `enter`/`leave` follow the keyboard focus) and a
+  text-input-v3 client of the desktop (a `zwp_text_input_v3` of its own on the shell window's
+  Wayland connection; winit's IME stays off). The host is started with `--enable-wayland-ime
+  --wayland-text-input-version=3` (Chromium's Wayland IME is off without them). The pure `Relay`
+  forwards enable/disable, surrounding text, change cause, content type and the cursor rectangle
+  up (moved by the page window's origin; both sides are logical, so it is right at any scale)
+  and preedit, commit and delete-surrounding down. Only in INPUT: in NORMAL (and the `:`/`/`
+  lines and the picker) the desktop's input method is disabled and a preedit in the page is
+  cleared. Wayland only: an X11 shell window has no input method (winit's XIM is not wired).
+  Chromium commits its new surrounding text and caret only with its next text-input commit,
+  i.e. one input-method round late (a real input method's next key catches it up). Tests
+  `src/tests/c6e_tests.rs`, live check `test/c6e_live.py` (a scripted input-method-v2 client,
+  `web/tools/inject ime`, through the nest dwl's relay; also at `NEST_SCALE=2`).
+
+Not in C2/C3/C5/C6 (later items): frame pacing, dmabuf.
 
 The desktop's keyboard layout (C-KEYMAP, `src/keymap.rs`): the shell's seat (and so the page and the
 shell's own keysym bindings) uses the desktop's keymap, read on a worker thread: on Wayland a second

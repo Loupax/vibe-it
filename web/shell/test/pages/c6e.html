@@ -1,0 +1,26 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>c6e loading</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; }
+  input { position: absolute; left: 40px; width: 400px; height: 40px; font-size: 20px; }
+  #t { top: 40px; }
+  #m { top: 140px; }
+  p { position: absolute; left: 40px; top: 220px; }
+</style>
+<input id="t" value="">
+<input id="m" type="email" value="">
+<p>web C6e live check: the title reports the fields' values and the composition.</p>
+<script>
+  // The title: "c6e v=<#t's value> m=<#m's value> c=<composition state>"; the composition state is
+  // "-" (none), "u:<data>" (compositionupdate) or "e:<data>" (compositionend).
+  const t = document.getElementById("t"), m = document.getElementById("m");
+  let comp = "-";
+  const show = () => { document.title = `c6e v=${t.value} m=${m.value} c=${comp}`; };
+  for (const f of [t, m]) {
+    f.addEventListener("input", show);
+    f.addEventListener("compositionupdate", (e) => { comp = "u:" + e.data; show(); });
+    f.addEventListener("compositionend", (e) => { comp = "e:" + e.data; show(); });
+  }
+  show();
+</script>
