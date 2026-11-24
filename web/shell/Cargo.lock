@@ -2365,6 +2365,7 @@ dependencies = [
  "url",
  "wayland-backend",
  "wayland-client",
+ "wayland-protocols",
  "x11rb",
  "xkbcommon-dl",
 ]

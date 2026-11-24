@@ -6,6 +6,8 @@
 //   mods:BITS (modifier state alone)  kdown:CODE kup:CODE (a key held across commands)
 //   type:TEXT (letters, digits, space, . : / - _ = ?)
 // Or: inject output W H SCALE   (C6b: the output becomes W x H pixels at SCALE; src/output.rs)
+// Or: inject ime   (C6e: a scripted test input method, zwp_input_method_v2; src/ime.rs)
+mod ime;
 mod output;
 
 use std::io::Write;
@@ -153,6 +155,9 @@ fn code(name: &str) -> Option<(u32, bool)> {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("ime") {
+        return ime::run();
+    }
     if args.get(1).map(String::as_str) == Some("output") {
         return output::set(
             args[2].parse().unwrap(),

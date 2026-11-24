@@ -8,7 +8,23 @@
  #include <wlr/backend/libinput.h>
  #include <wlr/render/allocator.h>
  #include <wlr/render/wlr_renderer.h>
-@@ -994,7 +995,14 @@
+@@ -30,6 +31,7 @@
+ #include <wlr/types/wlr_idle_inhibit_v1.h>
+ #include <wlr/types/wlr_idle_notify_v1.h>
+ #include <wlr/types/wlr_input_device.h>
++#include <wlr/types/wlr_input_method_v2.h>
+ #include <wlr/types/wlr_keyboard.h>
+ #include <wlr/types/wlr_keyboard_group.h>
+ #include <wlr/types/wlr_layer_shell_v1.h>
+@@ -52,6 +54,7 @@
+ #include <wlr/types/wlr_session_lock_v1.h>
+ #include <wlr/types/wlr_single_pixel_buffer_v1.h>
+ #include <wlr/types/wlr_subcompositor.h>
++#include <wlr/types/wlr_text_input_v3.h>
+ #include <wlr/types/wlr_viewporter.h>
+ #include <wlr/types/wlr_virtual_keyboard_v1.h>
+ #include <wlr/types/wlr_virtual_pointer_v1.h>
+@@ -994,7 +997,14 @@
  
  	/* Prepare an XKB keymap and assign it to the keyboard group. */
  	context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
@@ -24,7 +40,7 @@
  				XKB_KEYMAP_COMPILE_NO_FLAGS)))
  		die("failed to compile keymap");
  
-@@ -1114,6 +1122,18 @@
+@@ -1114,6 +1124,18 @@
  	 * monitor's preferred mode; a more sophisticated compositor would let
  	 * the user configure it. */
  	wlr_output_state_set_mode(&state, wlr_output_preferred_mode(wlr_output));
@@ -43,7 +59,7 @@
  
  	/* Set up event listeners */
  	LISTEN(&wlr_output->events.frame, &m->frame, rendermon);
-@@ -1416,12 +1434,20 @@
+@@ -1416,12 +1438,20 @@
  destroykeyboardgroup(struct wl_listener *listener, void *data)
  {
  	KeyboardGroup *group = wl_container_of(listener, group, destroy);
@@ -64,7 +80,7 @@
  }
  
  Monitor *
-@@ -1728,7 +1752,8 @@
+@@ -1728,7 +1758,8 @@
  			&group->wlr_group->keyboard.modifiers);
  
  	/* Write current XKB layout name to file and signal someblocks, only on group change */
@@ -74,7 +90,210 @@
  		static xkb_layout_index_t last_layout = XKB_LAYOUT_INVALID;
  		struct xkb_state *xkb_state = group->wlr_group->keyboard.xkb_state;
  		if (xkb_state) {
-@@ -2716,6 +2741,15 @@
+@@ -2516,6 +2547,202 @@
+ 	wlr_seat_set_selection(seat, event->source, event->serial);
+ }
+ 
++/* C6E-NEST: a minimal text-input-v3 <-> input-method-v2 relay (as sway's, without keyboard
++ * grabs or input popups), so a test input method in the nest can type into a client's
++ * text field. Only in the headless nest (NEST_HEADLESS_SIZE). Every state the relay passes
++ * on is also logged to stderr (dwl.log) as "nest-ime: ...", for live checks. */
++typedef struct {
++	struct wlr_text_input_v3 *ti;
++	struct wl_listener enable, commit, disable, destroy;
++	struct wl_list link;
++} NestTi;
++static struct wlr_text_input_manager_v3 *nest_ti_mgr;
++static struct wlr_input_method_manager_v2 *nest_im_mgr;
++static struct wlr_input_method_v2 *nest_im;
++static struct wl_list nest_tis;
++static struct wl_listener nest_new_ti, nest_new_im, nest_im_commit, nest_im_destroy, nest_kb_focus;
++
++static NestTi *
++nest_active_ti(void)
++{
++	NestTi *t;
++	wl_list_for_each(t, &nest_tis, link)
++		if (t->ti->focused_surface && t->ti->current_enabled)
++			return t;
++	return NULL;
++}
++
++static void
++nest_send_state(NestTi *t)
++{
++	struct wlr_text_input_v3 *ti = t->ti;
++	fprintf(stderr, "nest-ime: state surrounding=\"%s\" cursor=%u anchor=%u hint=%u purpose=%u rect=%d,%d,%d,%d\n",
++		ti->current.surrounding.text ? ti->current.surrounding.text : "",
++		ti->current.surrounding.cursor, ti->current.surrounding.anchor,
++		ti->current.content_type.hint, ti->current.content_type.purpose,
++		ti->current.cursor_rectangle.x, ti->current.cursor_rectangle.y,
++		ti->current.cursor_rectangle.width, ti->current.cursor_rectangle.height);
++	if (!nest_im)
++		return;
++	/* Not gated on active_features: Chromium sends no surrounding text in its enabling
++	 * commit (wlroots counts features only there), only in later ones. */
++	if (ti->current.surrounding.text)
++		wlr_input_method_v2_send_surrounding_text(nest_im,
++			ti->current.surrounding.text ? ti->current.surrounding.text : "",
++			ti->current.surrounding.cursor, ti->current.surrounding.anchor);
++	wlr_input_method_v2_send_text_change_cause(nest_im, ti->current.text_change_cause);
++	wlr_input_method_v2_send_content_type(nest_im,
++			ti->current.content_type.hint, ti->current.content_type.purpose);
++	wlr_input_method_v2_send_done(nest_im);
++}
++
++static void
++nest_ti_enable(struct wl_listener *l, void *data)
++{
++	NestTi *t = wl_container_of(l, t, enable);
++	fprintf(stderr, "nest-ime: enable\n");
++	if (nest_im)
++		wlr_input_method_v2_send_activate(nest_im);
++	nest_send_state(t);
++}
++
++static void
++nest_ti_commit(struct wl_listener *l, void *data)
++{
++	NestTi *t = wl_container_of(l, t, commit);
++	if (t->ti->current_enabled)
++		nest_send_state(t);
++}
++
++static void
++nest_ti_disable(struct wl_listener *l, void *data)
++{
++	fprintf(stderr, "nest-ime: disable\n");
++	if (nest_im) {
++		wlr_input_method_v2_send_deactivate(nest_im);
++		wlr_input_method_v2_send_done(nest_im);
++	}
++}
++
++static void
++nest_ti_destroy(struct wl_listener *l, void *data)
++{
++	NestTi *t = wl_container_of(l, t, destroy);
++	if (t->ti->current_enabled && nest_im) {
++		wlr_input_method_v2_send_deactivate(nest_im);
++		wlr_input_method_v2_send_done(nest_im);
++	}
++	wl_list_remove(&t->enable.link);
++	wl_list_remove(&t->commit.link);
++	wl_list_remove(&t->disable.link);
++	wl_list_remove(&t->destroy.link);
++	wl_list_remove(&t->link);
++	free(t);
++}
++
++static void
++nest_ti_focus(NestTi *t, struct wlr_surface *surface)
++{
++	struct wlr_text_input_v3 *ti = t->ti;
++	if (ti->focused_surface == surface)
++		return;
++	if (ti->focused_surface) {
++		if (ti->current_enabled && nest_im) {
++			wlr_input_method_v2_send_deactivate(nest_im);
++			wlr_input_method_v2_send_done(nest_im);
++		}
++		wlr_text_input_v3_send_leave(ti);
++		fprintf(stderr, "nest-ime: leave\n");
++	}
++	if (surface && wl_resource_get_client(surface->resource) == wl_resource_get_client(ti->resource)) {
++		wlr_text_input_v3_send_enter(ti, surface);
++		fprintf(stderr, "nest-ime: enter\n");
++	}
++}
++
++static void
++nest_new_text_input(struct wl_listener *l, void *data)
++{
++	NestTi *t = ecalloc(1, sizeof(*t));
++	t->ti = data;
++	LISTEN(&t->ti->events.enable, &t->enable, nest_ti_enable);
++	LISTEN(&t->ti->events.commit, &t->commit, nest_ti_commit);
++	LISTEN(&t->ti->events.disable, &t->disable, nest_ti_disable);
++	LISTEN(&t->ti->events.destroy, &t->destroy, nest_ti_destroy);
++	wl_list_insert(&nest_tis, &t->link);
++	nest_ti_focus(t, seat->keyboard_state.focused_surface);
++}
++
++static void
++nest_keyboard_focus(struct wl_listener *l, void *data)
++{
++	struct wlr_seat_keyboard_focus_change_event *e = data;
++	NestTi *t;
++	wl_list_for_each(t, &nest_tis, link)
++		nest_ti_focus(t, e->new_surface);
++}
++
++static void
++nest_input_method_commit(struct wl_listener *l, void *data)
++{
++	struct wlr_input_method_v2 *im = data;
++	NestTi *t = nest_active_ti();
++	fprintf(stderr, "nest-ime: im commit preedit=\"%s\" commit=\"%s\" delete=%u,%u%s\n",
++		im->current.preedit.text ? im->current.preedit.text : "",
++		im->current.commit_text ? im->current.commit_text : "",
++		im->current.delete.before_length, im->current.delete.after_length,
++		t ? "" : " (no active text input)");
++	if (!t)
++		return;
++	if (im->current.delete.before_length || im->current.delete.after_length)
++		wlr_text_input_v3_send_delete_surrounding_text(t->ti,
++			im->current.delete.before_length, im->current.delete.after_length);
++	wlr_text_input_v3_send_preedit_string(t->ti, im->current.preedit.text,
++		im->current.preedit.cursor_begin, im->current.preedit.cursor_end);
++	if (im->current.commit_text)
++		wlr_text_input_v3_send_commit_string(t->ti, im->current.commit_text);
++	wlr_text_input_v3_send_done(t->ti);
++}
++
++static void
++nest_input_method_destroy(struct wl_listener *l, void *data)
++{
++	wl_list_remove(&nest_im_commit.link);
++	wl_list_remove(&nest_im_destroy.link);
++	nest_im = NULL;
++	fprintf(stderr, "nest-ime: input method gone\n");
++}
++
++static void
++nest_new_input_method(struct wl_listener *l, void *data)
++{
++	struct wlr_input_method_v2 *im = data;
++	NestTi *t;
++	if (nest_im) {
++		wlr_input_method_v2_send_unavailable(im);
++		return;
++	}
++	nest_im = im;
++	LISTEN(&im->events.commit, &nest_im_commit, nest_input_method_commit);
++	LISTEN(&im->events.destroy, &nest_im_destroy, nest_input_method_destroy);
++	fprintf(stderr, "nest-ime: input method bound\n");
++	if ((t = nest_active_ti())) {
++		wlr_input_method_v2_send_activate(nest_im);
++		nest_send_state(t);
++	}
++}
++
++static void
++nest_ime_setup(void)
++{
++	wl_list_init(&nest_tis);
++	nest_ti_mgr = wlr_text_input_manager_v3_create(dpy);
++	nest_im_mgr = wlr_input_method_manager_v2_create(dpy);
++	LISTEN(&nest_ti_mgr->events.text_input, &nest_new_ti, nest_new_text_input);
++	LISTEN(&nest_im_mgr->events.input_method, &nest_new_im, nest_new_input_method);
++	LISTEN(&seat->keyboard_state.events.focus_change, &nest_kb_focus, nest_keyboard_focus);
++}
++
+ void
+ setup(void)
+ {
+@@ -2716,6 +2943,16 @@
  
  	kb_group = createkeyboardgroup();
  	wl_list_init(&kb_group->destroy.link);
@@ -86,6 +305,7 @@
 +	if (getenv("NEST_HEADLESS_SIZE")) {
 +		wlr_seat_set_keyboard(seat, &kb_group->wlr_group->keyboard);
 +		wlr_seat_set_capabilities(seat, WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD);
++		nest_ime_setup(); /* C6E-NEST */
 +	}
  
  	output_mgr = wlr_output_manager_v1_create(dpy);

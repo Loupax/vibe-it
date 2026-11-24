@@ -59,6 +59,10 @@ pub fn host_command(args: &Args, program: PathBuf, profile: &Path, control: &Pat
         format!("--control={}", control.display()),
         // The host draws into this shell, never into the desktop the shell runs on.
         "--ozone-platform=wayland".to_string(),
+        // C6e: Chromium's Wayland IME (off by default) on text-input-v3, which the shell offers
+        // (`ime.rs`); without the version Chromium may pick text-input-v1, which it does not.
+        "--enable-wayland-ime".to_string(),
+        "--wayland-text-input-version=3".to_string(),
     ];
     if let Some(p) = &args.proxy {
         a.push(format!("--proxy={p}"));
@@ -145,7 +149,13 @@ mod tests {
         );
         assert_eq!(
             c.args,
-            vec!["--profile=/s/engines/cef", "--control=/r/control.sock", "--ozone-platform=wayland"]
+            vec![
+                "--profile=/s/engines/cef",
+                "--control=/r/control.sock",
+                "--ozone-platform=wayland",
+                "--enable-wayland-ime",
+                "--wayland-text-input-version=3"
+            ]
         );
         assert!(!c.args.iter().any(|a| a.contains("proxy")), "no --proxy: direct, never an error");
         assert!(c.env.contains(&("WAYLAND_DISPLAY".into(), "wayland-3".into())));
@@ -157,7 +167,7 @@ mod tests {
         let a = args(&["--proxy", "127.0.0.1:3128", "example.com", "--", "--proxy-bypass-list=<-loopback>"]);
         let c = host_command(&a, "h".into(), Path::new("/p"), Path::new("/c"), "wayland-1");
         assert_eq!(
-            &c.args[3..],
+            &c.args[5..],
             ["--proxy=127.0.0.1:3128", "--url=example.com", "--proxy-bypass-list=<-loopback>"]
         );
     }

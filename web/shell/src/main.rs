@@ -17,6 +17,7 @@ mod external;
 mod forget;
 mod history;
 mod host;
+mod ime;
 mod input;
 mod keymap;
 mod keys;
@@ -166,6 +167,19 @@ fn main() {
             })
             .unwrap();
         keymap::start(kind, keymap_tx);
+        // C6e: the shell window's text input on the desktop (Wayland only).
+        if let clipboard::DesktopKind::Wayland(display) = kind {
+            let (ime_tx, ime_rx) = calloop::channel::channel::<ime::FromDesktop>();
+            event_loop
+                .handle()
+                .insert_source(ime_rx, |ev, _, state| {
+                    if let calloop::channel::Event::Msg(m) = ev {
+                        state.ime_from_desktop(m);
+                    }
+                })
+                .unwrap();
+            ime::start(display, ime_tx);
+        }
         clipboard::Desktop::start(kind)
     };
     let (copies_tx, copies_rx) = calloop::channel::channel::<selection::Copied>();
@@ -305,6 +319,7 @@ fn main() {
         _viewporter_state: ViewporterState::new::<State>(&dh),
         _fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState::new::<State>(&dh),
         _cursor_shape_state: CursorShapeManagerState::new::<State>(&dh),
+        _text_input_global: State::ime_global(&dh),
         // C6h: wp_presentation (CLOCK_MONOTONIC): Chromium's BeginFrame interval comes from its feedback.
         _presentation_state: smithay::wayland::presentation::PresentationState::new::<State>(&dh, libc::CLOCK_MONOTONIC as u32),
         presentation_clock: smithay::utils::Clock::new(),
@@ -347,6 +362,7 @@ fn main() {
         deferred: Default::default(),
         paused: false,
         loop_handle: event_loop.handle(),
+        ime: Default::default(),
     };
     state.apply_output_state();
     state.damage_tracker = Some(OutputDamageTracker::from_output(&state.output));

@@ -11,7 +11,9 @@
 # wl_keyboard; the helper therefore runs a dwl built from the user's dwl source with
 # nest/dwl-headless.patch (seat advertises pointer+keyboard, output size from
 # NEST_HEADLESS_SIZE). It is built once into <worktree>/.qwork/nest-dwl/ (rebuilt when the
-# source or the patch changes; takes a few seconds).
+# source or the patch changes; takes a few seconds). C6E-NEST: the headless dwl also relays
+# text-input-v3 <-> input-method-v2 (no keyboard grab, no input popups) and logs what it relays to
+# dwl.log as `nest-ime: ...`; `web/tools/inject ime` is a scripted input method for it.
 #   NEST_SIZE   headless output size WxH (default 960x1006, what notab.py/inject assume);
 #               also written to the registry file `size`. Logical px: with NEST_SCALE the
 #               output has NEST_SIZE * NEST_SCALE pixels (grim's screenshots are that big)

@@ -79,6 +79,8 @@ pub struct State {
     /// C6b: wp_fractional_scale_v1 (with wp_viewporter, how a client draws at 1.25, 1.5, ...).
     pub _fractional_scale_state: smithay::wayland::fractional_scale::FractionalScaleManagerState,
     pub _cursor_shape_state: CursorShapeManagerState,
+    /// C6e: zwp_text_input_manager_v3 for the page (`ime.rs`).
+    pub _text_input_global: smithay::reexports::wayland_server::backend::GlobalId,
     /// C6h: wp_presentation, and the clock its feedback times are on.
     pub _presentation_state: smithay::wayland::presentation::PresentationState,
     pub presentation_clock: smithay::utils::Clock<smithay::utils::Monotonic>,
@@ -148,6 +150,8 @@ pub struct State {
     pub deferred: std::collections::VecDeque<crate::keys::Effect>,
     pub paused: bool,
     pub loop_handle: smithay::reexports::calloop::LoopHandle<'static, State>,
+    /// C6e: the page's text inputs and the desktop's input method (`ime.rs`).
+    pub ime: crate::ime::Ime,
 }
 
 #[derive(Default)]
@@ -167,6 +171,8 @@ impl State {
 
     pub fn redraw(&mut self) {
         self.dirty = true;
+        // C6e: the key mode may have changed: the desktop's input method follows INPUT.
+        self.ime_sync();
         // The status bar's state, logged when it changes (what the live check reads).
         let v = self.keys.bar_view();
         let desc = match &v.line {
@@ -1087,6 +1093,7 @@ impl SeatHandler for State {
 
     fn focus_changed(&mut self, _seat: &Seat<Self>, focused: Option<&WlSurface>) {
         self.selection_focus(focused);
+        self.ime_focus(focused);
     }
 }
 
