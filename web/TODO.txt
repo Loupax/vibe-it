@@ -206,7 +206,7 @@ stop early on a hard failure.
       anyway; SCRIPT_BUDGET_MS via the interrupt handler; a web.cmd depth limit. Expose nothing else. Report the
       binary size and start time added. Unit tests (a script opening buffers in ready, a throwing script, a
       runaway loop), a live step with a test init.js under a temporary XDG_CONFIG_HOME (never the user's).
-- [ ] [WIP] C-SCRIPT-MEM [S] optional (from #736) SCRIPT_MEMORY_MAX via Runtime::set_memory_limit; today an allocation loop
+- [x] C-SCRIPT-MEM [S] (DONE 2026-11-24, 2cb2a4d, #740: SCRIPT_MEMORY_MAX 64 MiB, runtime usable after OOM; rejections reported once) (from #736) SCRIPT_MEMORY_MAX via Runtime::set_memory_limit; today an allocation loop
       can take a few hundred MB before the 100 ms budget stops it. Also report unhandled promise rejections from
       scripts in the bar (dropped silently today).
 - [x] C-SCRIPT-MAP [M] (DONE 2026-11-24, 7b7ae52, #739: MAP_TIMEOUT_MS 1000; no mappings = old path; KEYS T118-T124; hook Keys::open_line_with for C-EDITURL) (after C-SCRIPT) `web.map("n", keys, rhs)`: rhs a `:` line string or a function. A string
