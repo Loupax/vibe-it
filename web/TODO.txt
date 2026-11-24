@@ -183,7 +183,7 @@ stop early on a hard failure.
         notifications (e.g. `[2!]`); `:ls`/`:bufferList` puts `!` after vim's `%`/`#` on those buffers and the
         latest notification's title in the detail column. No sound, no desktop popups.
       KEYS.md rows, unit tests, a live step with the local test page.
-- [ ] C-NOTIFLIST [S] (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
+- [WIP] C-NOTIFLIST [S] (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
       navigate and see notifications using keyboard only") `:notifications` opens the picker (C-PICK, T58-T68)
       over the notifications received this session, newest first: label = the buffer number and title, detail =
       the notification's body and the site's hostname, unread ones marked; typing filters; Enter shows that
@@ -212,7 +212,8 @@ stop early on a hard failure.
       it like `:new`: no `window.opener`, no popup blocking (a real click). Middle-click on anything not a link
       stays as it is (no paste, DECISIONS.md "No middle-click paste"; autoscroll off). KEYS.md rows, unit tests
       for the disposition rule, a c4_live step: middle-click a link -> a new current buffer at its URL.
-- [WIP] C-AUTOFOCUS [M] (user, 2026-11-24: "moving to INPUT mode when input elements get focus confuses me [...] I'm
+- [x] C-AUTOFOCUS [M] (DONE 2026-11-24, e83a42a, #732: user-caused focus only; page focus parked by blur (runs the
+      page's blur handlers, e.g. validation messages); `i` restores; `gi` (KEYS T111); a load ends the click window) (user, 2026-11-24: "moving to INPUT mode when input elements get focus confuses me [...] I'm
       thinking of not changing modes on autofocus, but should make sure that once I hit i, the autofocused input
       gets focus"; "include gi too") Only focus the user caused switches to INPUT; the page's own focus
       (`autofocus`, a late `el.focus()`) leaves the mode alone. Amends DECISIONS.md "Focusing an editable switches
