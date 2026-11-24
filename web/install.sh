@@ -19,6 +19,8 @@
 # using it); older ones are removed.
 #
 # Env: CEF_PATH (CEF cache root, default $HOME/.cache/web-spike/cef, as web/host-cef/README.md),
+#      or CEF_PATH=$HOME/.cache/web-cef-build/dist for the local proprietary-codecs build
+#      (H.264/AAC; web/tools/cef-build/README.md; never publish that install),
 #      WEB_BUILD_DIR (cargo target dirs go to $WEB_BUILD_DIR/shell and /host-cef; default:
 #      <crate>/target). Nothing is built in /tmp.
 set -eu
@@ -30,7 +32,7 @@ while [ $# -gt 0 ]; do
     --prefix) PREFIX=${2:?--prefix needs a directory}; shift 2 ;;
     --prefix=*) PREFIX=${1#--prefix=}; shift ;;
     --no-build) BUILD=0; shift ;;
-    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "install.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done

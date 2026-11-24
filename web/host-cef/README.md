@@ -21,6 +21,10 @@ cache, so nothing is downloaded again):
 
 `target/` is ~2 GB; delete it when done.
 
+H.264/AAC (C-H264-BUILD): the prebuilt CEF has no proprietary codecs. A local build with
+them (`../tools/cef-build/README.md`, hours, never published) is used by pointing
+`CEF_PATH` at it instead: `export CEF_PATH=$HOME/.cache/web-cef-build/dist`.
+
 ## Run
 
     web/host-cef/run.sh [--x11] [--url URL] [--proxy HOST:PORT] [--control SOCKET] [Chromium switches]
