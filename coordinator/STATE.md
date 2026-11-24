@@ -572,3 +572,7 @@ New: C6e-DESKTOP (user check), C6e-X11 (optional). web reinstalled.
 Started C-BARREPEAT (Sonnet), C-MIDCLICK (Sonnet), C-BELL spike only (Opus, report before building). C-NOTIFLIST waits on C-BELL.
 
 ## 2026-11-24 C-BARREPEAT merged (#726, c905a16); web reinstalled
+
+## 2026-11-24 C-BELL spike merged (#727, 8f9dc86)
+Shim route recommended; step 2 queued after C-MIDCLICK (shared page.rs/buffers). NOTIFY_SITES default All (my pick, user can change).
+Spike agent killed 6 of its own private-bus KDE processes by PID (wallet dialog in the nest); user's instances untouched. New: C-WALLET.
