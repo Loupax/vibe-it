@@ -72,6 +72,9 @@ typed something, that should be used as filtering."; then "Keep the command hist
 lines run are kept in the state directory (`DIR/cmdhistory`, STASH.md once built) and survive a restart, as
 vim's shada keeps its cmdline history. Item C-CMDHIST (TODO.txt).
 
+Built (implementer's choices, not asked): `CMD_HISTORY_MAX` 1000; a line opened with text by a mapping or `:new`
+filters by that text; the `/` line has none; the file is rewritten at start only when dedup or trim changed it.
+
 ## 2026-11-24 Repeating the last command: vim's @:
 
 User: "We need a command that repeats the last performed command, similar to vims `.`"; then "Create a @: and
