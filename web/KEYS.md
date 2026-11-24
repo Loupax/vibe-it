@@ -570,6 +570,24 @@ User, 2026-11-24 (DECISIONS.md "User scripts", SCRIPTING.md): `init.js` defines 
 | T116 | COMMAND | the first word | - | - | the ghost (T45) offers the user commands after the built-in names (`:H` -> `Hello`); names are case-sensitive, so `:h` offers only built-ins |
 | T117 | - | start | `$XDG_CONFIG_HOME/web/init.js` (default `~/.config/web/init.js`) exists | - | runs it (strict mode, one context); a failing file stops where it failed, what it set up stays, web starts anyway (`init.js:LINE: message`). Lines it hands to `web.cmd` at its top level wait for `ready`. `ready` fires once when the engine host's first tab exists: those lines run, then each `web.on("ready")` handler in order (an error in one does not stop the next). A URL handed over later (C-SINGLE) does not fire it again |
 
+## Key mappings (C-SCRIPT-MAP)
+
+User, 2026-11-24 (SCRIPTING.md "web.map"; DECISIONS.md "A mapping's `:` line runs with `<CR>`"):
+`init.js` maps NORMAL keys with `web.map("n", keys, rhs)`. `keys`: characters, `<C-x>`, `<lt>`
+(names in any case; a letter under Ctrl is one key, so `<C-x>` is also Ctrl-Shift-x), any length.
+`rhs`: one `:` line, or a function. Without any mapping, NORMAL is exactly T6-T21 (the matcher is not
+consulted at all); with mappings, keys that start none of them are handled at once, as before.
+
+| ID | Mode | Key | Condition | Next | Action |
+|---|---|---|---|---|---|
+| T118 | NORMAL | the keys of a mapping | typed in NORMAL (not in INPUT, the `:`/`/` lines or the picker), each before `MAP_TIMEOUT_MS` (1000, config.rs, vim's `timeoutlen`) after the one before | per rhs | the mapping runs instead of any built-in binding or sequence for those keys (T6-T21, T54-T56, T111: `j`, `gg`, `yy`, even `:`; vim allows that too, so mapping `:` hides the command line unless the rhs opens it, e.g. `web.map("n", ";", ":")`; no guard. Esc cannot be mapped, so Esc Esc, T7 and T28 stay). A modifier key's own press (Shift for the `T` of `gT`) does not break the sequence |
+| T119 | NORMAL | the keys typed so far | they start a longer mapping | NORMAL (waiting) | nothing yet: wait for the next key, up to `MAP_TIMEOUT_MS` |
+| T120 | NORMAL (waiting) | a key that continues no mapping, or the timeout | - | per keys | the longest mapping the pending keys start with runs, else the first pending key is handled as without mappings (T6-T21: a `j` held all along scrolls until released; a `j` released meanwhile scrolls one step); the keys after it are matched again. A key of a mapping that opened the `:` line goes into the line. A replayed key never reaches the page (only a press handled at once can). A key after a half-typed built-in sequence (`g`, `y`) completes it unmapped, as vim reads the second key of `gg` with mappings off: with `gh` mapped, `gg` still scrolls to the top at once. An OS key repeat ends the wait at once. INPUT (a click into a field) or losing the keyboard focus drops the pending keys |
+| T121 | NORMAL | a mapping whose rhs is a `:` line ending in `<CR>` (`<Enter>`, `<Return>`; any case) | - | as the line's command | the line runs as `web.cmd` runs it (T115 for a user command); its error shows in the bar as the command's would |
+| T122 | NORMAL | a mapping whose rhs is a `:` line without `<CR>` | - | COMMAND | the `:` line opens with that text typed, cursor at the end (`":go "`), with its ghost (T45); the URL fill-in of `:go ` (C-EDITURL) applies there once built |
+| T123 | NORMAL | a mapping whose rhs is a function | - | as the function's lines | calls it with no arguments, under `SCRIPT_BUDGET_MS`; the lines it hands to `web.cmd` run after it returns (T115); an exception: `init.js:LINE: message` |
+| T124 | - | start | `web.map` with a bad argument | - | refused when the mapping is made, nothing is mapped: `init.js:LINE: web.map: ...` (the script stops there, T117). Bad: a mode other than `"n"`; no keys; `<...>` in `keys` other than `<C-x>`/`<lt>`, a lone `<`; an rhs neither a function nor a string starting with `:`; in the rhs any `<...>` but `<lt>` and a final `<CR>`, a `<CR>` before the end, a lone `<`. Mapping the same keys again replaces the mapping |
+
 ## What went away in scratchy (QKEYS3)
 
 `:set vim` / `:set novim` (`App::vim_enabled`), the SIGUSR1 toggle
@@ -578,6 +596,11 @@ Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked ou
 
 ## Decision log
 
+- 2026-11-24 (C-SCRIPT-MAP): key mappings (T118-T124). The implementer's choices, not asked:
+  `MAP_TIMEOUT_MS` 1000 (vim's `timeoutlen` default); the second key of a half-typed built-in
+  sequence is not mapped (vim's rule); modifier presses are ignored by the matcher; an OS repeat ends
+  the wait; keys after a mapping that opened the `:` line go into it; mapping `:` is allowed (vim's
+  behaviour, no guard; PR #735's question). DECISIONS.md "Key mappings: vim's matcher".
 - 2026-11-24 (C-SCRIPT): user commands (T115-T117). The implementer's choices, not asked:
   `SCRIPT_BUDGET_MS` 100 and `SCRIPT_DEPTH_MAX` 16; `web.cmd` queues its line and the shell runs it
   right after the call returns (DECISIONS.md "web.cmd queues"); top-level `web.cmd` lines wait for `ready`;

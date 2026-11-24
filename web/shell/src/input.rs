@@ -105,6 +105,7 @@ impl State {
                 });
                 self.apply_key_effects(time);
                 self.arm_key_repeat();
+                self.arm_map_timer();
             }
             InputEvent::PointerMotionAbsolute { event } => {
                 let pos = event.position_transformed(self.layout.window);

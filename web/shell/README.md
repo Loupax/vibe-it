@@ -115,6 +115,14 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   `ready` fires at the first `tab-created`. `SCRIPT_BUDGET_MS` via the interrupt handler,
   `SCRIPT_DEPTH_MAX`. Tests `src/tests/c_script_tests.rs`, live check `test/c_script_live.py`
   (a temporary XDG_CONFIG_HOME, private D-Bus).
+- **Key mappings** (C-SCRIPT-MAP, KEYS.md "Key mappings", T118-T124): `web.map` checks its
+  arguments at map time (`parse_map_keys`, `parse_map_rhs` in keys.rs) and stores the mapping in the
+  script registry. `Keys::normal_key_mapped` sits in front of `normal_key` and is skipped while no
+  mapping exists; otherwise vim's matcher (`resolve_mapping`): wait while the keys start a longer
+  mapping (`MAP_TIMEOUT_MS`, a calloop timer `State::arm_map_timer`), else run the longest mapping
+  matched, else replay the first key into `normal_key` (KEY_SEQUENCES untouched). Tests
+  `src/tests/c_script_map_tests.rs` (incl. key streams compared with and without mappings), live
+  check `test/c_script_map_live.py`.
 - **Buffers** (C4, `src/buffers.rs`, KEYS.md "Buffers", T77-T92): every buffer is a page of the
   host (PROTOCOL.md "Several pages"); `Keys::buffers` holds them, `Keys` keeps the current one's
   URL, title, search and popup return and swaps them on a switch. The compositor keeps every page

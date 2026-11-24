@@ -347,3 +347,8 @@ pub const SCRIPT_BUDGET_MS: u64 = 100;
 /// `web.cmd` calls may nest through user commands this deep (`:A` running `:B` running ...); deeper,
 /// the chain stops with an error.
 pub const SCRIPT_DEPTH_MAX: usize = 16;
+/// C-SCRIPT-MAP: while the keys typed in NORMAL are the start of a longer `web.map` mapping, the shell
+/// waits this many milliseconds for the next key (vim's `timeoutlen`, same default); then the keys are
+/// handled as without the mapping (or a shorter mapping they complete runs). With no mapping sharing a
+/// prefix with what is typed, nothing waits.
+pub const MAP_TIMEOUT_MS: u64 = 1000;
