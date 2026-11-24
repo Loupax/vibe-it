@@ -100,6 +100,13 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   blocked: <url>`; `:popupOpen` / `:popupSearch` (picker, `PickAction::Popup`) send `popup-open`.
   A popup's `window.close()` is a page the host closed: `Keys::tab_gone`. Tests
   `src/tests/c_popups_tests.rs`, live check `test/c_popups_live.py` (real clicks).
+- **Notifications** (C-BELL, `src/notify.rs`, KEYS.md "Notifications", T106-T110): the host's
+  `notify` event (any buffer) rings the visual bell (`Bell`: the bar in `BELL_BG`/`BELL_FG` for
+  `BELL_FLASH_MS`, a calloop timer ends it, at most one flash per `BELL_MIN_INTERVAL_MS`) and, for
+  a buffer not shown, joins its `unread` list, cleared by `Keys::switch_to`; the bar shows `[N!]`,
+  `:ls` marks `!`. `NOTIFY_SITES` goes to the host as `--notify-sites`. Tests
+  `src/tests/c_bell_tests.rs`, live check `test/c_bell_live.py` (on a private D-Bus with a fake
+  notification server).
 - **Buffers** (C4, `src/buffers.rs`, KEYS.md "Buffers", T77-T92): every buffer is a page of the
   host (PROTOCOL.md "Several pages"); `Keys::buffers` holds them, `Keys` keeps the current one's
   URL, title, search and popup return and swaps them on a switch. The compositor keeps every page

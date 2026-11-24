@@ -42,6 +42,9 @@ pub struct Buffer {
     pub popup_return: Option<KeyMode>,
     /// C-POPUPS: the page's blocked popups, oldest first; cleared when it starts another document.
     pub blocked: Vec<crate::popups::BlockedPopup>,
+    /// C-BELL: notifications that came while the buffer was not shown, oldest first; cleared when
+    /// it is shown (`Keys::switch_to`).
+    pub unread: Vec<crate::notify::Note>,
 }
 
 impl Buffer {
@@ -227,7 +230,9 @@ impl Buffers {
 }
 
 /// `:bufferList`'s rows, in number order: label `N name` (`%` after the number of the current
-/// buffer, `#` after the alternate, as vim's `:ls`), detail the hostname and the description.
+/// buffer, `#` after the alternate, as vim's `:ls`; then `!` when it has unread notifications,
+/// C-BELL), detail the hostname and the description (with unread notifications: the latest one's
+/// title first).
 /// Matched on the title, hostname and description ("keep it minimal": no page content).
 pub fn rows(b: &Buffers) -> Vec<Row> {
     b.list
@@ -240,14 +245,17 @@ pub fn rows(b: &Buffers) -> Vec<Row> {
             } else {
                 ""
             };
+            let bang = if x.unread.is_empty() { "" } else { "!" };
             let host = x.host();
-            let detail = match (host.is_empty(), x.description.is_empty()) {
-                (_, true) => host.clone(),
-                (true, false) => x.description.clone(),
-                (false, false) => format!("{host}  {}", x.description),
-            };
+            let latest = x.unread.last().map(|n| n.title.as_str()).unwrap_or("");
+            let detail = [latest, host.as_str(), x.description.as_str()]
+                .iter()
+                .filter(|f| !f.is_empty())
+                .copied()
+                .collect::<Vec<_>>()
+                .join("  ");
             Row {
-                label: format!("{}{mark} {}", x.num, x.name()),
+                label: format!("{}{mark}{bang} {}", x.num, x.name()),
                 detail,
                 fields: vec![x.title.clone(), host, x.description.clone()],
                 action: PickAction::Buffer(x.num),
@@ -337,6 +345,8 @@ impl Keys {
         self.save_current();
         self.buffers.alternate = Some(self.buffers.current);
         self.buffers.current = num;
+        // C-BELL: shown, so its notifications are read.
+        self.buffers.current_mut().unread.clear();
         let b = self.buffers.current().clone();
         self.url = b.url;
         self.title = b.title;

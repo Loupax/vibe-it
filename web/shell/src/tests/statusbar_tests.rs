@@ -50,6 +50,7 @@ fn view(mode: &str, line: Option<&str>, ghost: &str) -> BarView {
         message: "a message".into(),
         line: line.map(|l| (':', l.to_string(), l.len())),
         ghost: ghost.into(),
+        flash: false,
     }
 }
 

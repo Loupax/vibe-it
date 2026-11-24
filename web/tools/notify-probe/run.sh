@@ -4,7 +4,8 @@
 # shows whether Chromium calls org.freedesktop.Notifications.
 # Usage: WAYLAND_DISPLAY=wayland-N web/tools/notify-probe/run.sh OUT_DIR TAG [SECONDS] [host args...]
 #   (start the nested compositor first: web/tools/nest.sh). The host's own options go after
-#   SECONDS (default 25), e.g. `--host-arg`s for the prototype. Results: OUT_DIR/TAG.json (the
+#   SECONDS (default 25), e.g. `--notify-sites=127.0.0.1` (C-BELL). Env PROBE_QUERY is appended to the
+#   page's query (`&burst=8`, `&delay=3000`). Results: OUT_DIR/TAG.json (the
 #   page's findings), OUT_DIR/TAG.host.log, OUT_DIR/TAG.notifyd.log, OUT_DIR/TAG.http.log.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)

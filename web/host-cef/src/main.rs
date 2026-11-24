@@ -8,12 +8,13 @@
 //!
 //! Usage (run it through run.sh, which adds the memory-capped scope):
 //!   web-host-cef --profile <dir> [--control <socket>] [--proxy <host:port>]
-//!                [--url <url>] [--downloads <dir>] [Chromium switches...]
+//!                [--url <url>] [--downloads <dir>] [--notify-sites <host,...>] [Chromium switches...]
 //! `--control`: a Unix socket the shell listens on; the host connects to it, sends
 //! events and reads commands, and quits when the shell closes it. Without it the host
 //! runs standalone (development). `--proxy`: an HTTP forward proxy (plain requests and
 //! CONNECT) for every request, passed to Chromium as `--proxy-server`; without it
-//! Chromium connects directly. Env: WEB_HOST_TRACE=1 logs the raw CEF callbacks.
+//! Chromium connects directly. `--notify-sites`: Web Notifications only from these hostnames
+//! (comma-separated; empty = none); without it every site may notify (C-BELL, notify.rs). Env: WEB_HOST_TRACE=1 logs the raw CEF callbacks.
 
 use cef::*;
 use std::sync::OnceLock;
@@ -44,7 +45,7 @@ mod download;
 mod forget;
 mod forget_cef;
 mod newtab;
-mod notify_spike;
+mod notify;
 mod page;
 mod protocol;
 mod renderer;
@@ -178,6 +179,11 @@ fn main() {
     page::START_URL.get_or_init(|| protocol::normalize_url(opts.url.as_deref().unwrap_or("about:blank")));
     page::ALLOW_THIRD_PARTY_COOKIES.get_or_init(|| opts.allow_third_party_cookies);
     page::NO_WINDOW.get_or_init(|| opts.no_window);
+    notify::SITES.get_or_init(|| opts.notify_sites.clone());
+    match &opts.notify_sites {
+        None => log!("notifications: every site (to the shell, never the desktop)"),
+        Some(l) => log!("notifications: only {l:?} (to the shell, never the desktop)"),
+    }
     forget::ONE_SHOT.get_or_init(|| opts.no_window);
     forget::set_engine(Box::new(forget_cef::CefForgetter));
     forget::RECORD.get_or_init(|| format!("{profile}/web-host-origins"));

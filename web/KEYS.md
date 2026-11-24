@@ -226,6 +226,8 @@ window minus the bar. **web:** the compositor sizes the host window to the shell
 minus the bar; the page never overlaps it. It shows the mode (or the SEARCH/COMMAND line being typed), the
 current URL and the last message (`[i/N]`, wrap messages, T16/T17 messages,
 errors). Other fields (load progress, hovered link target, pending `g`) only on request.
+C-BELL: `[N!]` before the buffer number counts the buffers with unread notifications, and the bar
+flashes for a notification ("Notifications").
 
 ## Completion
 
@@ -452,7 +454,7 @@ aliases; the ghost offers the long names only, an alias typed in full still runs
 | command | alias | what it does |
 |---|---|---|
 | `:new [url]` | `:bufferNew` | a new buffer, current at once (the old one is Ctrl-^'s); the URL is `:go`'s (same completion, `https://` assumed, relative forms); no URL: an `about:blank` buffer and the `:` line open with `go ` typed |
-| `:bufferList [filter]` | `:ls` | the picker over the buffers: number, title, hostname, description |
+| `:bufferList [filter]` | `:ls` | the picker over the buffers: number, title, hostname, description; `!` after `%`/`#` on a buffer with unread notifications, whose detail starts with the latest one's title (C-BELL, T109) |
 | `:buffer N`, `:buffer <partial>` | `:b` | switch to buffer N, or to the one whose title, hostname or description matches |
 | `:bufferNext`, `:bufferPrev` | `:bn`, `:bp` | the next / previous buffer (wraps) |
 | `:bufferKill [N]` | `:bd` | kill the current buffer (or N); killing the last one leaves an empty `about:blank` buffer |
@@ -532,6 +534,23 @@ Create :openExternal but let's also build chromium" (DECISIONS.md). A cheap way 
 | T101 | - | which program | - | - | `config::EXTERNAL_BROWSER` (an argv; `%s` becomes the URL, else the URL is appended) when set; else `$BROWSER`: its `:`-separated entries (each may carry arguments and `%s`) in order, the first whose program exists; else `xdg-open` |
 | T102 | - | how it is started | - | - | never through a shell, so the URL is not interpreted; a new session (`setsid`), stdio on /dev/null, reaped by a thread (no zombie); it outlives web |
 
+## Notifications (C-BELL)
+
+User, 2026-11-24: "We should plan a discreet notification feedback. Maybe a visual bell that causes the
+status bar to flash? :ls should show which buffers have unread notifications"; "focus on catching notify
+events if possible". Only a page's own Web Notifications count (no title-counter or audio heuristics).
+They reach the shell as the host's `notify` event (PROTOCOL.md "Notifications"); no sound, no desktop
+popup, ever. Shell side: `shell/src/notify.rs`; knobs in config.rs (`NOTIFY_SITES`, `BELL_*`,
+`NOTIFY_UNREAD_MAX`).
+
+| ID | Mode | Event | Condition | Next | Action |
+|---|---|---|---|---|---|
+| T106 | any | a page notifies (`notify`) | its buffer is not the one shown | same | the notification is kept as unread on that buffer (at most `NOTIFY_UNREAD_MAX`, the oldest go; one with the same non-empty tag as an unread one replaces it); the bar shows `[N!]` before the buffer number, N = the buffers with unread notifications (`[1!] [2] https://...`); the bell (T110). The mode, the `:` line, the picker and the message are untouched |
+| T107 | any | a page notifies | its buffer is the one shown | same | the bell only: it is on screen, so nothing becomes unread (also when the shell window is not focused) |
+| T108 | any | a buffer is shown (`:buffer`, `:bn`/`:bp`, Ctrl-^, `:ls` Enter, `:bd` moving on, a popup) | it has unread notifications | - | they are read: cleared, the buffer leaves `[N!]`'s count (none left: no `[N!]`) |
+| T109 | COMMAND | Enter on `:ls` / `:bufferList` | a buffer has unread notifications | PICK | its label gets `!` after vim's `%`/`#` (`1#! Chat`, `3! Mail`) and its detail starts with the latest unread notification's title, then the hostname and the description |
+| T110 | any | the visual bell | a notification of any buffer, and no flash in the last `BELL_MIN_INTERVAL_MS` (1000) | same | the status bar takes `BELL_BG`/`BELL_FG` (the mode colour, inverted) for `BELL_FLASH_MS` (150; 0 = no bell), then its own colours again. Sites: `NOTIFY_SITES` = `All` (default: every page sees permission "granted" without a prompt) or `Only(&[hostnames])` (exact; others see "denied" and send nothing); a change needs a rebuild and restart. Notifications from inside a worker are lost silently |
+
 ## What went away in scratchy (QKEYS3)
 
 `:set vim` / `:set novim` (`App::vim_enabled`), the SIGUSR1 toggle
@@ -539,6 +558,14 @@ Create :openExternal but let's also build chromium" (DECISIONS.md). A cheap way 
 Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked out (T2).
 
 ## Decision log
+
+- 2026-11-24 (C-BELL): notifications built as "Notifications" says (T106-T110). The implementer's choices,
+  not asked: a notification of the buffer on screen is never unread, even when the shell window is not
+  focused; `[N!]` counts buffers, not notifications, and comes before `[N]`; no status-bar message for a
+  notification (the flash, `[N!]` and `:ls` are the feedback; C-NOTIFLIST will list them); the bell is
+  rate-limited to one flash a second and inverts the bar to the mode colour; unread lists are capped at
+  20 per buffer and a same-tag notification replaces an unread one; the host also rate-limits (burst 5,
+  then one every 2 s per page).
 
 - 2026-11-23 (C-NORMALMODS, the user's words in DECISIONS.md): a pointer click in NORMAL carries the held
   modifiers: the shell sends the page `wl_keyboard.modifiers` with the held state just before a press and

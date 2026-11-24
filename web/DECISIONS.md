@@ -2,6 +2,22 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-24 Web Notifications go to the status bar, from every site by default
+
+User: "We should plan a discreet notification feedback. Maybe a visual bell that causes the status bar to
+flash? :ls should show which buffers have unread notifications"; "focus on catching notify events if
+possible". Only a page's own Web Notifications count. The C-BELL spike (#727, notes/C-BELL-SPIKE.md) found
+CEF exposes only the permission prompt and Chrome would send a granted notification straight to the desktop
+over D-Bus; so the engine host replaces the notification API in every page and forwards each one to the
+shell, and blocks Chromium's own notifications (no Chrome bubble, no desktop popup, even from a worker).
+The shell flashes the bar, marks the buffer unread until it is shown, counts `[N!]` and marks `:ls`. No sound,
+no desktop popups. **Default `NOTIFY_SITES = All`** (config.rs): picked by the coordinator per the spike's
+recommendation, not by the user: every site sees permission "granted" without a prompt, so sites that
+would ask first notify right away (the cost is noise in the bar, nothing leaves the machine), and "granted"
+everywhere makes web a little more recognisable to sites that look. The user may switch to a list of
+hostnames (`NotifySites::Only(&["chat.example.com"])`; every other site then sees "denied"). Notifications
+sent from inside a worker (push, a service worker's own) are lost silently. Item C-BELL.
+
 ## 2026-11-24 :new opens a buffer
 
 User: "we don't have an easy way to create a new buffer, add an action item for a :new command"; on the proposed

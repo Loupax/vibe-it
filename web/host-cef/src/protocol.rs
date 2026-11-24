@@ -241,6 +241,16 @@ pub enum Event {
         tab: TabId,
         url: String,
     },
+    /// C-BELL: page `tab` showed a Web Notification (`new Notification`, `showNotification`; notify.rs).
+    /// The host capped the lengths (control characters became spaces) and rate-limits per page;
+    /// `origin` is the notifying frame's (`https://chat.example.com`, `null` when opaque).
+    Notify {
+        tab: TabId,
+        title: String,
+        body: String,
+        tag: String,
+        origin: String,
+    },
     /// The answer to `forget-site`. `site`: the argument as the shell sent it;
     /// `domain`: the registrable domain that was forgotten (with every host under it);
     /// `result`: `ok`, or `partial` with `failed` naming what could not be cleared;
@@ -311,6 +321,7 @@ pub fn event_text(ev: &Event) -> String {
         }
         Event::PopupBlocked { tab, popup, url, .. } => format!("popup-blocked {tab} {popup} {url}"),
         Event::OpenLink { tab, url } => format!("open-link {tab} {url}"),
+        Event::Notify { tab, title, body, .. } => format!("notify {tab} {title} {body}"),
         Event::TabClosed { tab } => format!("tab-closed {tab}"),
         Event::Url { tab, url } => format!("url {tab} {url}"),
         Event::Title { tab, title } => format!("title {tab} {title}"),
@@ -397,6 +408,9 @@ pub struct HostOptions {
     /// `--allow-background-traffic`: leave Chromium's own background requests on
     /// (testing only, e.g. to measure them; the host switches them off otherwise).
     pub allow_background_traffic: bool,
+    /// C-BELL `--notify-sites a.example,b.example`: Web Notifications only from these hostnames
+    /// (empty value: from none). None: from every site.
+    pub notify_sites: Option<Vec<String>>,
 }
 
 /// Chromium features the host turns off (C-BGNET; README "Chromium's own traffic" says
@@ -452,7 +466,7 @@ pub fn cookie_controls_mode(allow_third_party: bool) -> i32 {
     }
 }
 
-const HOST_OPTS: [&str; 6] = ["control", "proxy", "profile", "url", "downloads", "forget-site"];
+const HOST_OPTS: [&str; 7] = ["control", "proxy", "profile", "url", "downloads", "forget-site", "notify-sites"];
 
 /// Rewrites `--opt value` to `--opt=value` for the host's own options, so Chromium's
 /// command-line parser (which only knows `--opt=value`) does not see `value` as a
@@ -498,6 +512,11 @@ pub fn host_options(argv: &[String]) -> Result<HostOptions, String> {
         let Some((name, value)) = a.strip_prefix("--").and_then(|s| s.split_once('=')) else {
             continue;
         };
+        if name == "notify-sites" {
+            // An empty value is a list too: no site may notify.
+            o.notify_sites = Some(crate::notify::parse_sites(value));
+            continue;
+        }
         let slot = match name {
             "control" => &mut o.control,
             "proxy" => &mut o.proxy,
@@ -1062,6 +1081,37 @@ mod tests {
         assert_eq!(o.control.as_deref(), Some("/s/c.sock"));
         assert_eq!(o.url.as_deref(), Some("https://a.test/"));
         assert_eq!(o.profile, None);
+    }
+
+    #[test]
+    fn notify_sites_option() {
+        assert_eq!(
+            host_options(&s(&["h", "--profile=/p"])).unwrap().notify_sites,
+            None,
+            "default: every site"
+        );
+        let n = normalize_argv(&s(&["h", "--notify-sites", "Chat.Example.com,b.test"])).unwrap();
+        assert_eq!(n, s(&["h", "--notify-sites=Chat.Example.com,b.test"]));
+        let o = host_options(&n).unwrap();
+        assert_eq!(o.notify_sites, Some(s(&["chat.example.com", "b.test"])));
+        let o = host_options(&s(&["h", "--notify-sites="])).unwrap();
+        assert_eq!(o.notify_sites, Some(vec![]), "empty: no site");
+    }
+
+    #[test]
+    fn notify_event_encoding() {
+        let ev = Event::Notify {
+            tab: 2,
+            title: "New message".into(),
+            body: "hi".into(),
+            tag: "m1".into(),
+            origin: "https://chat.example.com".into(),
+        };
+        assert_eq!(
+            encode_event(&ev),
+            r#"{"event":"notify","tab":2,"title":"New message","body":"hi","tag":"m1","origin":"https://chat.example.com"}"#
+        );
+        assert_eq!(event_text(&ev), "notify 2 New message hi");
     }
 
     #[test]

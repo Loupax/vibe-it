@@ -228,6 +228,33 @@ pub const STATUS_BAR_MODE_FG: (u8, u8, u8) = (120, 200, 255);
 /// Ghost (suggestion) text colour in the `:` line, RGB (dimmed).
 pub const GHOST_FG: (u8, u8, u8) = (120, 120, 120);
 
+// ---------- notifications (C-BELL, KEYS.md "Notifications") ----------
+
+/// Which sites' Web Notifications reach the shell (never the desktop either way).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotifySites {
+    /// Every site: pages see permission "granted" without asking.
+    All,
+    /// Only these hostnames, exactly (`"chat.example.com"`; no subdomains); every other site sees
+    /// "denied". `Only(&[])`: no site.
+    #[allow(dead_code)] // only used by a user's NOTIFY_SITES (and the tests)
+    Only(&'static [&'static str]),
+}
+
+/// Sites allowed to notify (DECISIONS.md "Web Notifications go to the status bar"). Read when the
+/// engine host starts: a change needs a rebuild and a restart.
+pub const NOTIFY_SITES: NotifySites = NotifySites::All;
+/// The visual bell: how long the status bar shows the bell colours, ms (0 = no bell).
+pub const BELL_FLASH_MS: u64 = 150;
+/// No second flash within this many ms of the last one (a chatty page flashes at most this often).
+pub const BELL_MIN_INTERVAL_MS: u64 = 1000;
+/// Status bar background while the bell is lit, RGB (the mode colour: an inverted bar).
+pub const BELL_BG: (u8, u8, u8) = (120, 200, 255);
+/// Status bar text colour while the bell is lit, RGB.
+pub const BELL_FG: (u8, u8, u8) = (24, 24, 24);
+/// Unread notifications kept per buffer (the oldest go).
+pub const NOTIFY_UNREAD_MAX: usize = 20;
+
 // ---------- picker (C-PICK, KEYS.md "Picker") ----------
 
 /// At most this many rows are shown (fewer when the page is shorter); the list scrolls.

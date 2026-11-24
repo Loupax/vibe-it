@@ -427,6 +427,8 @@ pub struct BarView {
     pub line: Option<(char, String, usize)>,
     /// The dimmed ghost after the line's text (empty = none).
     pub ghost: String,
+    /// C-BELL: the visual bell is lit (the bar takes `BELL_BG`/`BELL_FG`).
+    pub flash: bool,
 }
 
 /// The shell's keyboard state (KEYS.md), fed by the compositor.
@@ -480,6 +482,8 @@ pub struct Keys {
     /// The buffers (C4, `buffers.rs`); `url`, `title`, `search` and `popup_return` above are the
     /// current buffer's.
     pub buffers: crate::buffers::Buffers,
+    /// C-BELL: the visual bell (`notify.rs`).
+    pub bell: crate::notify::Bell,
 }
 
 impl Keys {
@@ -494,6 +498,7 @@ impl Keys {
             caret: false,
             picker: None,
             buffers: crate::buffers::Buffers::new(),
+            bell: Default::default(),
             line: TextEditBuffer::default(),
             ghost: None,
             cache: CompleteCache::new(state_dir.clone()),
@@ -1182,8 +1187,13 @@ impl Keys {
         let line = prompt.map(|p| (p, self.line.text.clone(), self.line.cursor));
         BarView {
             mode: mode_name(self.key_mode).to_string(),
-            // C4: the current buffer's number before the URL.
-            url: format!("[{}] {}", self.buffers.current, self.url),
+            // C4: the current buffer's number before the URL; C-BELL: before it, how many buffers
+            // have unread notifications (none: nothing).
+            url: match self.unread_buffers() {
+                0 => format!("[{}] {}", self.buffers.current, self.url),
+                n => format!("[{n}!] [{}] {}", self.buffers.current, self.url),
+            },
+            flash: self.bell.lit,
             message: self.message.clone(),
             ghost: match (&self.ghost, &line) {
                 (Some(g), Some(_)) => g.rest(&self.line.text),

@@ -121,6 +121,12 @@ The verdict logic is unit-tested in `test/test_cookies.py`.
   own window with `CEF_CTT_NONE` (no toolbar). Chrome-style keyboard shortcuts (Ctrl+T,
   Ctrl+N, Ctrl+F, Ctrl+L, ...) would open Chrome UI; a `CommandHandler` blocks every
   Chrome command, since the shell owns keys.
+- **Web Notifications go to the shell, never the desktop (C-BELL, `src/notify.rs`).** The renderer
+  replaces the notification API in every context at creation (`renderer.rs` `on_context_created`,
+  where every injected script starts) and forwards each one as a process message; the browser
+  process emits `notify` (PROTOCOL.md "Notifications"). Chromium's own notifications are BLOCK and
+  any notification prompt is denied at once (`HostPermissionHandler`). `--notify-sites` limits the
+  sites. Check on a private bus: `web/tools/notify-probe/run.sh`.
 - **No new tab or window by a new-tab gesture (C-NOTAB, `src/newtab.rs`).** `OnBeforePopup`
   (`popup_action`) and `OnOpenURLFromTab` (`open_url_action`) decide by disposition (unit-tested):
   foreground tab (`target=_blank`, `window.open`) and popup are popups ("Popups" below);

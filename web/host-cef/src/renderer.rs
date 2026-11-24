@@ -1,7 +1,8 @@
 //! Renderer-process side: CEF tells the renderer when the focused DOM node changes;
 //! whether it is editable goes to the browser process as a process message, which
 //! page.rs turns into `editable-focused` events. A middle-click on a link (C-MIDCLICK) goes the
-//! same way (`MIDDLE_MSG`, page.rs turns it into `open-link`).
+//! same way (`MIDDLE_MSG`, page.rs turns it into `open-link`); so does a page's notification
+//! (C-BELL, notify.rs). `on_context_created` is where every injected script starts.
 
 use cef::*;
 
@@ -37,32 +38,62 @@ wrap_v8_handler! {
     }
 }
 
+/// Evaluates `js`, a function expression, in `context` (now, before any page script) and calls it
+/// with `args`: native functions passed this way live only in the function's closure, so pages can
+/// neither call nor replace them. `label` names the script in error lines.
+pub fn call_with(context: &mut V8Context, label: &str, js: &str, args: &[Option<V8Value>]) {
+    let (mut ret, mut exc) = (None, None);
+    let url = CefString::from(format!("web-host:{label}").as_str());
+    context.eval(Some(&CefString::from(js)), Some(&url), 1, Some(&mut ret), Some(&mut exc));
+    if let Some(e) = exc {
+        eprintln!("web-host-cef: {label} script: {}", CefString::from(&e.message()));
+        return;
+    }
+    let Some(f) = ret.filter(|f| f.is_function() != 0) else { return };
+    if f.execute_function(None, Some(args)).is_none() {
+        eprintln!("web-host-cef: {label} script threw");
+    }
+}
+
+/// C-MIDCLICK: newtab::MIDDLE_JS, which takes its function (`MiddleClickHandler`) from a global it
+/// deletes at once.
+fn middle_click(context: &mut V8Context) {
+    let Some(window) = context.global() else { return };
+    let mut handler = MiddleClickHandler::new();
+    let name = CefString::from(crate::newtab::MIDDLE_FN);
+    let mut func = v8_value_create_function(Some(&name), Some(&mut handler));
+    window.set_value_bykey(Some(&name), func.as_mut(), V8Propertyattribute::default());
+    // eval, not execute_java_script: it runs now, in this context, before any page script.
+    let (mut ret, mut exc) = (None, None);
+    context.eval(
+        Some(&CefString::from(crate::newtab::MIDDLE_JS)),
+        None,
+        0,
+        Some(&mut ret),
+        Some(&mut exc),
+    );
+    if let Some(e) = exc {
+        eprintln!("web-host-cef: middle-click script: {}", CefString::from(&e.message()));
+    }
+}
+
 wrap_render_process_handler! {
     pub struct HostRenderProcessHandler {}
 
     impl RenderProcessHandler {
-        // C-NOTAB: see newtab::CTRL_SHIFT_JS. C-MIDCLICK: newtab::MIDDLE_JS, which gets its function first.
+        // The scripts every context of every frame gets when it is created, before any page script,
+        // one step each. A new one (C-AUTOFOCUS) goes at the end, preferably through `call_with`.
         fn on_context_created(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, context: Option<&mut V8Context>) {
-            // C-BELL spike, off unless WEB_HOST_NOTIFY_SPIKE=shim.
-            let mut context = context;
-            if let (Some("shim"), Some(c)) = (crate::notify_spike::mode().as_deref(), context.as_deref_mut()) {
-                crate::notify_spike::install_shim(c);
-            }
+            let Some(context) = context else { return };
+            // 1. C-BELL: the notification shim (notify.rs). First: it must define `Notification`
+            //    before Blink installs its own.
+            crate::notify::install_shim(context);
+            // 2. C-NOTAB: newtab::CTRL_SHIFT_JS (queued; it only adds a listener).
             if let Some(f) = frame {
                 f.execute_java_script(Some(&CefString::from(crate::newtab::CTRL_SHIFT_JS)), None, 0);
             }
-            let Some(context) = context else { return };
-            let Some(window) = context.global() else { return };
-            let mut handler = MiddleClickHandler::new();
-            let name = CefString::from(crate::newtab::MIDDLE_FN);
-            let mut func = v8_value_create_function(Some(&name), Some(&mut handler));
-            window.set_value_bykey(Some(&name), func.as_mut(), V8Propertyattribute::default());
-            // eval, not execute_java_script: it runs now, in this context, before any page script.
-            let (mut ret, mut exc) = (None, None);
-            context.eval(Some(&CefString::from(crate::newtab::MIDDLE_JS)), None, 0, Some(&mut ret), Some(&mut exc));
-            if let Some(e) = exc {
-                eprintln!("web-host-cef: middle-click script: {}", CefString::from(&e.message()));
-            }
+            // 3. C-MIDCLICK: newtab::MIDDLE_JS.
+            middle_click(context);
         }
 
         fn on_focused_node_changed(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, node: Option<&mut Domnode>) {

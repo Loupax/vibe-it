@@ -61,7 +61,7 @@ is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page command
 ## Host command line
 
 `web-host-cef --profile <dir> [--control <path>] [--proxy <host:port>] [--url <url>]
-[--downloads <dir>] [--forget-site <site> [--no-window]] [Chromium switches...]`
+[--downloads <dir>] [--forget-site <site> [--no-window]] [--notify-sites <host,...>] [Chromium switches...]`
 
 - `--profile`: the engine profile (cookies, cache, localStorage; STASH.md "State
   directory"). Required, so the engine never falls back to a default location.
@@ -83,6 +83,9 @@ is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page command
   (the engine locks its profile, so it cannot run beside a running host).
 - `--allow-third-party-cookies`: keep the engine's default cookie policy instead of
   blocking third-party cookies (testing only; "Third-party cookies off" below).
+- `--notify-sites <host,...>` (C-BELL): only these hostnames (comma-separated, exact: no subdomains;
+  an empty value: none) may show Web Notifications; every other site sees permission `denied`.
+  Without it every site may ("Notifications"). The shell passes config.rs `NOTIFY_SITES`.
 - Anything else starting with `--` is passed to Chromium unchanged.
 - web-host-cef always runs Chromium with `--disable-popup-blocking`: the host is the popup blocker
   ("Popups"); Chromium's own blocker would cancel popups without telling CEF.
@@ -131,6 +134,7 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | `crashed <id>` | `{"event":"crashed","tab":1,"reason":"TS_PROCESS_CRASHED (exit code 139)"}` |
 | `popup-blocked <id> <n> <url>` | `{"event":"popup-blocked","tab":1,"popup":7,"url":"https://idp.example/auth","name":"login","frame":"sub","features":"popup,width=400,height=300"}` |
 | `open-link <id> <url>` | `{"event":"open-link","tab":1,"url":"https://a.example/x"}` |
+| `notify <id> <title> <body>` | `{"event":"notify","tab":1,"title":"New message","body":"Ana: lunch?","tag":"msg-42","origin":"https://chat.example.com"}` |
 | `forgot <site> ok`, `forgot <site> partial <what failed>` | `{"event":"forgot","site":"https://mail.example.com/","domain":"example.com","result":"ok","cookies":3,"origins":["http://example.com","https://example.com","https://mail.example.com"]}`, with `"result":"partial","failed":["storage https://x.example.com (timeout)"]` |
 | (error) | `{"event":"error","message":"..."}` |
 
@@ -148,9 +152,14 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 - `open-link` (C-MIDCLICK): the user middle-clicked a link (no modifier held) in page `tab`; `url` is its absolute
   `http:`/`https:`/`file:` target. The click's own navigation was cancelled in the renderer; the shell opens the URL as `:new <url>`
   (KEYS.md T105). Pages cannot send it: the renderer script holds the only reference to the function that does.
+- `notify` (C-BELL): page `tab` (any frame of it) showed a Web Notification ("Notifications" below).
+  `title`, `body`, `tag` as the page gave them (`tag` `""` when none), `origin` the notifying
+  frame's origin (`null` when opaque). The host caps them (title 200, body 500, tag 100, origin 200
+  characters; a cut one ends with `…`), turns control characters (newlines) into spaces, and
+  rate-limits per page (a burst of 5, then one every 2 s; the rest is dropped, logged once per run).
 - `tab-closed`: once per page, when its browser has closed (`close-tab`, `quit`).
 - Every page event (`url`, `title`, `load`, `load-error`, `editable-focused`, `find-result`,
-  `crashed`, `popup-blocked`) carries the page's `tab`; hidden pages send theirs too.
+  `crashed`, `popup-blocked`, `notify`) carries the page's `tab`; hidden pages send theirs too.
 - `url`: the main frame's URL, sent when it changes (also for same-document
   navigations). For every load, the new `url` comes **before** its `load end`.
 - `title`: sent when the title changes (not repeated for the same text).
@@ -366,9 +375,31 @@ handle to the popup (flows that only need `window.opener` in the popup work; a p
 function called); a popup that had no URL (`window.open()` then `document.write`) opens blank. Not now
 (DECISIONS.md): a per-site "always allow popups" list.
 
+## Notifications (C-BELL)
+
+A page's Web Notifications go to the shell as `notify` events and never to the desktop
+(web/notes/C-BELL-SPIKE.md: CEF exposes only the permission prompt, and Chrome's runtime would show a
+granted notification itself over D-Bus). web-host-cef:
+
+- replaces, in every script context of every frame before any page script runs, `Notification`
+  (a non-configurable global, so Blink's own cannot replace it), `ServiceWorkerRegistration
+  .prototype.showNotification`/`getNotifications` and `permissions.query({name:'notifications'})`.
+  An allowed site (every site, or `--notify-sites`) sees permission `granted` without a prompt;
+  `new Notification(...)` fires `show` and `showNotification` resolves, and each one becomes a
+  `notify`. Others see `denied`: the constructor fires `error`, `showNotification` rejects, nothing
+  is sent. `close()` fires `close`; `getNotifications()` is always empty; `onclick` never fires.
+- sets Chromium's own notification permission to BLOCK (and drops the profile's per-site
+  exceptions) at start, and denies any notification permission prompt at once: no Chrome bubble,
+  and nothing Chromium could show itself. Notifications from inside a worker (a service worker's own
+  `self.registration.showNotification`, push) are not reached by the replacement: they fail
+  (`denied`) and are lost silently.
+- Pages that look can tell (`Notification.toString()` is not native code, the property is
+  non-configurable, `navigator` has an own `serviceWorker`), and "granted" everywhere differs from
+  a typical Chrome profile.
+
 ## Not in the protocol (engine default for now)
 
-Downloads are saved without asking (see `--downloads`); permission prompts and JS
+Downloads are saved without asking (see `--downloads`); other permission prompts and JS
 dialogs (`alert`, `confirm`, `prompt`, `beforeunload`) are the engine's own UI. Each
 gets its own item later.
 

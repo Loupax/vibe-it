@@ -23,6 +23,7 @@ mod keymap;
 mod keys;
 mod layout;
 mod lock;
+mod notify;
 mod pacing;
 mod pairing;
 mod picker;
