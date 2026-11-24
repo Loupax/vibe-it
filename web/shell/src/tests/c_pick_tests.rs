@@ -424,7 +424,14 @@ fn keys_t68_an_editable_focus_closes_it_into_input() {
     let dir = Dir::with_history("t68", HISTORY);
     let mut k = keys_with(&dir);
     run(&mut k, "historySearch");
-    k.user_focused_control();
+    // C-AUTOFOCUS: a focus the user caused (a click: `after_click`); the page's own leaves PICK open.
+    k.buffers.tab_created(1, None);
+    let t = std::time::Instant::now();
+    assert_eq!(k.editable_focused(1, false, t), FocusOutcome::Parked);
+    assert_eq!(k.vim_mode, VimMode::Pick);
+    assert!(k.picker.is_some());
+    let later = t + std::time::Duration::from_millis(2 * crate::config::CLICK_FOCUS_MS);
+    assert_eq!(k.editable_focused(1, true, later), FocusOutcome::Input);
     assert_eq!(k.key_mode, KeyMode::Input);
     assert_eq!(k.vim_mode, VimMode::Normal);
     assert!(k.picker.is_none());

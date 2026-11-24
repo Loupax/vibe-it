@@ -123,7 +123,23 @@ coordinator's proposal (commands act on the element under the pointer now, picke
 the page); C-CMDS adds `:save`, `:save link`, `:save image`, `:yank link`, `:yank image`. DRM (C-DRM) and
 H.264 (C-H264) are parked (user, same day).
 
+## 2026-11-24 Only a focus the user caused switches to INPUT
+
+User (C-AUTOFOCUS): "moving to INPUT mode when input elements get focus confuses me [...] I'm thinking of not changing modes on autofocus, but should make sure that once I hit i, the autofocused input gets focus"; "include gi too". Amends "Focusing an editable switches to INPUT" (2026-11-23,
+below): an `editable-focused true` switches to INPUT only when the user caused it, i.e. within
+`CLICK_FOCUS_MS` of a mouse press, of a key the shell gave the page in NORMAL (Enter; the find +
+Enter timed from the real press) or of `gi` (a click on "Reply" that makes the page focus a
+textarea still counts). The page's own focus (`autofocus`, a late `el.focus()`) leaves the mode
+alone, and the shell has the host blur the field and remember it ("parked"), so NORMAL's scroll
+keys scroll the page; `i` focuses the parked field again. At most one blur per buffer per
+`CLICK_FOCUS_MS` (pages that refocus on blur keep the focus). `gi` (as Vimium) focuses the last
+text field, else the first visible one, and enters INPUT. Known effect: the blur runs the page's
+blur handlers (a validation message, a closing suggestion list). KEYS.md T29, T32, T13, T6, T111.
+
 ## 2026-11-23 Focusing an editable switches to INPUT
+
+**Amended 2026-11-24** ("Only a focus the user caused switches to INPUT", above): the page's own
+focus no longer switches.
 
 User: "when input elements gain focus, we should automatically switch to Input Mode. No auto-return on
 blur since the exit of the form context isn't that clear." Any `editable-focused true` from the host

@@ -16,7 +16,7 @@ use crate::completion::{compute_ghost, CompleteCache, ExtResult, ExtSink, Ghost}
 use crate::config::{
     ScrollInput, BINDINGS, CLICK_FOCUS_MS, ESC_ESC_MS, KEY_REPEAT_DELAY_MS, KEY_REPEAT_RATE, KEY_SEQUENCES, SCROLL_INPUTS, START_MODE,
 };
-use crate::protocol::{Command, FindDir};
+use crate::protocol::{Command, FieldWhich, FindDir};
 
 /// C-BARREPEAT: the key the shell repeats in a line, and when it repeats next.
 struct Repeating {
@@ -164,6 +164,9 @@ pub enum Action {
     AlternateBuffer,
     /// The key press (and its release) goes to the page (T19: Enter; T18 ends an open find first).
     ToPage,
+    /// `gi` (C-AUTOFOCUS, as Vimium): focus the last text field of the page, else the first visible
+    /// one, and enter INPUT when the focus arrives.
+    FocusField,
 }
 
 /// Whether `action` ignores OS key repeat (T14 `h`/`l` "not a repeat", T55).
@@ -335,7 +338,28 @@ pub enum Effect {
     Quit,
     /// C-EXTERNAL: hand this checked URL to the other browser (`external::open`).
     OpenExternal(String),
+    /// A command for page `tab`, shown or not (C-AUTOFOCUS: `blur-field` to a background buffer).
+    SendTo(u64, Command),
 }
+
+/// C-AUTOFOCUS: what an `editable-focused true` did (`Keys::editable_focused`; the compositor logs it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FocusOutcome {
+    /// The user caused it (a click, a key given to the page, `gi`): NORMAL (or a line) -> INPUT (T29).
+    Input,
+    /// Already INPUT: nothing changes.
+    AlreadyInput,
+    /// The page's own focus: the mode stays and the host is asked to blur the field (parked, T32).
+    Parked,
+    /// The page's own focus again within `CLICK_FOCUS_MS` of the last blur (a page that refocuses
+    /// on blur): the field keeps the focus, the mode stays (the refocus guard).
+    Kept,
+    /// No buffer has that page.
+    Ignored,
+}
+
+/// The status bar's answer to a `gi` that found no text field.
+pub const GI_NO_FIELD: &str = "gi: no text field on this page";
 
 /// T17.
 pub const NO_PREVIOUS_SEARCH: &str = "No previous search";
@@ -484,6 +508,13 @@ pub struct Keys {
     pub buffers: crate::buffers::Buffers,
     /// C-BELL: the visual bell (`notify.rs`).
     pub bell: crate::notify::Bell,
+    /// C-AUTOFOCUS: when NORMAL last gave the page a key (Enter, T19; the T18 find+Enter, from the real
+    /// press): a field focused soon after is the user's doing.
+    page_key_at: Option<Instant>,
+    /// When `gi` was pressed (a field focused soon after is the user's doing), and whether its
+    /// `field-result` is still awaited (`last` failed: ask for `first`; none: the message).
+    gi_at: Option<Instant>,
+    gi_waiting: bool,
 }
 
 impl Keys {
@@ -499,6 +530,9 @@ impl Keys {
             picker: None,
             buffers: crate::buffers::Buffers::new(),
             bell: Default::default(),
+            page_key_at: None,
+            gi_at: None,
+            gi_waiting: false,
             line: TextEditBuffer::default(),
             ghost: None,
             cache: CompleteCache::new(state_dir.clone()),
@@ -639,7 +673,7 @@ impl Keys {
                     VimMode::Command => self.command_line_key(key),
                     VimMode::Search => self.search_line_key(key),
                     VimMode::Pick => self.pick_key(key),
-                    VimMode::Normal => return self.normal_key(code, key, repeat),
+                    VimMode::Normal => return self.normal_key(code, key, repeat, now),
                 }
                 false
             }
@@ -657,7 +691,7 @@ impl Keys {
 
     /// A key press in NORMAL (T6-T21): a pending sequence first, then the bindings. Returns
     /// whether the page gets the press (only an `Action::ToPage` binding, T19).
-    fn normal_key(&mut self, code: u32, key: &KeyInput, repeat: bool) -> bool {
+    fn normal_key(&mut self, code: u32, key: &KeyInput, repeat: bool, now: Instant) -> bool {
         let (seq_action, pending, consumed) = resolve_sequence(self.pending_seq, key);
         self.pending_seq = pending;
         let action = if consumed {
@@ -672,16 +706,24 @@ impl Keys {
             // evdev Enter held until the real key is released): sent at once, it sometimes
             // reached the page before Chromium had moved the focus (1 in 4 live runs).
             Some(Action::ToPage) if self.search.session && !repeat => {
+                // C-AUTOFOCUS: timed from the real press (Chromium moves the focus at the find-clear).
+                self.page_key_at = Some(now);
                 self.clear_search();
                 self.effects.push(Effect::Pause(crate::config::ENTER_AFTER_FIND_CLEAR_MS));
                 self.effects.push(Effect::KeyDown(crate::config::evdev::KEY_ENTER));
                 self.held.push((code, crate::config::evdev::KEY_ENTER));
                 false
             }
-            Some(Action::ToPage) => !self.held.iter().any(|h| h.0 == code),
+            Some(Action::ToPage) => {
+                let to_page = !self.held.iter().any(|h| h.0 == code);
+                if to_page {
+                    self.page_key_at = Some(now);
+                }
+                to_page
+            }
             Some(action) => {
                 if !(repeat && action_ignores_repeat(action)) {
-                    self.perform(code, action, repeat);
+                    self.perform(code, action, repeat, now);
                 }
                 false
             }
@@ -689,7 +731,7 @@ impl Keys {
         }
     }
 
-    fn perform(&mut self, code: u32, action: Action, repeat: bool) {
+    fn perform(&mut self, code: u32, action: Action, repeat: bool, now: Instant) {
         match action {
             // Handled by `normal_key`: the press itself is forwarded.
             Action::ToPage => {}
@@ -709,7 +751,8 @@ impl Keys {
             Action::SearchNext => self.search_step(FindDir::Next),
             Action::SearchPrev => self.search_step(FindDir::Prev),
             Action::ClearSearch => self.clear_search(),
-            Action::EnterInputMode => self.set_key_mode(KeyMode::Input),
+            Action::EnterInputMode => self.enter_input_restoring(),
+            Action::FocusField => self.focus_field(now),
             Action::HistoryBack => self.effects.push(Effect::Send(Command::Back)),
             Action::HistoryForward => self.effects.push(Effect::Send(Command::Forward)),
             Action::YankUrl => self.run_command_line("let @+ = @%"),
@@ -762,6 +805,76 @@ impl Keys {
                 if self.key_mode == KeyMode::Input {
                     self.set_key_mode(mode);
                 }
+            }
+        }
+    }
+
+    /// C-AUTOFOCUS (KEYS.md T29, T32): the host's `editable-focused true` for page `tab`, `after_click`
+    /// = a mouse press within `CLICK_FOCUS_MS`. The user caused it (that click, a key NORMAL gave the
+    /// page, `gi`, each within `CLICK_FOCUS_MS`): INPUT, as T29. Otherwise the page focused the field
+    /// itself (`autofocus`, a late `el.focus()`), or the page is a background buffer's: the mode stays
+    /// (an open line or the picker too) and the host blurs the field, which the page remembers as its
+    /// last field ("parked": `i` focuses it again). At most one blur per buffer per `CLICK_FOCUS_MS`: a
+    /// page that refocuses on blur keeps its focus after that. Any editable focus ends an older park.
+    pub fn editable_focused(&mut self, tab: u64, after_click: bool, now: Instant) -> FocusOutcome {
+        let current = self.buffers.current_tab() == Some(tab);
+        let user = current && (after_click || click_recent(self.page_key_at, now) || click_recent(self.gi_at, now));
+        let input = self.key_mode == KeyMode::Input;
+        let Some(b) = self.buffers.by_tab_mut(tab) else {
+            return FocusOutcome::Ignored;
+        };
+        b.parked = false;
+        if user {
+            self.user_focused_control();
+            return if input { FocusOutcome::AlreadyInput } else { FocusOutcome::Input };
+        }
+        if current && input {
+            return FocusOutcome::AlreadyInput;
+        }
+        if click_recent(b.blurred_at, now) {
+            return FocusOutcome::Kept;
+        }
+        b.blurred_at = Some(now);
+        b.parked = true;
+        self.effects.push(Effect::SendTo(tab, Command::BlurField));
+        FocusOutcome::Parked
+    }
+
+    /// `i` (T6): INPUT; C-AUTOFOCUS: if the page focused a field that was parked, it gets the focus
+    /// back, so typing lands in the field the page picked.
+    fn enter_input_restoring(&mut self) {
+        self.set_key_mode(KeyMode::Input);
+        let b = self.buffers.current_mut();
+        if std::mem::take(&mut b.parked) {
+            self.effects.push(Effect::Send(Command::FocusField { which: FieldWhich::Last }));
+        }
+    }
+
+    /// `gi` (C-AUTOFOCUS): the page's last text field (the parked one too), else its first visible
+    /// one (`field_result` asks for it); INPUT when one has the focus.
+    fn focus_field(&mut self, now: Instant) {
+        self.gi_at = Some(now);
+        self.gi_waiting = true;
+        self.effects.push(Effect::Send(Command::FocusField { which: FieldWhich::Last }));
+    }
+
+    /// The host's `field-result` for page `tab`: `op` is `blur`, `last` or `first`, `ok` whether a
+    /// field was blurred or has the focus now. Only `gi`'s answers change anything: a field focused
+    /// means INPUT (also when it already had the focus, so no `editable-focused` comes); `last` found
+    /// none: ask for `first`; `first` found none: a message, the mode stays.
+    pub fn field_result(&mut self, tab: u64, op: &str, ok: bool) {
+        if self.buffers.current_tab() != Some(tab) || !self.gi_waiting || op == "blur" {
+            return;
+        }
+        match (op, ok) {
+            (_, true) => {
+                self.gi_waiting = false;
+                self.user_focused_control();
+            }
+            ("last", false) => self.effects.push(Effect::Send(Command::FocusField { which: FieldWhich::First })),
+            _ => {
+                self.gi_waiting = false;
+                self.message = GI_NO_FIELD.to_string();
             }
         }
     }
@@ -863,6 +976,11 @@ impl Keys {
     pub fn navigated(&mut self) {
         // A new document has no title yet (the previous page's must not be bookmarked with it).
         self.title.clear();
+        // C-AUTOFOCUS: a field the new document focuses (`autofocus`) is the page's own, even right
+        // after the click, Enter or `gi` that loaded it (the compositor forgets its click too).
+        self.page_key_at = None;
+        self.gi_at = None;
+        self.gi_waiting = false;
         if self.search.session {
             self.forget_session();
             self.message.clear();

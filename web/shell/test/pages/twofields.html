@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>two loading</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; background: #fef; }
+  .box { position: absolute; left: 40px; width: 300px; height: 40px; font-size: 20px; }
+  #ro { top: 40px; } #one { top: 120px; } #two { top: 200px; }
+</style>
+<input id="ro" class="box" readonly value="read-only: not gi's">
+<input id="one" class="box" placeholder="first field">
+<input id="two" class="box" placeholder="second field">
+<script>
+  // C-AUTOFOCUS `gi`: no autofocus; gi focuses the first visible text field (not the read-only one),
+  // later the last one focused. The title reports both values and what has the focus.
+  const one = document.getElementById("one"), two = document.getElementById("two");
+  const show = () => {
+    const f = document.activeElement && document.activeElement.id || "none";
+    document.title = `two one=[${one.value}] two=[${two.value}] focus=${f}`;
+  };
+  for (const e of ["input", "focusin", "focusout"]) addEventListener(e, () => setTimeout(show, 0), true);
+  show();
+</script>

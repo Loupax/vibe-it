@@ -252,12 +252,18 @@ def main():
             k = log.mark()
             inject("move:550,60", "wait:100", "click", "wait:2500")
             log.wait(r'"editable-focused","tab":\d+,"focused":true', k)
+            # C-AUTOFOCUS (user, 2026-11-24): NORMAL stays, the field is parked; `i` focuses it again.
+            log.wait(r"editable focused: the page's own: parked", k)
+            if any("] bar: INPUT |" in l for l in log.lines[k:]):
+                raise Fail("the page's own focus() switched to INPUT")
+            inject("key:i", "wait:400")
+            log.wait(r'command: \{"cmd":"focus-field","which":"last"\}', k)
             bar(r"INPUT \|", k)
             inject("key:esc", "wait:80", "key:esc", "wait:400")
             bar(r"NORMAL \|", k)
             inject("move:600,400", "wait:100", "click", "wait:400")
-            return "the page focused the field 1.5 s after a button click: INPUT (T32, user 2026-11-23)"
-        step("T32: the page's own focus() enters INPUT", script_focus)
+            return "the page focused the field 1.5 s after a button click: NORMAL, parked; i: INPUT in it (T32, user 2026-11-24)"
+        step("T32: the page's own focus() keeps NORMAL", script_focus)
 
         def go():
             k = log.mark()

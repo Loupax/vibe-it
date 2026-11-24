@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """C3-RCLICK live check (KEYS.md T57, with T29 and T32): a popup opened by a click returns the
-shell to the mode from before the click when it closes. Headless nested dwl (web/tools/nest.sh),
+shell to the mode from before the click when it closes; the page's own focus keeps NORMAL (C-AUTOFOCUS). Headless nested dwl (web/tools/nest.sh),
 never the user's display.
 
     web/shell/test/c3_rclick_live.py --out .qwork/c3rc --inject .qwork/inject/release/inject
@@ -170,15 +170,20 @@ def main():
             return "the page opened the select 1.5 s after the click: NORMAL throughout (T32)"
         step("T29: a popup opened by the page (no click) does not change the mode", page_popup)
 
+        # C-AUTOFOCUS (user, 2026-11-24): the page's own focus no longer switches to INPUT; the field
+        # is parked (the host blurs it) and NORMAL stays (more: c_autofocus_live.py).
+        parked = r"editable focused: the page's own: parked"
+
         def autofocus():
             to_normal()
             k = log.mark()
             inject("move:100,380", "wait:100", "click", "wait:2500")
             log.wait(r'"title":"focus ready"', k)
             log.wait(r'"editable-focused","tab":\d+,"focused":true', k)
-            bar(r"INPUT \|", k)
-            return "left NORMAL by following a link to a page with an autofocus input: INPUT on load (T32)"
-        step("T32: autofocus enters INPUT", autofocus)
+            log.wait(parked, k)
+            no_bar(r"INPUT \|", k, "the autofocus switched to INPUT")
+            return "followed a link to a page with an autofocus input: NORMAL, the field parked (T32)"
+        step("T32: autofocus keeps NORMAL", autofocus)
 
         def script_focus():
             to_normal()
@@ -186,18 +191,21 @@ def main():
             inject("move:150,220", "wait:100", "click", "wait:600")  # the button: a click, nothing focused
             no_bar(r"INPUT \|", k, "the button click itself switched to INPUT")
             log.wait(r'"editable-focused","tab":\d+,"focused":true', k, timeout=5)
-            bar(r"INPUT \|", k)
-            return "focus() from a timer 2 s after a click: INPUT"
-        step("T32: a script focus() enters INPUT", script_focus)
+            log.wait(parked, k)
+            no_bar(r"INPUT \|", k, "the page's own focus() switched to INPUT")
+            return "focus() from a timer 2 s after a click: NORMAL, parked"
+        step("T32: a script focus() keeps NORMAL", script_focus)
 
         def blur():
             k = log.mark()
+            inject("move:150,60", "wait:100", "click", "wait:600")  # into field a: INPUT (T29)
+            bar(r"INPUT \|", k)
             inject("move:150,300", "wait:100", "click", "wait:800")
             log.wait(r'"title":"focus blurred"', k)
             no_bar(r"NORMAL \|", k, "a blur switched back to NORMAL")
             if mode() != "INPUT":
                 raise Fail("mode changed on blur")
-            return "the field was blurred by script: still INPUT (no auto-return)"
+            return "a click into the field: INPUT; the page blurred it: still INPUT (no auto-return)"
         step("T32: a blur never changes the mode", blur)
     except Fail as e:
         results.append(("start", False, str(e)))

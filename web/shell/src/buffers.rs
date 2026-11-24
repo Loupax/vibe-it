@@ -45,6 +45,11 @@ pub struct Buffer {
     /// C-BELL: notifications that came while the buffer was not shown, oldest first; cleared when
     /// it is shown (`Keys::switch_to`).
     pub unread: Vec<crate::notify::Note>,
+    /// C-AUTOFOCUS: the page focused a field itself and the shell had it blurred: `i` focuses it again.
+    /// Ends at a cross-document load and at any later editable focus.
+    pub parked: bool,
+    /// C-AUTOFOCUS: the last `blur-field` sent (the refocus guard: at most one per `CLICK_FOCUS_MS`).
+    pub blurred_at: Option<std::time::Instant>,
 }
 
 impl Buffer {
@@ -287,6 +292,9 @@ impl Keys {
                     b.crashed = false;
                     // C-POPUPS (T96): another document; its blocked popups go (the host's too).
                     b.blocked.clear();
+                    // C-AUTOFOCUS: and its parked field.
+                    b.parked = false;
+                    b.blurred_at = None;
                     if !current {
                         b.title.clear();
                         b.search.forget_session();

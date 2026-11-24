@@ -205,11 +205,13 @@ fn keys_t27_t23_enter_in_the_lines_stays_with_the_shell() {
 
 #[test]
 fn keys_t33_t29_enter_that_focuses_a_field_is_released_in_the_page() {
-    // Enter goes down in NORMAL, the page focuses a field (editable-focused true -> INPUT)
-    // before the key comes up: the release still reaches the page (no stuck Enter).
+    // Enter goes down in NORMAL, the page focuses a field (editable-focused true -> INPUT: the
+    // Enter given to the page makes it the user's focus, C-AUTOFOCUS) before the key comes up: the
+    // release still reaches the page (no stuck Enter).
     let mut k = keys();
+    k.buffers.tab_created(1, None);
     assert!(press(&mut k, enter()));
-    k.user_focused_control();
+    assert_eq!(k.editable_focused(1, false, Instant::now()), FocusOutcome::Input);
     assert_eq!(k.key_mode, KeyMode::Input);
     assert!(release(&mut k, enter()));
 }

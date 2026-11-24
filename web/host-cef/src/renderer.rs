@@ -2,7 +2,8 @@
 //! whether it is editable goes to the browser process as a process message, which
 //! page.rs turns into `editable-focused` events. A middle-click on a link (C-MIDCLICK) goes the
 //! same way (`MIDDLE_MSG`, page.rs turns it into `open-link`); so does a page's notification
-//! (C-BELL, notify.rs). `on_context_created` is where every injected script starts.
+//! (C-BELL, notify.rs). `on_context_created` is where every injected script starts. C-AUTOFOCUS
+//! (field.rs) also answers the browser's `web-host.field` messages here.
 
 use cef::*;
 
@@ -40,19 +41,22 @@ wrap_v8_handler! {
 
 /// Evaluates `js`, a function expression, in `context` (now, before any page script) and calls it
 /// with `args`: native functions passed this way live only in the function's closure, so pages can
-/// neither call nor replace them. `label` names the script in error lines.
-pub fn call_with(context: &mut V8Context, label: &str, js: &str, args: &[Option<V8Value>]) {
+/// neither call nor replace them. `label` names the script in error lines. Returns what the call
+/// returned (field.rs keeps the function its script returns).
+pub fn call_with(context: &mut V8Context, label: &str, js: &str, args: &[Option<V8Value>]) -> Option<V8Value> {
     let (mut ret, mut exc) = (None, None);
     let url = CefString::from(format!("web-host:{label}").as_str());
     context.eval(Some(&CefString::from(js)), Some(&url), 1, Some(&mut ret), Some(&mut exc));
     if let Some(e) = exc {
         eprintln!("web-host-cef: {label} script: {}", CefString::from(&e.message()));
-        return;
+        return None;
     }
-    let Some(f) = ret.filter(|f| f.is_function() != 0) else { return };
-    if f.execute_function(None, Some(args)).is_none() {
+    let f = ret.filter(|f| f.is_function() != 0)?;
+    let r = f.execute_function(None, Some(args));
+    if r.is_none() {
         eprintln!("web-host-cef: {label} script threw");
     }
+    r
 }
 
 /// C-MIDCLICK: newtab::MIDDLE_JS, which takes its function (`MiddleClickHandler`) from a global it
@@ -89,11 +93,32 @@ wrap_render_process_handler! {
             //    before Blink installs its own.
             crate::notify::install_shim(context);
             // 2. C-NOTAB: newtab::CTRL_SHIFT_JS (queued; it only adds a listener).
-            if let Some(f) = frame {
+            if let Some(f) = &frame {
                 f.execute_java_script(Some(&CefString::from(crate::newtab::CTRL_SHIFT_JS)), None, 0);
             }
             // 3. C-MIDCLICK: newtab::MIDDLE_JS.
             middle_click(context);
+            // 4. C-AUTOFOCUS: field.js (a focusin listener keeping the last text field; field.rs keeps
+            //    the function the host's `blur-field` / `focus-field` run).
+            if let Some(f) = &frame {
+                crate::field::install(f, context);
+            }
+        }
+
+        fn on_context_released(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, context: Option<&mut V8Context>) {
+            if let Some(context) = context {
+                crate::field::released(context);
+            }
+        }
+
+        fn on_process_message_received(
+            &self,
+            _browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            _source_process: ProcessId,
+            message: Option<&mut ProcessMessage>,
+        ) -> i32 {
+            message.is_some_and(|m| crate::field::renderer_message(frame, m)) as i32
         }
 
         fn on_focused_node_changed(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, node: Option<&mut Domnode>) {

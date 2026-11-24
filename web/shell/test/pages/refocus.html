@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rf loading</title>
+<style>
+  body { margin: 0; font: 20px sans-serif; background: #fee; }
+  #a { position: absolute; left: 40px; top: 40px; width: 300px; height: 40px; font-size: 20px; }
+</style>
+<input id="a" autofocus placeholder="takes the focus back on blur">
+<script>
+  // C-AUTOFOCUS refocus guard: this page focuses its field again whenever it loses the focus.
+  const a = document.getElementById("a");
+  let blurs = 0;
+  const show = () => {
+    const f = document.activeElement && document.activeElement.id || "none";
+    document.title = `rf blurs=${blurs} focus=${f}`;
+  };
+  a.addEventListener("blur", () => { blurs++; setTimeout(() => { a.focus(); show(); }, 0); });
+  show();
+</script>
