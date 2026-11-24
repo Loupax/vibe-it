@@ -137,7 +137,8 @@ stop early on a hard failure.
 - [ ] C-H264-REBUILD [S] (from #720) At the next CEF 156 release: incremental rebuild per web/tools/cef-build/README.md,
       record its time there.
 - [ ] C-H264-OFFICIAL [M] optional (from #720) Try is_official_build=true (+PGO) within 20G; measure vs non-official.
-- [WIP] C-NEWBUF [S] (user, 2026-11-24: "we don't have an easy way to create a new buffer, add an action item for a
+- [x] C-NEWBUF [S] (DONE 2026-11-24, d5e86f7, #724: :new/:bufferNew, KEYS T103-T104; :go's resolution shared as
+      go_target; extra words -> usage; no search fallback because :go has none) (user, 2026-11-24: "we don't have an easy way to create a new buffer, add an action item for a
       :new command") `:new [url]` (camelCase alias `:bufferNew`, like :bufferList/:ls) opens a new buffer and makes it
       current (host `new-tab` + `show-tab`; the old one becomes the alternate for Ctrl-^). The argument works as
       `:go`'s (same completion, scheme-less words, search engine). No argument: an about:blank buffer and the `:go `
