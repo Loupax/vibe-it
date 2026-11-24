@@ -7,6 +7,9 @@
 #   PREFIX/lib/web/<version>/   web, web-host-cef, libcef.so, *.pak, icudtl.dat, snapshots, locales/ ...
 #   PREFIX/lib/web/current      symlink to the newest <version>
 #   PREFIX/bin/web              symlink to ../lib/web/current/web
+#   $XDG_DATA_HOME/applications/web.desktop   menu entry (default ~/.local/share/applications),
+#                               Exec is the absolute PREFIX/bin/web: the desktop session's PATH
+#                               has no ~/.local/bin. No MimeType: web is not made a URL handler.
 #
 # Why a symlink and no wrapper: the shell looks for `web-host-cef` next to its own
 # executable (std::env::current_exe resolves symlinks), and the host finds libcef.so and
@@ -32,7 +35,7 @@ while [ $# -gt 0 ]; do
     --prefix) PREFIX=${2:?--prefix needs a directory}; shift 2 ;;
     --prefix=*) PREFIX=${1#--prefix=}; shift ;;
     --no-build) BUILD=0; shift ;;
-    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "install.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -94,10 +97,33 @@ mv -T "$LIB/.current-new" "$LIB/current"
 ln -sfn ../lib/web/current/web "$PREFIX/bin/.web-new"
 mv -T "$PREFIX/bin/.web-new" "$PREFIX/bin/web"
 
+# The menu entry. StartupWMClass is the app_id / WM_CLASS the shell's window sets (main.rs: "web").
+# No Icon (web ships none) and no MimeType / x-scheme-handler (a separate decision).
+APPS=${XDG_DATA_HOME:-$HOME/.local/share}/applications
+mkdir -p "$APPS"
+cat > "$APPS/.web-new.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=web
+GenericName=Web Browser
+Comment=Keyboard-driven web browser
+Exec=$PREFIX/bin/web %u
+Terminal=false
+Categories=Network;WebBrowser;
+StartupWMClass=web
+EOF
+if command -v desktop-file-validate >/dev/null 2>&1; then
+  desktop-file-validate "$APPS/.web-new.desktop" || echo "install.sh: warning: desktop-file-validate complained" >&2
+fi
+mv -f "$APPS/.web-new.desktop" "$APPS/web.desktop"
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database "$APPS" >/dev/null 2>&1 || true
+fi
+
 # Keep the new version and the one before it; remove older ones.
 for d in $(ls -1 "$LIB" | grep -E '^[0-9]{8}-' | sort -r | tail -n +3); do
   rm -rf "${LIB:?}/$d"
 done
 
-echo "install.sh: installed $VER -> $PREFIX/lib/web/current, $PREFIX/bin/web"
+echo "install.sh: installed $VER -> $PREFIX/lib/web/current, $PREFIX/bin/web, $APPS/web.desktop"
 case ":$PATH:" in *":$PREFIX/bin:"*) ;; *) echo "install.sh: note: $PREFIX/bin is not on PATH" >&2 ;; esac

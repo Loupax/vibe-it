@@ -47,7 +47,11 @@ download is cached under `$HOME/.cache/web-spike/cef`, see `host-cef/README.md`)
 `PREFIX/lib/web/<version>/` (web, web-host-cef and CEF's runtime files together),
 `PREFIX/lib/web/current` (symlink to the newest version) and `PREFIX/bin/web` (symlink to
 `../lib/web/current/web`). `web` finds `web-host-cef` next to its real executable, so no wrapper or
-environment variable is needed. A reinstall writes a new version dir and switches `current`
+environment variable is needed. It also writes the menu entry
+`${XDG_DATA_HOME:-~/.local/share}/applications/web.desktop` (absolute `Exec=PREFIX/bin/web %u`,
+`StartupWMClass=web`, no icon, no MimeType: web is not made the default browser or a URL handler), so
+the app menu and KRunner find it; the desktop session's PATH has no `~/.local/bin`. Launched from the
+menu, the shell's log (stderr) goes to the session journal (`journalctl --user -b`). A reinstall writes a new version dir and switches `current`
 atomically, so a running `web` keeps working; the last two versions are kept.
 `WEB_BUILD_DIR=DIR` puts the cargo target dirs somewhere else (they are ~2 GB). The
 coordinator runs it through `coordinator/ci_then_push.sh --install web`. Then:
@@ -81,5 +85,5 @@ then `web http://127.0.0.1:18731/probe.html?tag=x` (H264 should be listed on the
 
 Uninstall (state lives apart, in `~/.local/state/web`, and is kept unless you remove it):
 
-    rm -f ~/.local/bin/web && rm -rf ~/.local/lib/web
+    rm -f ~/.local/bin/web ~/.local/share/applications/web.desktop && rm -rf ~/.local/lib/web
     rm -rf ~/.local/state/web      # optional: profile, history, cookies
