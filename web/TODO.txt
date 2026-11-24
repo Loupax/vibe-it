@@ -209,15 +209,87 @@ stop early on a hard failure.
 - [ ] C-SCRIPT-MEM [S] optional (from #736) SCRIPT_MEMORY_MAX via Runtime::set_memory_limit; today an allocation loop
       can take a few hundred MB before the 100 ms budget stops it. Also report unhandled promise rejections from
       scripts in the bar (dropped silently today).
-- [ ] C-SCRIPT-MAP [M] (after C-SCRIPT) `web.map("n", keys, rhs)`: rhs a `:command` string or a function. A
+- [ ] C-SCRIPT-MAP [M] (after C-SCRIPT) `web.map("n", keys, rhs)`: rhs a `:` line string or a function. A string
+      runs when it ends in `<CR>` (`<Enter>`, `<Return>`) and otherwise opens the `:` line with its text typed
+      (vim's contract; SCRIPTING.md "web.map", user 2026-11-24); any other `<...>` in it, or `<CR>` before the
+      end, is an error at map time; `<lt>` is `<`. A
       general pending-sequence matcher in keys.rs for mappings of any length (`MAP_TIMEOUT_MS` in config.rs,
       vim's timeoutlen; on a timeout or no match the pending keys are handled as without the mapping); user
       mappings before BINDINGS/KEY_SEQUENCES. Notation: characters, `<C-x>`, `<lt>`. KEYS.md rows, unit tests
-      (prefix waits, timeout replay, override of `j` and of `gg`), a live step.
+      (prefix waits, timeout replay, override of `j` and of `gg`, `:x<CR>` runs, `:go ` opens the line and gets
+      C-EDITURL's fill-in once both exist, a bad rhs refused), a live step.
 - [ ] C-PROFILE [S] (after C-SCRIPT) `--profile NAME` (`[A-Za-z0-9_-]+`): runs
       `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` after the global one; state directory defaults to
       `$XDG_STATE_HOME/web/profiles/NAME/` (`--state-dir` still wins), so C-SINGLE and --forget-site find that
       profile's instance. USAGE, STASH.md, args tests, a live step with two profiles side by side.
+- [ ] C-CMDHIST [S] (user, 2026-11-24: "When I'm entering a command I should be able to use up or down keys to
+      navigate history. If already typed something, that should be used as filtering.") A history of the `:`
+      lines run, browsed with Up/Down in the `:` line, as vim's cmdline history. Found (2026-11-24): there is
+      none today; history.rs is the URL visit history (STASH.md), not commands, and Up/Down in the `:` line
+      fall through `Keys::command_line_key` to `line_edit_key`, which ignores them (keys.rs). Plan: `Keys`
+      keeps the submitted lines (what Enter ran, ghost included, `Keys::command_line_key`'s Return branch;
+      not lines run by bindings such as `yy`), newest last, a repeat moves to the end, capped by a new
+      config.rs knob. Up (KP_Up too): the newest older entry starting with what was typed when browsing
+      began (vim matches the text before the cursor; typed nothing = every entry); Down: the newer one, past
+      the newest the typed text comes back. No match: nothing changes. Any other key ends browsing and keeps
+      the recalled text. A recalled line shows no ghost (else Enter would run the line plus a ghost, not the
+      line). Held Up/Down repeat via C-BARREPEAT already. The `/` line gets the same only if asked.
+      On disk, as vim's shada (user, 2026-11-24: "Keep the command history on disk, like vim"; DECISIONS.md):
+      `DIR/cmdhistory` in the state directory (per profile once C-PROFILE lands), mode 0600, dir 0700, one
+      line per run `:` line (a `:` line has no newline; strip control characters as history.rs does).
+      Appended as each line runs (one `write`, `O_APPEND`, as history.rs: a crash loses nothing); read
+      once at start, duplicates dropped keeping the newest; trimmed at start to the newest N (config.rs,
+      e.g. `CMD_HISTORY_MAX`; vim's 'history' option) by temp file + rename. C-SINGLE runs one web per
+      state directory, so there is one writer. No state dir (tests, `--state-dir` unset and unknown): in
+      memory only. The last line survives a restart, so C-REPEAT's `@:` works right after start (vim's
+      shada keeps the `:` register too). forget-site leaves it alone, as it leaves the URL history alone
+      (STASH.md "Forget site"); say so in STASH.md. STASH.md section, KEYS.md rows (next T number),
+      help.html "Command line", unit tests in src/tests/c_cmdhist_tests.rs (incl. reload from a file, trim,
+      dedup), a live step (run lines, restart web with the same state dir, Up recalls them).
+- [ ] C-REPEAT [XS] (after C-CMDHIST; DECISIONS.md 2026-11-24 "Repeating the last command: vim's @:") vim's
+      `@:`, as close to vim's contract as web allows (user, 2026-11-24: "Create a @: and we can map it to . on
+      the scripting layer if we want. Let's stay as closer to the vim contract as possible so muscle memory
+      takes over"). Not scriptable with SCRIPTING.md's API (nothing tells a script which line ran last), so
+      built in, on C-CMDHIST's list:
+      - `@:` in NORMAL (a KEY_SEQUENCES row, `@` then `:`) runs the last `:` line again through
+        `run_command_line`. Only `:` lines, never NORMAL keys (that is vim's `.`, not wanted).
+      - `@@` (another row) repeats the last `@:`; before any `@:` it says `web: no previously used register`
+        (vim's E748). `@` then any other key: handled as NORMAL handles that key (no other registers).
+      - `:@:` the command does the same as the keys (vim has it too), so a script maps it with the API as
+        specified: `web.map("n", ".", ":@:<CR>")` once C-SCRIPT-MAP lands.
+      - Neither `@:` nor `:@:` becomes the last command line (vim: the `:` register keeps the repeated line),
+        so repeating twice repeats the same line, not itself. No previous line: `web: no previous command
+        line` (vim's E30).
+      - No counts (`3@:`): web has no counts anywhere; a count needs its own item.
+      `.` stays unbound (config.rs BINDINGS). KEYS.md rows, help.html, unit tests in src/tests/c_repeat_tests.rs.
+- [ ] C-EDITURL [S] (user, 2026-11-24; DECISIONS.md "Editing the page's URL in the `:` line") "an easy way to edit
+      the currently visited page. I'm thinking `:go ` to automatically fill with the currently open page, if it
+      exists, and have it pre selected so the user can either wipe it clean, or move the cursor to the end so
+      they can alter the ending". Built into web: SCRIPTING.md's API has no hook on `:` line edits, and
+      `TextEditBuffer` (keys.rs) has only `text` + `cursor`, no selection.
+      - Commands: every one that opens a URL: `go`, `new`, `bufferNew`, `openExternal`.
+      - Trigger: the line becomes exactly `<command> ` (name + one space, cursor at the end) by typing the Space
+        or by T53's Tab (which adds the space), or the line opens with that text (`:new`/`:bufferNew` with no
+        argument, T104; a C-SCRIPT-MAP mapping whose rhs has no `<CR>`, e.g. `":go "`). Not by Backspace or Ctrl-w (clearing the selection leaves
+        `go `, which must not refill it), a paste, or a C-CMDHIST recall.
+      - Fill: the page's URL (`self.url`) after the space, selected, cursor at the end. For `:new` with no
+        argument it is the URL of the buffer just left (T104 makes the `about:blank` buffer current before
+        opening the line), so Enter at once opens a copy of that page in the new buffer and Esc leaves the
+        empty buffer as today. No page (empty, `about:blank`, the help page): nothing is filled in.
+      - With a selection: a typed character or a paste replaces it; Backspace/Delete/Ctrl-w/Ctrl-u remove it
+        (Ctrl-u also what is before it, as today); Right/End drop it with the cursor at the end, Left/Home with
+        the cursor at the start of the URL (vim's insert-mode-after-select muscle memory has no exact match
+        here; this is the GUI address bar's contract); Enter runs the line as it is (`:go <url>` reloads by
+        navigating); Esc cancels; Tab/Shift-Tab do nothing. No ghost while a selection is shown (T45 waits
+        for the first edit).
+      - Drawing: the selected range highlighted in the status bar (statusbar.rs, a new `SELECTION_BG` /
+        `SELECTION_FG` in config.rs); `BarView.line` gets the range.
+      - A profile maps "edit this page's URL" with `web.map("n", "ge", ":go ")` (C-SCRIPT-MAP: an rhs without
+        `<CR>` opens the line). No `:commandLine` command (user, 2026-11-24: dropped for the map syntax).
+      KEYS.md rows (next T numbers; T104 changes), help.html "Command line", unit tests in
+      src/tests/c_editurl_tests.rs (each trigger and non-trigger, each key on a selection, `:new` filling the
+      left buffer's URL), a live step (screenshot of the highlight,
+      edit the end of a URL and Enter).
 - [x] C-NOTIFLIST [S] (DONE 2026-11-24, c921dcd, #733: newest first, `N!` unread, Enter shows/reads the buffer; a closed
       buffer's page reopens as :new; in memory, NOTIFY_LIST_MAX 100; KEYS T112-T114) (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
       navigate and see notifications using keyboard only") `:notifications` opens the picker (C-PICK, T58-T68)

@@ -2,6 +2,40 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-24 A mapping's `:` line runs with `<CR>`, otherwise it opens the line (vim's contract)
+
+User: "I think we could have both 'prefill a command' and 'run a command' use the exact same interface";
+"Yes, update them and drop :commandLine". `web.map`'s string rhs is one `:` line: ending in `<CR>` it runs,
+without it the `:` line opens with that text typed. This changes SCRIPTING.md's earlier "a `:` string runs"
+before C-SCRIPT-MAP is built, so nothing breaks. Only a trailing `<CR>` is a key: mappings never type keys,
+so no `noremap`. `web.cmd` always runs. Items C-SCRIPT-MAP, C-EDITURL.
+
+## 2026-11-24 Editing the page's URL in the `:` line
+
+User: "I want an easy way to edit the currently visited page. I'm thinking `:go ` to automatically fill with
+the currently open page, if it exists, and have it pre selected so the user can either wipe it clean, or move
+the cursor to the end so they can alter the ending". Built into web, not a script: the script API has no hook
+on `:` line edits and the line has no selection. Asked which commands and triggers: "Both go and new without
+argument"; "do it for all commands that open URLs" (`go`, `new`, `bufferNew`, `openExternal`). Vim's Ctrl-R
+`%` in the `:` line: "Let's skip this for now". A command that opens the `:` line with given text, so a
+profile can map a key to it (qutebrowser's `:set-cmd-text`): "Yes, that sounds good"; later the same day
+replaced by the map syntax (entry above), and dropped ("drop :commandLine"). Item C-EDITURL.
+
+## 2026-11-24 Command-line history: Up/Down with a prefix filter, kept on disk
+
+User: "When I'm entering a command I should be able to use up or down keys to navigate history. If already
+typed something, that should be used as filtering."; then "Keep the command history on disk, like vim". The `:`
+lines run are kept in the state directory (`DIR/cmdhistory`, STASH.md once built) and survive a restart, as
+vim's shada keeps its cmdline history. Item C-CMDHIST (TODO.txt).
+
+## 2026-11-24 Repeating the last command: vim's @:
+
+User: "We need a command that repeats the last performed command, similar to vims `.`"; then "Create a @: and
+we can map it to . on the scripting layer if we want. Let's stay as closer to the vim contract as possible so
+muscle memory takes over". So web gets vim's `@:` (and `@@`, `:@:`), repeating `:` lines only, not vim's `.`;
+`.` stays unbound and a profile can map it (`web.map("n", ".", ":@:<CR>")`). It is built in because SCRIPTING.md's
+API cannot see which line ran last. Items C-CMDHIST, C-REPEAT (TODO.txt).
+
 ## 2026-11-24 Prompts are no longer logged
 
 User: "I'm wondering if we should drop storing prompts altogether"; "update the relevant files so no prompt
