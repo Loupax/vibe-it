@@ -209,7 +209,7 @@ stop early on a hard failure.
 - [ ] C-SCRIPT-MEM [S] optional (from #736) SCRIPT_MEMORY_MAX via Runtime::set_memory_limit; today an allocation loop
       can take a few hundred MB before the 100 ms budget stops it. Also report unhandled promise rejections from
       scripts in the bar (dropped silently today).
-- [ ] C-SCRIPT-MAP [M] (after C-SCRIPT) `web.map("n", keys, rhs)`: rhs a `:` line string or a function. A string
+- [ ] [WIP] C-SCRIPT-MAP [M] (after C-SCRIPT) `web.map("n", keys, rhs)`: rhs a `:` line string or a function. A string
       runs when it ends in `<CR>` (`<Enter>`, `<Return>`) and otherwise opens the `:` line with its text typed
       (vim's contract; SCRIPTING.md "web.map", user 2026-11-24); any other `<...>` in it, or `<CR>` before the
       end, is an error at map time; `<lt>` is `<`. A
@@ -218,7 +218,7 @@ stop early on a hard failure.
       mappings before BINDINGS/KEY_SEQUENCES. Notation: characters, `<C-x>`, `<lt>`. KEYS.md rows, unit tests
       (prefix waits, timeout replay, override of `j` and of `gg`, `:x<CR>` runs, `:go ` opens the line and gets
       C-EDITURL's fill-in once both exist, a bad rhs refused), a live step.
-- [ ] C-PROFILE [S] (after C-SCRIPT) `--profile NAME` (`[A-Za-z0-9_-]+`): runs
+- [ ] [WIP] C-PROFILE [S] (after C-SCRIPT) `--profile NAME` (`[A-Za-z0-9_-]+`): runs
       `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` after the global one; state directory defaults to
       `$XDG_STATE_HOME/web/profiles/NAME/` (`--state-dir` still wins), so C-SINGLE and --forget-site find that
       profile's instance. USAGE, STASH.md, args tests, a live step with two profiles side by side.
