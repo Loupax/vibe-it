@@ -407,6 +407,7 @@ in every list (move, Enter runs the row, Esc closes) and a mode of its own").
 | T59 | PICK | text editing keys, paste | none | PICK | edit the filter (the `:` line's keys, T26: Left, Right, Home, End, Backspace, Ctrl-w, Ctrl-u, paste); after a change the list is re-ranked (fuzzy, best first) and the best match selected. The page gets no keys, `i` and `j` are typed |
 | T60 | PICK | Ctrl-n, Down | not on the last row | PICK | the next row is selected; the list scrolls to keep it shown. On the last row nothing happens (no wrap) |
 | T61 | PICK | Ctrl-p, Up | not on the first row | PICK | the previous row is selected (no wrap) |
+| T61a | PICK | PageDown, PageUp (keypad too) | none | PICK | the selection moves a screenful (`PICKER_MAX_ROWS` rows) down or up, stopping at the last or first row (no wrap); the list scrolls to keep it shown *(C-PICK-PAGE)* |
 | T62 | PICK | Enter (keypad Enter too) | a row matches | NORMAL | the picker closes, then the selected row's action runs (history: `open <url>` in the current page) |
 | T63 | PICK | Enter | no row matches | PICK | nothing: edit the filter or Esc |
 | T64 | PICK | Esc | none | NORMAL | the picker closes; nothing runs |

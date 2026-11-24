@@ -487,6 +487,16 @@ impl Keys {
             if let Some(p) = &mut self.picker {
                 p.move_by(-1);
             }
+        } else if plain && (s == K::Page_Down || s == K::KP_Page_Down) {
+            // T61a: a screenful (the rows shown) down.
+            if let Some(p) = &mut self.picker {
+                p.move_by(PICKER_MAX_ROWS as isize);
+            }
+        } else if plain && (s == K::Page_Up || s == K::KP_Page_Up) {
+            // T61a.
+            if let Some(p) = &mut self.picker {
+                p.move_by(-(PICKER_MAX_ROWS as isize));
+            }
         } else if s == K::Right || s == K::End || s == K::KP_Right || s == K::KP_End {
             if s == K::End || s == K::KP_End {
                 self.line.cursor = self.line.text.len();

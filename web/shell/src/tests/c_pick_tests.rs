@@ -307,6 +307,29 @@ fn keys_t60_the_list_scrolls_to_keep_the_selection_shown() {
     assert_eq!(scroll_top(3, 4, 4), 3);
 }
 
+#[test]
+fn keys_t61a_page_down_and_page_up_move_a_screenful_and_clamp() {
+    let hist: String = (0..40).map(|i| format!("{}\thttp://h{i}.test/\tT{i}\n", 1000 + i)).collect();
+    let dir = Dir::with_history("t61a", &hist);
+    let mut k = keys_with(&dir);
+    run(&mut k, "historySearch");
+    press(&mut k, KeyInput::sym(Keysym::Page_Down));
+    assert_eq!(k.picker.as_ref().unwrap().selected, PICKER_MAX_ROWS);
+    press(&mut k, KeyInput::sym(Keysym::Page_Down));
+    assert_eq!(k.picker.as_ref().unwrap().selected, 2 * PICKER_MAX_ROWS);
+    for _ in 0..5 {
+        press(&mut k, KeyInput::sym(Keysym::Page_Down));
+    }
+    assert_eq!(k.picker.as_ref().unwrap().selected, 39, "clamped at the last row");
+    press(&mut k, KeyInput::sym(Keysym::Page_Up));
+    assert_eq!(k.picker.as_ref().unwrap().selected, 39 - PICKER_MAX_ROWS);
+    for _ in 0..5 {
+        press(&mut k, KeyInput::sym(Keysym::Page_Up));
+    }
+    assert_eq!(k.picker.as_ref().unwrap().selected, 0, "clamped at the first row");
+    assert_eq!(k.line.text, "", "the page keys type nothing");
+}
+
 // ---------- T62/T63: Enter ----------
 
 #[test]
