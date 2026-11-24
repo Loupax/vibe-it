@@ -183,6 +183,14 @@ stop early on a hard failure.
         notifications (e.g. `[2!]`); `:ls`/`:bufferList` puts `!` after vim's `%`/`#` on those buffers and the
         latest notification's title in the detail column. No sound, no desktop popups.
       KEYS.md rows, unit tests, a live step with the local test page.
+- [WIP] C-BELL-CRASH [S] BUG URGENT (user, 2026-11-24: "I get a segfault when trying to visit gmail") Renderer FATAL
+      "V8 error: Maybe value is Nothing (v8::FromJust)" in blink::bindings::IDLMemberInstaller::InstallExposedConstructs
+      <- LocalWindowProxy::InstallConditionalFeatures <- a subframe's about:blank commit
+      (SynchronouslyCommitAboutBlankForBug778318) from Node.insertBefore of an iframe. Cause: notify.rs defines
+      window.Notification as non-configurable at context creation; Blink's later install of the exposed constructor
+      is a FromJust and aborts (the spike thought it fails silently). Fix without a non-configurable global; repro
+      page that inserts iframes dynamically (insertBefore/appendChild, about:blank and srcdoc, nested) on a secure
+      origin; c_bell_live and notify-probe must still pass.
 - [ ] C-NOTIFCLICK [S] optional (from #733) Picking a notification in `:notifications` while its buffer exists also
       fires the page's `click` event on that Notification (host command `notify-click`; the notify.rs shim keeps the
       objects). Sites often navigate to the conversation on click.
