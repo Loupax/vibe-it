@@ -451,6 +451,7 @@ aliases; the ghost offers the long names only, an alias typed in full still runs
 
 | command | alias | what it does |
 |---|---|---|
+| `:new [url]` | `:bufferNew` | a new buffer, current at once (the old one is Ctrl-^'s); the URL is `:go`'s (same completion, `https://` assumed, relative forms); no URL: an `about:blank` buffer and the `:` line open with `go ` typed |
 | `:bufferList [filter]` | `:ls` | the picker over the buffers: number, title, hostname, description |
 | `:buffer N`, `:buffer <partial>` | `:b` | switch to buffer N, or to the one whose title, hostname or description matches |
 | `:bufferNext`, `:bufferPrev` | `:bn`, `:bp` | the next / previous buffer (wraps) |
@@ -484,6 +485,8 @@ contents, restoring buffers after a restart.
 | T90 | COMMAND | typing a command name | none | COMMAND | the ghost offers `bufferList`, `buffer`, `bufferNext`, ... but never `ls`, `b`, `bn`, `bp`, `bd`; a word that is an alias in full has no ghost text, so Enter runs it as typed (`:b` stays `:b`, not the first `b...` name); Tab still cycles the long names |
 | T91 | COMMAND | Enter on `:q` / `:quit` | not on `:help` | (exit) | the host closes every page (`quit`) and exits when the last one is gone; the shell opens no page meanwhile |
 | T92 | any | Ctrl-click, middle-click, Shift-click on a link | none | same | nothing opens (C-NOTAB stays): no buffer, no page, no navigation, in NORMAL as in INPUT. **C-NORMALMODS** (user 2026-11-23): in NORMAL a pointer click carries the modifiers actually held (the shell tells the page the held modifiers just before the press and puts them back, unmodified, after the release), so the host's rules apply there too; NORMAL's own keys still reach the page unmodified (`G` is End, T21). A middle-click opens nothing in either mode. C-POPUPS kept this, see "Popups" |
+| T103 | COMMAND | Enter on `:new <url>` / `:bufferNew <url>` | one word | NORMAL | a new buffer (`new-tab` with the URL, as `:go` would resolve it: `https://` assumed, `/x` `./x` `#x` `?x` relative to the page on screen, a history URL minus its scheme keeps that scheme) becomes current (`show-tab` when its page exists); the buffer left becomes the alternate (Ctrl-^ returns). A word `:go` refuses (relative with no page): its message, no buffer. Two or more words: `web: usage: :new [url]`. The argument completes as `:go`'s |
+| T104 | COMMAND | Enter on `:new` / `:bufferNew` | no argument | COMMAND | as T103 with an empty `about:blank` page, then the `:` line opens again with `go ` already typed (cursor after it), so typing the address and Enter navigates the new buffer (Esc leaves an empty buffer). |
 
 ## Popups (C-POPUPS)
 

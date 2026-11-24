@@ -15,6 +15,7 @@ mod c_external_tests;
 mod c_flicker_tests;
 mod c_focuskeys_tests;
 mod c_keymap_tests;
+mod c_newbuf_tests;
 mod c_normalmods_tests;
 mod c_pick_tests;
 mod c_popups_tests;

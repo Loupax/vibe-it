@@ -175,8 +175,8 @@ def main():
 
         def ghost():
             k = log.mark()
-            inject(*keys_for(":bufferN"), "wait:300")
-            bar(k, r":bufferN\|ext")
+            inject(*keys_for(":bufferNe"), "wait:300")
+            bar(k, r":bufferNe\|w")
             inject("key:esc", "wait:200")
             # `:b` typed in full and Enter with no Delete: the alias runs, not the ghost's first `b...` name.
             k = log.mark()
@@ -184,7 +184,7 @@ def main():
             bar(k, r"NORMAL \| buffer 2: two visible")
             if os.path.exists(os.path.join(state, "bookmarks")):
                 raise Fail("`:b` ran :bookmarkAdd")
-            return "`:bufferN` ghosts `ext`; `:b` Enter names buffer 2 (no bookmark written)"
+            return "`:bufferNe` ghosts `w`; `:b` Enter names buffer 2 (no bookmark written)"
 
         step("T90 the ghost offers long names, an alias runs as typed", ghost)
 
@@ -303,6 +303,32 @@ def main():
 
         step("T81/T82 :bd kills buffer 2, then the last buffer leaves about:blank", kill)
 
+        def new_buffer():
+            # Buffer 3 (about:blank) is current. `:new` opens buffer 4 empty with `:go ` typed.
+            k = command("new")
+            log.wait(r"buffer 4 of 2 is current", k, 5)
+            log.wait(r'"cmd":"new-tab"', k, 5)
+            log.wait(r"buffer 4 shown: page window of tab \d+", k, 10)
+            bar(k, r"\[4\] ", what="bar url")
+            bar(k, r":go \|$")
+            k = log.mark()
+            inject(*keys_for(one), "key:del", "key:ret", "wait:200")
+            log.wait(r'"title":"one visible"', k, 30)
+            shows(RED, "b4-new-go.png")
+            bar(k, r"\[4\] " + re.escape(one), what="bar url")
+            # `:bufferNew <url>` opens buffer 5 straight on that page; Ctrl-^ comes back to buffer 4.
+            k = command("bufferNew " + two)
+            log.wait(r"buffer 5 of 3 is current", k, 5)
+            log.wait(r'"title":"two visible"', k, 30)
+            shows(BLUE, "b5-new-url.png")
+            k = log.mark()
+            inject("hold:cs", "key:6", "release", "wait:200")
+            log.wait(r"buffer 4 of 3 is current", k, 5)
+            shows(RED, "b4-ctrl-caret.png")
+            return ":new -> blank buffer 4 + :go prompt, typed URL shown (red); :bufferNew URL -> buffer 5 (blue); Ctrl-^ back to 4"
+
+        step("T103/T104 :new opens a buffer (with the :go prompt, or a URL)", new_buffer)
+
         def quit_all():
             k = log.mark()
             r = subprocess.run([a.web, "--state-dir", state, "--host-bin", a.host_bin, two], capture_output=True, text=True,
@@ -310,19 +336,19 @@ def main():
             if r.returncode != 0:
                 raise Fail(f"second web: exit {r.returncode}")
             log.wait(r'"title":"two visible"', k, 30)
-            log.wait(r"buffer 4 of 2 is current", k, 5)
+            log.wait(r"buffer 6 of 4 is current", k, 5)
             k = command("q")
             code = proc.wait(timeout=30)
             if code != 0:
                 raise Fail(f"web exited {code}")
-            log.wait(r"quit: closing 2 page\(s\)", k, 5)
+            log.wait(r"quit: closing 4 page\(s\)", k, 5)
             closed = [l for l in log.lines[k:] if 'host event: {"event":"tab-closed"' in l]
-            if len(closed) != 2:
+            if len(closed) != 4:
                 raise Fail(f"tab-closed events: {closed}")
             log.wait(r"engine host exited: exit status: 0", k, 5)
             if any("command: {\"cmd\":\"new-tab\"" in l for l in log.lines[k:]):
                 raise Fail("the shell opened a page while quitting")
-            return "two buffers: quit closed both pages (two tab-closed), web and its host exited 0"
+            return "four buffers: quit closed all pages (four tab-closed), web and its host exited 0"
 
         step("T91 :q closes every page and the host exits", quit_all)
     finally:

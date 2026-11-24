@@ -257,6 +257,7 @@ pub fn rows(b: &Buffers) -> Vec<Row> {
 }
 
 /// `:bufferKill`'s usage line.
+pub const NEW_USAGE: &str = "web: usage: :new [url]";
 pub const KILL_USAGE: &str = "web: usage: :bufferKill [N]";
 
 impl Keys {
@@ -358,6 +359,25 @@ impl Keys {
         self.effects.push(Effect::Send(Command::NewTab { req, url: u }));
         self.switch_to(num);
         num
+    }
+
+    /// `:new [url]` / `:bufferNew [url]` (C-NEWBUF): a new buffer, current at once (the old one becomes
+    /// the alternate). The argument is `:go`'s; none: an `about:blank` buffer and the `:` line open with
+    /// `go ` typed, so the address comes straight away.
+    pub fn buffer_new(&mut self, args: &[&str]) {
+        match args {
+            [] => {
+                self.open_buffer("about:blank");
+                self.open_line_with("go ");
+            }
+            [word] => match self.go_target(word) {
+                Ok(url) => {
+                    self.open_buffer(&url);
+                }
+                Err(m) => self.message = m,
+            },
+            _ => self.message = NEW_USAGE.to_string(),
+        }
     }
 
     /// `:buffer N` / `:buffer <partial>` (`:b`).
