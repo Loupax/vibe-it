@@ -209,11 +209,15 @@ stop early on a hard failure.
 - [ ] C-SCRIPT-MEM [S] optional (from #736) SCRIPT_MEMORY_MAX via Runtime::set_memory_limit; today an allocation loop
       can take a few hundred MB before the 100 ms budget stops it. Also report unhandled promise rejections from
       scripts in the bar (dropped silently today).
-- [ ] C-SCRIPT-MAP [M] (after C-SCRIPT) `web.map("n", keys, rhs)`: rhs a `:command` string or a function. A
+- [ ] C-SCRIPT-MAP [M] (after C-SCRIPT) `web.map("n", keys, rhs)`: rhs a `:` line string or a function. A string
+      runs when it ends in `<CR>` (`<Enter>`, `<Return>`) and otherwise opens the `:` line with its text typed
+      (vim's contract; SCRIPTING.md "web.map", user 2026-11-24); any other `<...>` in it, or `<CR>` before the
+      end, is an error at map time; `<lt>` is `<`. A
       general pending-sequence matcher in keys.rs for mappings of any length (`MAP_TIMEOUT_MS` in config.rs,
       vim's timeoutlen; on a timeout or no match the pending keys are handled as without the mapping); user
       mappings before BINDINGS/KEY_SEQUENCES. Notation: characters, `<C-x>`, `<lt>`. KEYS.md rows, unit tests
-      (prefix waits, timeout replay, override of `j` and of `gg`), a live step.
+      (prefix waits, timeout replay, override of `j` and of `gg`, `:x<CR>` runs, `:go ` opens the line and gets
+      C-EDITURL's fill-in once both exist, a bad rhs refused), a live step.
 - [ ] C-PROFILE [S] (after C-SCRIPT) `--profile NAME` (`[A-Za-z0-9_-]+`): runs
       `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` after the global one; state directory defaults to
       `$XDG_STATE_HOME/web/profiles/NAME/` (`--state-dir` still wins), so C-SINGLE and --forget-site find that
@@ -261,13 +265,12 @@ stop early on a hard failure.
 - [ ] C-EDITURL [S] (user, 2026-11-24; DECISIONS.md "Editing the page's URL in the `:` line") "an easy way to edit
       the currently visited page. I'm thinking `:go ` to automatically fill with the currently open page, if it
       exists, and have it pre selected so the user can either wipe it clean, or move the cursor to the end so
-      they can alter the ending". Built into web: SCRIPTING.md's API has no hook on `:` line edits, `web.map`
-      cannot open the line with text (its rhs runs a command or a function), and `TextEditBuffer` (keys.rs) has
-      only `text` + `cursor`, no selection.
+      they can alter the ending". Built into web: SCRIPTING.md's API has no hook on `:` line edits, and
+      `TextEditBuffer` (keys.rs) has only `text` + `cursor`, no selection.
       - Commands: every one that opens a URL: `go`, `new`, `bufferNew`, `openExternal`.
       - Trigger: the line becomes exactly `<command> ` (name + one space, cursor at the end) by typing the Space
         or by T53's Tab (which adds the space), or the line opens with that text (`:new`/`:bufferNew` with no
-        argument, T104; `:commandLine` below). Not by Backspace or Ctrl-w (clearing the selection leaves
+        argument, T104; a C-SCRIPT-MAP mapping whose rhs has no `<CR>`, e.g. `":go "`). Not by Backspace or Ctrl-w (clearing the selection leaves
         `go `, which must not refill it), a paste, or a C-CMDHIST recall.
       - Fill: the page's URL (`self.url`) after the space, selected, cursor at the end. For `:new` with no
         argument it is the URL of the buffer just left (T104 makes the `about:blank` buffer current before
@@ -281,15 +284,11 @@ stop early on a hard failure.
         for the first edit).
       - Drawing: the selected range highlighted in the status bar (statusbar.rs, a new `SELECTION_BG` /
         `SELECTION_FG` in config.rs); `BarView.line` gets the range.
-      - `:commandLine <text>` (user, 2026-11-24, as qutebrowser's `:set-cmd-text`; name to confirm in the
-        PR): opens the `:` line with `<text>` typed, verbatim after the one space that follows the name
-        (trailing spaces kept; parse it raw as `:let` is, not through `split_whitespace`). It goes through the
-        trigger above, so a profile can map "edit this page's URL" without a placeholder:
-        `web.map("n", "ge", ":commandLine go ")` (after C-SCRIPT-MAP). Its text is not run; the line it
-        opens records in C-CMDHIST only when it is run. Completion offers the name.
+      - A profile maps "edit this page's URL" with `web.map("n", "ge", ":go ")` (C-SCRIPT-MAP: an rhs without
+        `<CR>` opens the line). No `:commandLine` command (user, 2026-11-24: dropped for the map syntax).
       KEYS.md rows (next T numbers; T104 changes), help.html "Command line", unit tests in
       src/tests/c_editurl_tests.rs (each trigger and non-trigger, each key on a selection, `:new` filling the
-      left buffer's URL, `:commandLine` keeping a trailing space), a live step (screenshot of the highlight,
+      left buffer's URL), a live step (screenshot of the highlight,
       edit the end of a URL and Enter).
 - [x] C-NOTIFLIST [S] (DONE 2026-11-24, c921dcd, #733: newest first, `N!` unread, Enter shows/reads the buffer; a closed
       buffer's page reopens as :new; in memory, NOTIFY_LIST_MAX 100; KEYS T112-T114) (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to

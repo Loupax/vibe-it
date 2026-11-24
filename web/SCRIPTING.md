@@ -60,7 +60,21 @@ split theirs). User commands are offered by the command-line completion with the
 ### `web.map(mode, keys, rhs)`
 
 Maps a key sequence in a mode. `mode`: `"n"` (NORMAL) only, for now. `rhs`: a string
-starting with `:` (run as `web.cmd` would), or a function (called with no arguments).
+starting with `:`, or a function (called with no arguments).
+
+A string `rhs` is one `:` line, as in a vim mapping (user, 2026-11-24: "both prefill a
+command and run a command use the exact same interface"):
+
+- ending in `<CR>` (also `<Enter>`, `<Return>`; any case): the line runs, as `web.cmd` would.
+  `web.map("n", "gh", ":go https://example.com<CR>")`.
+- without it: the `:` line opens with the text typed, cursor at the end, and waits for the
+  user, so it reaches the line's own behaviour (completion; the URL fill-in of `:go ` and the
+  other URL commands, TODO.txt C-EDITURL). `web.map("n", "ge", ":go ")`.
+
+Nothing else is a key in `rhs`: `<CR>` only at the very end, `<lt>` is a literal `<`, and
+any other `<...>` or a `<CR>` before the end is an error when the mapping is made (more than
+one command: use a function). Mappings never type keys, so one mapping cannot trigger another
+and vim's `noremap` is not needed. `web.cmd` always runs its line.
 A user mapping takes precedence over a built-in binding or sequence (config.rs `BINDINGS`,
 `KEY_SEQUENCES`) for the same keys; mapping the same keys again replaces the mapping.
 
