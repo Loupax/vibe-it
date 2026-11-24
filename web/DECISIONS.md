@@ -2,6 +2,14 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-24 Repeating the last command: vim's @:
+
+User: "We need a command that repeats the last performed command, similar to vims `.`"; then "Create a @: and
+we can map it to . on the scripting layer if we want. Let's stay as closer to the vim contract as possible so
+muscle memory takes over". So web gets vim's `@:` (and `@@`, `:@:`), repeating `:` lines only, not vim's `.`;
+`.` stays unbound and a profile can map it (`web.map("n", ".", ":@:")`). It is built in because SCRIPTING.md's
+API cannot see which line ran last. Items C-CMDHIST, C-REPEAT (TODO.txt).
+
 ## 2026-11-24 Prompts are no longer logged
 
 User: "I'm wondering if we should drop storing prompts altogether"; "update the relevant files so no prompt

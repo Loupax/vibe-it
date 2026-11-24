@@ -233,19 +233,22 @@ stop early on a hard failure.
       DECIDE: kept in memory per run, or on disk in the state dir (vim's shada does; then STASH.md, mode 0600,
       and forget-site has to drop lines naming the site, e.g. `:go site.com`). KEYS.md rows (next T number),
       help.html "Command line", unit tests in src/tests/c_cmdhist_tests.rs, a live step.
-- [ ] C-REPEAT [XS] (after C-CMDHIST; user, 2026-11-24: "a command that repeats the last performed command,
-      similar to vims `.`. Do we need custom functionality for this, or it's something we can script?")
-      Found (2026-11-24): it cannot be scripted with the API SCRIPTING.md defines. `web.cmd` only runs a line
-      and `web.command` only sees its own calls; nothing tells a script which `:` line ran last, and
-      SCRIPTING.md says nothing is exposed unless the user asks (C-SCRIPT is not merged yet either). A script
-      could do it only with a new hook, e.g. `web.on("command", fn)` or `web.history()`, which is a user decision
-      and still needs C-CMDHIST's list. Built in, it is a few lines on top of C-CMDHIST: a NORMAL `Action`
-      that runs the newest history entry through `run_command_line` (it does not add itself again); no
-      previous line: `web: no previous command line` (vim's E30). `.` is unbound today (config.rs BINDINGS).
-      DECIDE: the key (`.`, or vim's own `@:`, a two-key KEY_SEQUENCES row), and whether it repeats only
-      `:` lines (vim's `@:`) or also NORMAL actions such as `h`/`yy`/Ctrl-^ (closer to `.`, needs a "last
-      action" kept beside the history; scrolls and `/` would be left out). Once C-SCRIPT-MAP lands the user
-      can remap it either way. KEYS.md row, help.html, unit tests.
+- [ ] C-REPEAT [XS] (after C-CMDHIST; DECISIONS.md 2026-11-24 "Repeating the last command: vim's @:") vim's
+      `@:`, as close to vim's contract as web allows (user, 2026-11-24: "Create a @: and we can map it to . on
+      the scripting layer if we want. Let's stay as closer to the vim contract as possible so muscle memory
+      takes over"). Not scriptable with SCRIPTING.md's API (nothing tells a script which line ran last), so
+      built in, on C-CMDHIST's list:
+      - `@:` in NORMAL (a KEY_SEQUENCES row, `@` then `:`) runs the last `:` line again through
+        `run_command_line`. Only `:` lines, never NORMAL keys (that is vim's `.`, not wanted).
+      - `@@` (another row) repeats the last `@:`; before any `@:` it says `web: no previously used register`
+        (vim's E748). `@` then any other key: handled as NORMAL handles that key (no other registers).
+      - `:@:` the command does the same as the keys (vim has it too), so a script maps it with the API as
+        specified: `web.map("n", ".", ":@:")` once C-SCRIPT-MAP lands.
+      - Neither `@:` nor `:@:` becomes the last command line (vim: the `:` register keeps the repeated line),
+        so repeating twice repeats the same line, not itself. No previous line: `web: no previous command
+        line` (vim's E30).
+      - No counts (`3@:`): web has no counts anywhere; a count needs its own item.
+      `.` stays unbound (config.rs BINDINGS). KEYS.md rows, help.html, unit tests in src/tests/c_repeat_tests.rs.
 - [x] C-NOTIFLIST [S] (DONE 2026-11-24, c921dcd, #733: newest first, `N!` unread, Enter shows/reads the buffer; a closed
       buffer's page reopens as :new; in memory, NOTIFY_LIST_MAX 100; KEYS T112-T114) (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
       navigate and see notifications using keyboard only") `:notifications` opens the picker (C-PICK, T58-T68)
