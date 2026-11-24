@@ -44,6 +44,7 @@ mod download;
 mod forget;
 mod forget_cef;
 mod newtab;
+mod notify_spike;
 mod page;
 mod protocol;
 mod renderer;

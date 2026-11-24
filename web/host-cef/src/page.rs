@@ -459,6 +459,10 @@ wrap_client! {
         fn command_handler(&self) -> Option<CommandHandler> {
             Some(HostCommandHandler::new())
         }
+        // C-BELL spike, off unless WEB_HOST_NOTIFY_SPIKE is set.
+        fn permission_handler(&self) -> Option<PermissionHandler> {
+            crate::notify_spike::mode().map(|_| crate::notify_spike::SpikePermissionHandler::new())
+        }
 
         fn on_process_message_received(
             &self,
@@ -468,6 +472,9 @@ wrap_client! {
             message: Option<&mut ProcessMessage>,
         ) -> i32 {
             let Some(msg) = message else { return 0 };
+            if crate::notify_spike::handle_message(page_of(&browser), msg) {
+                return 1;
+            }
             if CefString::from(&msg.name()).to_string() != crate::renderer::EDITABLE_MSG {
                 return 0;
             }

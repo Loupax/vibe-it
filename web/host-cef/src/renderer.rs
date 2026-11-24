@@ -11,7 +11,11 @@ wrap_render_process_handler! {
 
     impl RenderProcessHandler {
         // C-NOTAB: see newtab::CTRL_SHIFT_JS.
-        fn on_context_created(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, _context: Option<&mut V8Context>) {
+        fn on_context_created(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, context: Option<&mut V8Context>) {
+            // C-BELL spike, off unless WEB_HOST_NOTIFY_SPIKE=shim.
+            if let (Some("shim"), Some(c)) = (crate::notify_spike::mode().as_deref(), context) {
+                crate::notify_spike::install_shim(c);
+            }
             if let Some(f) = frame {
                 f.execute_java_script(Some(&CefString::from(crate::newtab::CTRL_SHIFT_JS)), None, 0);
             }
