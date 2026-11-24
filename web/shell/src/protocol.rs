@@ -95,6 +95,17 @@ pub enum Event {
         tab: u64,
         url: String,
     },
+    /// C-BELL: page `tab` showed a Web Notification (lengths capped and rate-limited by the host).
+    Notify {
+        tab: u64,
+        title: String,
+        #[serde(default)]
+        body: String,
+        #[serde(default)]
+        tag: String,
+        #[serde(default)]
+        origin: String,
+    },
     Error {
         message: String,
     },
@@ -300,6 +311,26 @@ mod tests {
                 Event::OpenLink {
                     tab: 2,
                     url: "https://a.test/x".into(),
+                },
+            ),
+            (
+                r#"{"event":"notify","tab":2,"title":"New message","body":"hi","tag":"m1","origin":"https://chat.example.com"}"#,
+                Event::Notify {
+                    tab: 2,
+                    title: "New message".into(),
+                    body: "hi".into(),
+                    tag: "m1".into(),
+                    origin: "https://chat.example.com".into(),
+                },
+            ),
+            (
+                r#"{"event":"notify","tab":3,"title":"t"}"#,
+                Event::Notify {
+                    tab: 3,
+                    title: "t".into(),
+                    body: String::new(),
+                    tag: String::new(),
+                    origin: String::new(),
                 },
             ),
             (r#"{"event":"tab-closed","tab":1}"#, Event::TabClosed { tab: 1 }),

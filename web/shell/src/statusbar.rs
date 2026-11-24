@@ -12,7 +12,8 @@ use smithay::utils::{Rectangle, Transform};
 use tiny_skia::{Paint, Pixmap, Rect};
 
 use crate::config::{
-    GHOST_FG, STATUS_BAR_BG, STATUS_BAR_FG, STATUS_BAR_FONT_PX, STATUS_BAR_GAP, STATUS_BAR_MIN_URL_W, STATUS_BAR_MODE_FG, STATUS_BAR_PAD_X,
+    BELL_BG, BELL_FG, GHOST_FG, STATUS_BAR_BG, STATUS_BAR_FG, STATUS_BAR_FONT_PX, STATUS_BAR_GAP, STATUS_BAR_MIN_URL_W, STATUS_BAR_MODE_FG,
+    STATUS_BAR_PAD_X,
 };
 use crate::keys::BarView;
 
@@ -202,15 +203,21 @@ impl Painter {
         self.scale = scale;
         let (pad, gap, min_url) = (STATUS_BAR_PAD_X * scale, STATUS_BAR_GAP * scale, STATUS_BAR_MIN_URL_W * scale);
         let mut pm = Pixmap::new(w.max(1), h.max(1))?;
-        pm.fill(tiny_skia::Color::from_rgba8(STATUS_BAR_BG.0, STATUS_BAR_BG.1, STATUS_BAR_BG.2, 255));
+        // C-BELL: the visual bell inverts the bar (config.rs BELL_BG/BELL_FG) while it is lit.
+        let (bg, fg_rgb, mode_rgb) = if view.flash {
+            (BELL_BG, BELL_FG, BELL_FG)
+        } else {
+            (STATUS_BAR_BG, STATUS_BAR_FG, STATUS_BAR_MODE_FG)
+        };
+        pm.fill(tiny_skia::Color::from_rgba8(bg.0, bg.1, bg.2, 255));
         let avail = (w as f32 - 2.0 * pad).max(0.0);
-        let fg = rgb(STATUS_BAR_FG);
+        let fg = rgb(fg_rgb);
         if let Some((prompt, text, cursor)) = &view.line {
             let display = format!("{prompt}{text}");
             let text_w = self.text(&mut pm, &display, pad, avail, fg);
             let caret = self.caret_x(&display, cursor + prompt.len_utf8());
             let mut paint = Paint::default();
-            paint.set_color_rgba8(STATUS_BAR_FG.0, STATUS_BAR_FG.1, STATUS_BAR_FG.2, 255);
+            paint.set_color_rgba8(fg_rgb.0, fg_rgb.1, fg_rgb.2, 255);
             if let Some(r) = Rect::from_xywh(
                 pad + caret,
                 3.0 * scale,
@@ -226,7 +233,7 @@ impl Painter {
             return Some(pm);
         }
         let lay = status_layout(avail, gap, min_url, &view.mode, &view.url, &view.message, &mut |t| self.measure(t));
-        let mode_w = self.text(&mut pm, &lay.mode, pad, avail, rgb(STATUS_BAR_MODE_FG));
+        let mode_w = self.text(&mut pm, &lay.mode, pad, avail, rgb(mode_rgb));
         let url_x = pad + mode_w + gap;
         let msg_w = self.measure(&lay.message);
         let url_max = (w as f32 - pad - msg_w - if msg_w > 0.0 { gap } else { 0.0 } - url_x).max(0.0);

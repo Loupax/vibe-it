@@ -70,6 +70,9 @@ pub fn host_command(args: &Args, program: PathBuf, profile: &Path, control: &Pat
     if let Some(u) = &args.url {
         a.push(format!("--url={u}"));
     }
+    if let Some(s) = notify_sites_arg(crate::config::NOTIFY_SITES) {
+        a.push(s);
+    }
     a.extend(args.host_args.iter().cloned());
     HostCommand {
         program,
@@ -83,6 +86,14 @@ pub fn host_command(args: &Args, program: PathBuf, profile: &Path, control: &Pat
         // On an X11 desktop the host must still talk Wayland to the shell, not X11 to the
         // desktop; WAYLAND_SOCKET would bypass WAYLAND_DISPLAY.
         env_remove: vec!["DISPLAY".into(), "WAYLAND_SOCKET".into()],
+    }
+}
+
+/// C-BELL: config.rs `NOTIFY_SITES` as the host's option (`All`: none, the host's default).
+pub fn notify_sites_arg(sites: crate::config::NotifySites) -> Option<String> {
+    match sites {
+        crate::config::NotifySites::All => None,
+        crate::config::NotifySites::Only(list) => Some(format!("--notify-sites={}", list.join(","))),
     }
 }
 

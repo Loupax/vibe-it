@@ -4,7 +4,8 @@
 <!-- C-BELL spike: what do Web Notifications do in web-host-cef? Served by serve.py from 127.0.0.1
      (a secure context). Every finding is a console line `notify-probe: <key> = <json>` and the
      whole run is POSTed to serve.py, which saves OUT/<tag>.json. ?tag=NAME names the run;
-     ?click=1 waits for a click on the big button (a user gesture) before asking for permission. -->
+     ?click=1 waits for a click on the big button (a user gesture) before asking for permission;
+     ?delay=MS starts after MS; ?burst=N sends N more at the end (C-BELL). -->
 <body style="font: 16px sans-serif">
 <button id="go" style="font-size: 32px; width: 100%; height: 300px">ask for notifications</button>
 <pre id="out"></pre>
@@ -45,6 +46,11 @@ async function run() {
     note('sw', 'ready');
     note('sw_show', await timeout(reg.showNotification('sw title', {body: 'sw body', tag: 'sw-tag'}).then(() => 'resolved', e => 'reject ' + e), 4000));
     note('sw_get', await timeout(reg.getNotifications().then(l => l.map(n => n.title), e => 'reject ' + e), 4000));
+    // From inside the worker (the shim does not reach worker contexts): must fail, nothing to D-Bus.
+    note('worker', await timeout(new Promise(r => {
+      navigator.serviceWorker.addEventListener('message', e => r(e.data), {once: true});
+      reg.active.postMessage('notify');
+    }), 4000));
   } catch (e) { note('sw', 'error ' + e); }
   // A fresh about:blank iframe's Notification (a page script could take a pristine API from there).
   try {
@@ -56,11 +62,17 @@ async function run() {
       catch (e) { r('throw ' + e); }
     }), 4000));
   } catch (e) { note('iframe', 'error ' + e); }
+  // ?burst=N: N more at once (the host's rate limit passes the first few).
+  const burst = +(q.get('burst') || 0);
+  for (let i = 1; i <= burst; i++) new Notification('burst ' + i, {body: 'line one\nline two', tag: 'burst'});
+  if (burst) note('burst', burst);
   done();
 }
 function done() {
   note('done', true);
   fetch('/result?tag=' + encodeURIComponent(tag), {method: 'POST', body: JSON.stringify(res)}).catch(() => {});
 }
-if (q.get('click') === '1') document.getElementById('go').onclick = () => run(); else run();
+if (q.get('click') === '1') document.getElementById('go').onclick = () => run();
+else if (q.get('delay')) setTimeout(run, +q.get('delay'));  // C-BELL live: notify from a hidden buffer
+else run();
 </script>

@@ -459,9 +459,9 @@ wrap_client! {
         fn command_handler(&self) -> Option<CommandHandler> {
             Some(HostCommandHandler::new())
         }
-        // C-BELL spike, off unless WEB_HOST_NOTIFY_SPIKE is set.
+        // C-BELL: notification prompts are denied at once (notify.rs); others keep Chrome's handling.
         fn permission_handler(&self) -> Option<PermissionHandler> {
-            crate::notify_spike::mode().map(|_| crate::notify_spike::SpikePermissionHandler::new())
+            Some(crate::notify::HostPermissionHandler::new())
         }
 
         fn on_process_message_received(
@@ -472,7 +472,7 @@ wrap_client! {
             message: Option<&mut ProcessMessage>,
         ) -> i32 {
             let Some(msg) = message else { return 0 };
-            if crate::notify_spike::handle_message(page_of(&browser), msg) {
+            if crate::notify::handle_message(page_of(&browser), msg) {
                 return 1;
             }
             let name = CefString::from(&msg.name()).to_string();
@@ -811,6 +811,7 @@ wrap_life_span_handler! {
                 }
                 (ps.pages.len(), ps.quitting)
             });
+            crate::notify::forget_tab(id);
             emit(Event::TabClosed { tab: id });
             // The last page gone ends the host only on `quit` (or standalone, when its window was
             // closed): the shell opens a new page before it closes its last one (PROTOCOL.md).
@@ -1143,8 +1144,17 @@ wrap_browser_process_handler! {
     pub struct HostBrowserProcessHandler {}
 
     impl BrowserProcessHandler {
+        // C-BELL: the renderers learn `--notify-sites` (notify.rs reads it at context creation).
+        fn on_before_child_process_launch(&self, command_line: Option<&mut CommandLine>) {
+            if let Some(cmd) = command_line {
+                crate::notify::child_switch(cmd);
+            }
+        }
+
         fn on_context_initialized(&self) {
             apply_cookie_policy();
+            // C-BELL: Chromium's own notifications are blocked (they would go to the desktop).
+            crate::notify::block_native();
             // C-CARETCMD: caret browsing starts off in every run (the preference is saved in
             // the profile, so a `:set caret` of an earlier run would otherwise come back).
             set_caret_browsing(false);

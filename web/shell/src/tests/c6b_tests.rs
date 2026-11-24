@@ -156,6 +156,7 @@ fn view(mode: &str) -> BarView {
         message: String::new(),
         line: None,
         ghost: String::new(),
+        flash: false,
     }
 }
 

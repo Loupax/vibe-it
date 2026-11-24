@@ -504,6 +504,18 @@ impl State {
             }
         };
         self.log(&format!("host event: {line}"));
+        // C-BELL: a notification of any buffer, shown or not.
+        if let Event::Notify {
+            tab,
+            title,
+            body,
+            tag,
+            origin,
+        } = ev
+        {
+            self.notified(tab, crate::notify::Note { title, body, tag, origin });
+            return;
+        }
         // C4: page events of every page keep their buffer up to date; only the current buffer's
         // reach the status bar, the search and the mode below.
         if let Some(tab) = ev.page_tab() {
@@ -647,6 +659,29 @@ impl State {
                 }
             }
             _ => {}
+        }
+        self.redraw();
+    }
+
+    /// C-BELL: page `tab` showed a notification: unread on its buffer unless shown, and the visual
+    /// bell (rate-limited); a timer puts the bar back after `BELL_FLASH_MS`.
+    fn notified(&mut self, tab: u64, note: crate::notify::Note) {
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        if !self.keys.notified(tab, note) {
+            self.log(&format!("notify from tab {tab}, which has no buffer: ignored"));
+            return;
+        }
+        if let Some(d) = self.keys.bell.ring(Instant::now()) {
+            self.log("bell: flash");
+            let armed = self.loop_handle.insert_source(Timer::from_duration(d), |_, _, state| {
+                state.keys.bell.done();
+                state.log("bell: off");
+                state.redraw();
+                TimeoutAction::Drop
+            });
+            if armed.is_err() {
+                self.keys.bell.done();
+            }
         }
         self.redraw();
     }
