@@ -25,6 +25,7 @@ Architecture C (DECISIONS.md, TODO.txt C1-C8):
 `../scratchy/DECISIONS.md`). scratchy's own engine is not carried over; its shell is.
 
 - `KEYS.md`: modes, bindings, completion (from scratchy).
+- `SCRIPTING.md`: `init.js`, global and per profile (`--profile`): user commands, key mappings, start buffers.
 - `STASH.md`: what web keeps on disk: state directory, history and `:go` ranking,
   forget-site (`web --forget-site`, `:forget-site`, how the running instance is found),
   cookies (from scratchy).
@@ -35,7 +36,7 @@ Architecture C (DECISIONS.md, TODO.txt C1-C8):
   (virtual keyboard and pointer), copied from scratchy.
 - `DECISIONS.md`: what has been decided and why.
 - `TODO.txt`: the plan (C1-C8, E1) and the spike record (W1-W7), each step with a check that ends it.
-- `PROMPTS.md`: the exact prompts that produced this project, in order.
+- `PROMPTS.md`: FROZEN (user, 2026-11-24): the prompts up to then; add nothing, it is being removed.
 
 ## Install and uninstall
 

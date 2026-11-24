@@ -348,6 +348,10 @@ refactoring item (QCONF1, no behaviour change) and comes first; every later item
 its knobs there. Exception (user, 2026-11-20): the tracker block/allow lists stay in
 QCFG1's separate runtime file, updated independently of the code.
 
+**2026-11-24 (user):** a profile's own commands, key mappings and start buffers come from
+`init.js` scripts (global and per profile), not config.rs: SCRIPTING.md. config.rs keeps
+web's own defaults; a user mapping takes precedence over a built-in binding.
+
 ## Caret browsing (experiment, C-CARETCMD)
 
 User, 2026-11-23: "Expose caret browsing from a command mode command, so I can experiment

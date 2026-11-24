@@ -9,8 +9,9 @@ checkout is available, and say in the PR which local checks were skipped so the 
 1. Tool-call descriptions: start EVERY one with `[<ITEM>] ` (the user's agent panel shows it).
 2. Worktree + branch: you run in your own git worktree. First: `git fetch origin && git checkout -b scratchy/<item-lowercase>-<slug> origin/main`.
    No `git stash`. Scratch files go in a subdir of your scratchpad, never loose in /tmp.
-3. NEVER edit scratchy/TODO.txt or scratchy/TODO-DONE.txt (the coordinator owns them). Other docs per AGENTS.md (PROMPTS.md
-   entry, REGRESSIONS/PERF/NOTES as the item needs) are fine.
+3. NEVER edit scratchy/TODO.txt or scratchy/TODO-DONE.txt (the coordinator owns them). Other docs per AGENTS.md (REGRESSIONS/PERF/NOTES
+   as the item needs) are fine. NEVER add a PROMPTS.md entry (user, 2026-11-24: the files are frozen); the
+   result goes in the PR body and the commit message.
 4. LOCAL RESOURCE PRIORITY (user's machine only):
    - EVERY build command (cargo build, cargo check, cargo clippy, cargo test --no-run, cargo bench --no-run) runs as
      `nice -n 19 ionice -c3 cargo ...`. Env: `RUSTY_V8_ARCHIVE=/home/loupax/.cache/librusty_v8-152.2.0.a CARGO_BUILD_JOBS=4`.
@@ -34,7 +35,7 @@ checkout is available, and say in the PR which local checks were skipped so the 
    unless the PR conflicts; the coordinator rebases at merge time.
    IMPORTANT: GitHub does NOT run pull_request CI while the PR conflicts with main. If no checks appear within ~5 min,
    run `gh pr view <n> --json mergeable`; if CONFLICTING: `git fetch origin && git rebase origin/main`, resolve
-   (PROMPTS.md/REGRESSIONS.md: keep main's entries and yours, in order), re-run affected tests, push --force-with-lease.
+   (REGRESSIONS.md: keep main's entries and yours, in order), re-run affected tests, push --force-with-lease.
    Never wait more than 10 min for checks that have not appeared.
 9. NEVER merge. When all CI jobs are green: delete your build dirs (your worktree's `target/` and any CARGO_TARGET_DIR
    you made), then stop and reply with FIRST LINE exactly `READY #<pr> <ITEM> — <one-line summary>`, followed by a short

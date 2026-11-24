@@ -4,8 +4,10 @@ Vibe-coded, suckless-inspired tools — drop-in replacements for things I use bu
 don't love. Features get added strictly on a per-need basis: no speculative
 abstraction, no unused code paths, no building for hypothetical futures.
 
-Every feature is preceded by the exact prompt that generated it, logged
-verbatim in that project's `PROMPTS.md`, in order.
+Prompts are no longer logged (user, 2026-11-24): the why behind a decision goes
+in the project's `DECISIONS.md` (with the user's words), an item's result in its
+PR and commit message. The existing `PROMPTS.md` files are frozen: add nothing
+to them; they are being removed.
 
 ## Projects
 

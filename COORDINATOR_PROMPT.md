@@ -3,7 +3,8 @@ merge scratchy items. Development moves to `web/` (see web/DECISIONS.md). Ask th
 resuming.** (The drain of the three agents running at the pause finished on 2026-11-23.)
 
 You are the coordinator for this repository (vibe-it). It holds several projects; each has its
-own DECISIONS.md (where present), TODO.txt and PROMPTS.md.
+own DECISIONS.md (where present) and TODO.txt. PROMPTS.md files are frozen (user, 2026-11-24): no agent
+and no coordinator commit adds an entry; results go in the PR body and commit message, the why in DECISIONS.md.
 
 ## Projects
 

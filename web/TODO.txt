@@ -198,6 +198,23 @@ stop early on a hard failure.
 - [ ] C-NOTIFCLICK [S] optional (from #733) Picking a notification in `:notifications` while its buffer exists also
       fires the page's `click` event on that Notification (host command `notify-click`; the notify.rs shim keeps the
       objects). Sites often navigate to the conversation on click.
+- [ ] C-SCRIPT [M] (user, 2026-11-24; DECISIONS.md "User scripts", SCRIPTING.md) QuickJS (rquickjs) in web-shell,
+      no std/os modules, no module loader. Load `$XDG_CONFIG_HOME/web/init.js` at start, in strict mode (so a
+      later switch to ES modules, which are always strict, breaks no script); `web.cmd`,
+      `web.command` (uppercase names, offered by completion), `web.on("ready")` (once, host connected and the
+      first buffer exists, passes nothing). Errors to the bar as `init.js:LINE: message` and the log, web starts
+      anyway; SCRIPT_BUDGET_MS via the interrupt handler; a web.cmd depth limit. Expose nothing else. Report the
+      binary size and start time added. Unit tests (a script opening buffers in ready, a throwing script, a
+      runaway loop), a live step with a test init.js under a temporary XDG_CONFIG_HOME (never the user's).
+- [ ] C-SCRIPT-MAP [M] (after C-SCRIPT) `web.map("n", keys, rhs)`: rhs a `:command` string or a function. A
+      general pending-sequence matcher in keys.rs for mappings of any length (`MAP_TIMEOUT_MS` in config.rs,
+      vim's timeoutlen; on a timeout or no match the pending keys are handled as without the mapping); user
+      mappings before BINDINGS/KEY_SEQUENCES. Notation: characters, `<C-x>`, `<lt>`. KEYS.md rows, unit tests
+      (prefix waits, timeout replay, override of `j` and of `gg`), a live step.
+- [ ] C-PROFILE [S] (after C-SCRIPT) `--profile NAME` (`[A-Za-z0-9_-]+`): runs
+      `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` after the global one; state directory defaults to
+      `$XDG_STATE_HOME/web/profiles/NAME/` (`--state-dir` still wins), so C-SINGLE and --forget-site find that
+      profile's instance. USAGE, STASH.md, args tests, a live step with two profiles side by side.
 - [x] C-NOTIFLIST [S] (DONE 2026-11-24, c921dcd, #733: newest first, `N!` unread, Enter shows/reads the buffer; a closed
       buffer's page reopens as :new; in memory, NOTIFY_LIST_MAX 100; KEYS T112-T114) (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
       navigate and see notifications using keyboard only") `:notifications` opens the picker (C-PICK, T58-T68)

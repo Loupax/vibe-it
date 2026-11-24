@@ -1,9 +1,9 @@
 # scratchy — session notes
 
-Not part of the prompt log (`PROMPTS.md`) — this is working notes for
-picking the project back up later. `PROMPTS.md` stays the append-only
-record of exact feature prompts; this file is free-form and can be
-edited/pruned as the project evolves.
+Working notes for picking the project back up later; free-form, can be
+edited/pruned as the project evolves. (`PROMPTS.md`, the old prompt log,
+is frozen since 2026-11-24 and being removed; older references to it
+below are history.)
 
 ## Index: source files added 2026-11-14..16 (audit 2026-11-16)
 
