@@ -380,7 +380,13 @@ stop early on a hard failure.
 - [x] C6b-LIVE-DPR [XS] (DONE #709: settled-title wait; click flake = virtual pointer already on the target, test moves away first) (from #706) Release builds: c6b_live's dpr() reads the first (pre-configure 1200x800)
       title; wait for the title matching the page window. Its click step flakes on a reused nest. (from #686) dmabuf: no linux-dmabuf offered, CEF hands shm buffers, every frame is CPU-copied.
       Measure today's CPU cost (video, fast scroll), then import dmabufs with an shm fallback.
-- [WIP] C6e [M] (from #686) IME (text-input-v3): shell as IME client of the desktop and text-input server for
+- [ ] C6e-DESKTOP [XS] USER (from #723) On your desktop, type with an input method (e.g. pinyin via IBus/fcitx5) into
+      a page field in INPUT; check that composition works and the candidate window sits at the caret.
+- [ ] C6e-X11 [S] optional (from #723) IME when the shell window runs on X11 (winit set_ime_allowed, Ime::Preedit/Commit;
+      no surrounding text).
+- [x] C6e [M] (DONE 2026-11-24, 71954fb, #723: shell = text-input-v3 server for the page and client of the desktop,
+      INPUT only; host gets --enable-wayland-ime --wayland-text-input-version=3; nest dwl relays text-input/input-method;
+      `inject ime` scripted IME; c6e_live 8/8 at scale 1 and 2; Wayland only) (from #686) IME (text-input-v3): shell as IME client of the desktop and text-input server for
       the page, INPUT only. Done when fcitx5 in the nest types composed text into a page field.
 - [-] C6f DROPPED (user, 2026-11-23: "Drop middle-click paste in the page and keep GTK as it is."; #689 closed;
       the fix needed --ui-toolkit=fallback, which loses GTK theming) (from #686) Middle-click paste in the page does nothing (CEF never pastes primary); find the

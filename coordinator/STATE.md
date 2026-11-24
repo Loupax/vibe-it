@@ -559,3 +559,7 @@ web reinstall deferred until W2-1b's measurements finish (quiet machine).
 ## 2026-11-24 W2-1b merged (#722, 3a9cde3)
 No-filter 94.9 % (at target within noise); via pass 79.4 % vs 90 % target. W2-1d = user decision (fd passing vs relax target).
 C6e (IME) started now that the machine-quiet measurement is over; web reinstalled with #721.
+
+## 2026-11-24 C6e merged (#723, 71954fb)
+IME via text-input-v3, INPUT only, Wayland only. Tested with a scripted input method in the nest (no fcitx5 here).
+New: C6e-DESKTOP (user check), C6e-X11 (optional). web reinstalled.
