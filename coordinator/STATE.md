@@ -579,3 +579,6 @@ Spike agent killed 6 of its own private-bus KDE processes by PID (wallet dialog 
 
 ## 2026-11-24 #728 merged (user's C-AUTOFOCUS item)
 Queue (user: no reprioritising): C-MIDCLICK (running) -> C-BELL step 2 -> C-AUTOFOCUS.
+
+## 2026-11-24 C-MIDCLICK merged (#729, d56e9eb); web reinstalled; C-BELL step 2 started (Opus)
+Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain link clicks.

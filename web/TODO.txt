@@ -157,7 +157,7 @@ stop early on a hard failure.
       release, focus loss (C-FOCUSKEYS) and mode change. Must not change NORMAL: bindings that ignore repeat
       (action_ignores_repeat, T14/T55) stay as they are, and keys forwarded to the page keep the engine's repeat.
       KEYS.md rows, unit tests (fake clock), a live step holding Backspace in `:`.
-- [ ] C-BELL [M] STEP 2 READY (after C-MIDCLICK: both touch page.rs and buffers) (spike DONE 2026-11-24, 8f9dc86,
+- [WIP] C-BELL [M] STEP 2 (spike DONE 2026-11-24, 8f9dc86,
       #727, web/notes/C-BELL-SPIKE.md: CEF exposes only the permission prompt; Chrome-style runtime sends granted
       notifications straight to D-Bus with no tab. Step 2 per the spike's recommendation: notify_spike.rs -> notify.rs
       (renderer shim, always on), protocol `notify <id> <title> <body>` (+tag, origin; host caps length and rate);
@@ -194,7 +194,9 @@ stop early on a hard failure.
       bus: kwalletd6 + a password dialog). On the user's real bus Chromium likely keeps its cookie-encryption key
       ("Chromium Safe Storage") in KWallet. Find what asks and when, what --password-store=basic (or a
       profile-local key) would change for cookie encryption at rest, and recommend; changing it is a user decision.
-- [WIP] C-MIDCLICK [S] (user, 2026-11-24: "Middle click on links should basically do a :new") A middle-click on a
+- [x] C-MIDCLICK [S] (DONE 2026-11-24, d56e9eb, #729: renderer MIDDLE_JS sees auxclick button 1 on a[href]/area[href],
+      host `open-link` event (http/https/file only), shell opens it as :new; KEYS T105, T92 Ctrl/Shift only; also
+      fixed: after Ctrl-^ the page kept Ctrl+Shift as held modifiers, so plain clicks were cancelled) (user, 2026-11-24: "Middle click on links should basically do a :new") A middle-click on a
       link opens its URL in a new buffer and makes it current, as `:new <url>` does (C-NEWBUF, T103-T104: the
       old buffer becomes the alternate for Ctrl-^), in NORMAL and INPUT. Reverses C-NOTAB for middle-click only
       (DECISIONS.md "Ctrl/middle-click on links still open nothing" and KEYS.md T92 get amended, dated);
