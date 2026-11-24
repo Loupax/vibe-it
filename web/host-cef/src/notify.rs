@@ -234,11 +234,55 @@ const SHIM_JS: &str = r#"(function (post, all, sites) {
     static requestPermission(cb) { if (typeof cb === 'function') setTimeout(() => cb(PERM), 0); return Promise.resolve(PERM); }
   }
   // Notification and ServiceWorkerRegistration are [SecureContext]: Blink installs them AFTER
-  // OnContextCreated. Notification: a non-configurable property defined first, so Blink's later
-  // define of the real interface object fails. ServiceWorkerRegistration: a page can only get a
-  // registration through navigator.serviceWorker, so an own getter on this navigator patches the
-  // prototype on first use.
-  Object.defineProperty(globalThis, 'Notification', {value: Notification, writable: false, configurable: false, enumerable: false});
+  // OnContextCreated (LocalWindowProxy::Initialize: DidCreateScriptContext, then
+  // InstallConditionalFeatures). NEVER define Notification here: Blink's install would meet our
+  // property; a non-configurable one makes that install throw when strict page code is on the
+  // stack (an iframe inserted from strict code commits about:blank synchronously), and Blink's
+  // FromJust then aborts the renderer (C-BELL-CRASH, Gmail); a configurable one is just replaced.
+  // So it is defined (configurable, as Blink's) once Blink's own is in place:
+  // - page code on the stack (a frame created by a script): the microtask below runs when that
+  //   script's turn ends, after the install;
+  // - no script on the stack (a navigation commits): the microtask runs as soon as this script
+  //   returns, BEFORE the install; it then waits for the parser's first node (a MutationObserver
+  //   callback: the parser takes a microtask checkpoint before each parser-inserted script).
+  // Insecure contexts never get Blink's Notification: defined at once there (still not now).
+  // A new same-origin iframe's window taken in the turn that created it (its microtask has not run
+  // yet) gets ours from the iframe's `contentWindow` getter (wrapped below, in define()). Other ways
+  // to that window in that turn (`frames[i]`, `contentDocument.defaultView`, `window.open`) get
+  // Chromium's own: permission "denied", natively blocked, so nothing shows, nothing reaches the bar.
+  // ServiceWorkerRegistration: a page can only get a registration through navigator.serviceWorker,
+  // so an own getter on this navigator (Blink installs nothing on the instance, only on
+  // Navigator.prototype) patches the prototype on first use.
+  const toStr = Function.prototype.toString;
+  const native = v => { try { return typeof v === 'function' && /\[native code\]\s*\}$/.test(toStr.call(v)); } catch (e) { return false; } };
+  const adoptFrames = () => {
+    const I = globalThis.HTMLIFrameElement && HTMLIFrameElement.prototype;
+    const d = I && Object.getOwnPropertyDescriptor(I, 'contentWindow');
+    if (!d || !d.configurable || !native(d.get)) return;
+    const get = d.get;
+    Object.defineProperty(I, 'contentWindow', {configurable: true, enumerable: d.enumerable, get() {
+      const w = get.call(this);
+      try {
+        // Blink's install in that frame is done: its window proxy is initialized by now.
+        if (w && w.origin === ORIGIN && native(w.Notification))
+          Object.defineProperty(w, 'Notification', {value: Notification, writable: true, configurable: true, enumerable: false});
+      } catch (e) {}
+      return w;
+    }});
+  };
+  const define = () => {
+    try {
+      Object.defineProperty(globalThis, 'Notification', {value: Notification, writable: true, configurable: true, enumerable: false});
+      adoptFrames();
+    } catch (e) {}
+  };
+  const MO = globalThis.MutationObserver, doc = globalThis.document;
+  queueMicrotask(() => {
+    if (!globalThis.isSecureContext || Object.getOwnPropertyDescriptor(globalThis, 'Notification')) return define();
+    if (!MO || !doc) return;
+    const mo = new MO(() => { mo.disconnect(); define(); });
+    mo.observe(doc, {childList: true, subtree: true});
+  });
   let patched = false;
   const patchSW = () => {
     if (patched || !globalThis.ServiceWorkerRegistration) return;
@@ -417,8 +461,27 @@ mod tests {
 
     #[test]
     fn shim_keeps_the_defensive_tricks() {
-        // Notification: non-configurable, so Blink's later [SecureContext] define fails.
-        assert!(SHIM_JS.contains("writable: false, configurable: false"));
+        // C-BELL-CRASH: Notification is replaced from a microtask (after Blink's install), and
+        // nothing the shim defines is non-configurable (Blink's install would abort the renderer).
+        assert!(SHIM_JS.contains("const define = () => {"));
+        assert_eq!(SHIM_JS.matches("Object.defineProperty(globalThis").count(), 1, "only in define()");
+        assert_eq!(
+            SHIM_JS.matches("define();").count(),
+            2,
+            "called from the microtask and the observer only"
+        );
+        let micro = SHIM_JS.find("queueMicrotask(() => {").expect("the microtask");
+        assert!(SHIM_JS.find("return define();").is_some_and(|i| i > micro));
+        assert!(SHIM_JS.find("mo.disconnect(); define();").is_some_and(|i| i > micro));
+        // A fresh iframe's window from contentWindow gets ours (only over Blink's native one).
+        assert!(SHIM_JS.contains("w.origin === ORIGIN && native(w.Notification)"));
+        assert!(
+            SHIM_JS.contains("adoptFrames();\n    } catch (e) {}"),
+            "wrapped after the install, in define()"
+        );
+        assert!(!SHIM_JS.contains("configurable: false"));
+        assert!(!SHIM_JS.contains("writable: false"));
+        assert!(!SHIM_JS.contains("Object.freeze") && !SHIM_JS.contains("preventExtensions"));
         // ServiceWorkerRegistration via the serviceWorker getter on this navigator.
         assert!(SHIM_JS.contains("Object.defineProperty(navigator, 'serviceWorker'"));
         // The native function is an argument (nothing global to call or delete).
