@@ -231,6 +231,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "historySearch",
     "let",
     "new",
+    "notifications",
     "openExternal",
     "popupOpen",
     "popupSearch",
@@ -508,6 +509,8 @@ pub struct Keys {
     pub buffers: crate::buffers::Buffers,
     /// C-BELL: the visual bell (`notify.rs`).
     pub bell: crate::notify::Bell,
+    /// C-NOTIFLIST: this session's notifications (`notify.rs`), oldest first.
+    pub notices: crate::notify::Notices,
     /// C-AUTOFOCUS: when NORMAL last gave the page a key (Enter, T19; the T18 find+Enter, from the real
     /// press): a field focused soon after is the user's doing.
     page_key_at: Option<Instant>,
@@ -530,6 +533,7 @@ impl Keys {
             picker: None,
             buffers: crate::buffers::Buffers::new(),
             bell: Default::default(),
+            notices: Default::default(),
             page_key_at: None,
             gi_at: None,
             gi_waiting: false,
@@ -1251,6 +1255,8 @@ impl Keys {
             ("bufferPrev", []) | ("bp", []) => self.buffer_step(-1),
             ("bufferKill", rest) | ("bd", rest) => self.buffer_kill(rest),
             ("bufferDescribe", rest) => self.buffer_describe(rest),
+            // C-NOTIFLIST (KEYS.md "Notifications").
+            ("notifications", rest) => self.notifications(&rest.join(" ")),
             // C-POPUPS (KEYS.md "Popups").
             ("popupOpen", rest) => self.popup_open(rest),
             ("popupSearch", rest) => self.popup_search(&rest.join(" ")),

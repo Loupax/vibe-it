@@ -47,6 +47,8 @@ pub enum PickAction {
     Buffer(u32),
     /// Open the current buffer's blocked popup with this number (C-POPUPS, `:popupSearch`).
     Popup(u32),
+    /// Show the buffer of notification `id` (or reopen its page) and mark it read (C-NOTIFLIST).
+    Notice(u64),
 }
 
 /// One row of a source: what is drawn (the label, then the dimmed detail), what the filter is
@@ -526,6 +528,7 @@ impl Keys {
                 }
             }
             PickAction::Popup(n) => self.popup_open_n(n),
+            PickAction::Notice(id) => self.notice_open(id),
         }
     }
 
@@ -548,6 +551,7 @@ impl Keys {
                 PickAction::Open(u) => u.clone(),
                 PickAction::Buffer(n) => format!("buffer {n}"),
                 PickAction::Popup(n) => format!("popup {n}"),
+                PickAction::Notice(id) => format!("notice {id}"),
             })
             .unwrap_or_default();
         let at = if p.match_count() == 0 { 0 } else { p.selected + 1 };

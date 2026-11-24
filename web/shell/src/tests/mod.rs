@@ -20,6 +20,7 @@ mod c_focuskeys_tests;
 mod c_keymap_tests;
 mod c_newbuf_tests;
 mod c_normalmods_tests;
+mod c_notiflist_tests;
 mod c_pick_tests;
 mod c_popups_tests;
 mod completion_tests;

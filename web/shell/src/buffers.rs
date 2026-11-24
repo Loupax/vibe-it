@@ -355,6 +355,7 @@ impl Keys {
         self.buffers.current = num;
         // C-BELL: shown, so its notifications are read.
         self.buffers.current_mut().unread.clear();
+        self.notices.read_buffer(num);
         let b = self.buffers.current().clone();
         self.url = b.url;
         self.title = b.title;

@@ -8,8 +8,9 @@
 
 use std::time::{Duration, Instant};
 
-use crate::config::{BELL_FLASH_MS, BELL_MIN_INTERVAL_MS, NOTIFY_UNREAD_MAX};
+use crate::config::{BELL_FLASH_MS, BELL_MIN_INTERVAL_MS, NOTIFY_LIST_MAX, NOTIFY_UNREAD_MAX};
 use crate::keys::Keys;
+use crate::picker::{PickAction, Row};
 
 /// One notification as the host sent it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -72,17 +73,129 @@ impl Keys {
     /// one is on screen, so it does not. Returns false when no buffer has that page (killed): no bell.
     pub fn notified(&mut self, tab: u64, note: Note) -> bool {
         let current = self.buffers.current_tab() == Some(tab);
+        self.save_current();
         let Some(b) = self.buffers.by_tab_mut(tab) else {
             return false;
         };
+        let (num, url) = (b.num, b.url.clone());
         if !current {
-            add_unread(&mut b.unread, note);
+            add_unread(&mut b.unread, note.clone());
         }
+        // C-NOTIFLIST: the session's list; one of the shown buffer is on screen, so already read.
+        self.notices.push(num, url, note, !current);
         true
     }
 
     /// How many buffers have unread notifications (the bar's `[N!]`).
     pub fn unread_buffers(&self) -> usize {
         self.buffers.list.iter().filter(|b| !b.unread.is_empty()).count()
+    }
+}
+
+/// C-NOTIFLIST: one entry of `:notifications`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notice {
+    pub id: u64,
+    /// The number of the buffer whose page showed it.
+    pub buffer: u32,
+    /// That buffer's URL then (reopened when the buffer is gone), else the notifier's origin.
+    pub url: String,
+    pub note: Note,
+    pub unread: bool,
+}
+
+/// This session's notifications, oldest first, at most `NOTIFY_LIST_MAX`.
+#[derive(Debug, Default, Clone)]
+pub struct Notices {
+    pub list: Vec<Notice>,
+    next_id: u64,
+}
+
+impl Notices {
+    pub fn push(&mut self, buffer: u32, url: String, note: Note, unread: bool) {
+        self.next_id += 1;
+        let url = if url.is_empty() { note.origin.clone() } else { url };
+        self.list.push(Notice {
+            id: self.next_id,
+            buffer,
+            url,
+            note,
+            unread,
+        });
+        if self.list.len() > NOTIFY_LIST_MAX {
+            let extra = self.list.len() - NOTIFY_LIST_MAX;
+            self.list.drain(..extra);
+        }
+    }
+
+    /// Buffer `num` was shown: its notifications are read.
+    pub fn read_buffer(&mut self, num: u32) {
+        for n in self.list.iter_mut().filter(|n| n.buffer == num) {
+            n.unread = false;
+        }
+    }
+}
+
+/// What `:notifications` says with nothing to list.
+pub const NONE_YET: &str = "web: no notifications this session";
+
+/// `:notifications`' rows, newest first: label `N title` (`N!` while unread), detail the body, the
+/// hostname and `(closed)` when the buffer is gone; matched on the title, body and hostname.
+pub fn rows(notices: &Notices, buffers: &crate::buffers::Buffers) -> Vec<Row> {
+    notices
+        .list
+        .iter()
+        .rev()
+        .map(|n| {
+            let host = url::Url::parse(&n.note.origin)
+                .ok()
+                .or_else(|| url::Url::parse(&n.url).ok())
+                .and_then(|u| u.host_str().map(str::to_string))
+                .unwrap_or_default();
+            let closed = if buffers.get(n.buffer).is_none() { "(closed)" } else { "" };
+            let bang = if n.unread { "!" } else { "" };
+            let detail = [n.note.body.as_str(), host.as_str(), closed]
+                .iter()
+                .filter(|f| !f.is_empty())
+                .copied()
+                .collect::<Vec<_>>()
+                .join("  ");
+            Row {
+                label: format!("{}{bang} {}", n.buffer, n.note.title),
+                detail,
+                fields: vec![n.note.title.clone(), n.note.body.clone(), host],
+                action: PickAction::Notice(n.id),
+            }
+        })
+        .collect()
+}
+
+impl Keys {
+    /// `:notifications [filter]` (T112): the picker over this session's notifications.
+    pub fn notifications(&mut self, filter: &str) {
+        self.save_current();
+        let rows = rows(&self.notices, &self.buffers);
+        self.open_picker("notifications", rows, filter, NONE_YET);
+    }
+
+    /// Enter on a notification (T113): it is read; its buffer is shown, or, when that buffer is gone,
+    /// its page is opened in a new one (as `:new <url>`), with a message saying so.
+    pub fn notice_open(&mut self, id: u64) {
+        let Some(n) = self.notices.list.iter_mut().find(|n| n.id == id) else {
+            return;
+        };
+        n.unread = false;
+        let (buffer, url) = (n.buffer, n.url.clone());
+        if self.buffers.get(buffer).is_some() {
+            self.switch_to(buffer);
+            return;
+        }
+        if url.is_empty() {
+            self.message = format!("web: buffer {buffer} is closed and the notification has no page URL");
+            return;
+        }
+        let num = self.open_buffer(&url);
+        self.notices.read_buffer(buffer);
+        self.message = format!("buffer {buffer} is closed: reopened {url} as buffer {num}");
     }
 }
