@@ -14,7 +14,8 @@ use smithay::input::keyboard::{Keysym, ModifiersState};
 
 use crate::completion::{compute_ghost, CompleteCache, ExtResult, ExtSink, Ghost};
 use crate::config::{
-    ScrollInput, BINDINGS, CLICK_FOCUS_MS, ESC_ESC_MS, KEY_REPEAT_DELAY_MS, KEY_REPEAT_RATE, KEY_SEQUENCES, SCROLL_INPUTS, START_MODE,
+    ScrollInput, BINDINGS, CLICK_FOCUS_MS, ESC_ESC_MS, KEY_REPEAT_DELAY_MS, KEY_REPEAT_RATE, KEY_SEQUENCES, MAP_TIMEOUT_MS, SCROLL_INPUTS,
+    START_MODE,
 };
 use crate::protocol::{Command, FieldWhich, FindDir};
 
@@ -199,6 +200,156 @@ pub fn resolve_sequence(pending: Option<char>, key: &KeyInput) -> (Option<Action
     match KEY_SEQUENCES.iter().find(|r| r.first == c) {
         Some(row) => (None, Some(row.first), true),
         None => (None, None, false),
+    }
+}
+
+// ---------- user mappings (C-SCRIPT-MAP, SCRIPTING.md "web.map") ----------
+
+/// One key of a `web.map` mapping: the character it types (Shift and the layout applied, as
+/// `KeyInput::ch`) and whether Ctrl is held. A letter under Ctrl is kept in lower case, so
+/// `<C-x>` is also Ctrl-Shift-x (vim cannot tell them apart either).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MapKey {
+    pub ch: char,
+    pub ctrl: bool,
+}
+
+impl MapKey {
+    fn new(ch: char, ctrl: bool) -> MapKey {
+        let ch = if ctrl { ch.to_ascii_lowercase() } else { ch };
+        MapKey { ch, ctrl }
+    }
+
+    /// The mapping key a press is, if any: one with a character and no Alt/Super. Escape, arrows,
+    /// Enter, ... are none, so they never match (and Esc can never be mapped).
+    pub fn from_input(key: &KeyInput) -> Option<MapKey> {
+        if key.alt || key.logo {
+            return None;
+        }
+        key.ch.map(|c| MapKey::new(c, key.ctrl))
+    }
+}
+
+/// A modifier key's own press (Shift_L, Control_R, ISO_Level3_Shift, ...): it never takes part in
+/// a mapping, so holding Shift for the `T` of `gT` does not break the sequence.
+pub fn is_modifier_sym(sym: Keysym) -> bool {
+    let raw = sym.raw();
+    (0xffe1..=0xffee).contains(&raw) || (0xfe01..=0xfe13).contains(&raw)
+}
+
+/// `web.map`'s `keys` (vim's notation): a character stands for itself, `<C-x>` is Ctrl with `x`,
+/// `<lt>` is `<` (names are case-insensitive). Anything else in `<...>`, a `<` with no `>`, or no
+/// key at all is an error.
+pub fn parse_map_keys(keys: &str) -> Result<Vec<MapKey>, String> {
+    const KNOWN: &str = "characters, <C-x>, <lt>";
+    let mut out = Vec::new();
+    let mut rest = keys;
+    while let Some(c) = rest.chars().next() {
+        if c == '<' {
+            let Some(end) = rest.find('>') else {
+                return Err(format!("web.map: a lone '<' in {keys:?} (write <lt> for '<')"));
+            };
+            let name = &rest[1..end];
+            let mut chars = name.chars();
+            match (chars.next(), chars.next(), chars.next(), chars.next()) {
+                _ if name.eq_ignore_ascii_case("lt") => out.push(MapKey::new('<', false)),
+                (Some('c' | 'C'), Some('-'), Some(x), None) if !x.is_control() => out.push(MapKey::new(x, true)),
+                _ => return Err(format!("web.map: unknown key <{name}> in {keys:?} (known: {KNOWN})")),
+            }
+            rest = &rest[end + 1..];
+        } else {
+            if c.is_control() {
+                return Err(format!("web.map: a control character in {keys:?} (known: {KNOWN})"));
+            }
+            out.push(MapKey::new(c, false));
+            rest = &rest[c.len_utf8()..];
+        }
+    }
+    if out.is_empty() {
+        return Err("web.map: no keys to map".to_string());
+    }
+    Ok(out)
+}
+
+/// A string `rhs` of `web.map`: one `:` line (SCRIPTING.md; DECISIONS.md 2026-11-24 "A mapping's
+/// `:` line runs with `<CR>`").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MapLine {
+    /// The line's text, without the leading `:`, `<lt>` already `<`, without the `<CR>`.
+    pub text: String,
+    /// It ended in `<CR>` (`<Enter>`, `<Return>`; any case): it runs. Otherwise the `:` line opens
+    /// with `text` typed.
+    pub run: bool,
+}
+
+/// Parses a string `rhs`. It must start with `:`; `<CR>` (`<Enter>`, `<Return>`) only at the very
+/// end; `<lt>` is `<`; any other `<...>`, a `<` with no `>`, or a `<CR>` before the end is an error.
+pub fn parse_map_rhs(rhs: &str) -> Result<MapLine, String> {
+    let Some(body) = rhs.strip_prefix(':') else {
+        return Err(format!(
+            "web.map: a string rhs is a ':' line, {rhs:?} does not start with ':' (or pass a function)"
+        ));
+    };
+    let mut text = String::new();
+    let mut rest = body;
+    while let Some(c) = rest.chars().next() {
+        if c != '<' {
+            text.push(c);
+            rest = &rest[c.len_utf8()..];
+            continue;
+        }
+        let Some(end) = rest.find('>') else {
+            return Err(format!("web.map: a lone '<' in {rhs:?} (write <lt> for '<')"));
+        };
+        let name = &rest[1..end];
+        rest = &rest[end + 1..];
+        if name.eq_ignore_ascii_case("lt") {
+            text.push('<');
+        } else if ["cr", "enter", "return"].iter().any(|k| name.eq_ignore_ascii_case(k)) {
+            if !rest.is_empty() {
+                return Err(format!(
+                    "web.map: <{name}> only at the end of {rhs:?} (one ':' line per mapping; for more, pass a function)"
+                ));
+            }
+            return Ok(MapLine { text, run: true });
+        } else {
+            return Err(format!(
+                "web.map: <{name}> in {rhs:?}: a mapping types no keys (only <CR> at the end, <lt> for '<')"
+            ));
+        }
+    }
+    Ok(MapLine { text, run: false })
+}
+
+/// What the keys pending so far do (`resolve_mapping`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapStep {
+    /// They are the start of a longer mapping: wait for the next key (up to `MAP_TIMEOUT_MS`).
+    Wait,
+    /// Mapping `index` matches the first `len` of them: run it; the rest are handled after.
+    Fire { index: usize, len: usize },
+    /// No mapping: the first one is handled as without mappings; the rest are matched again.
+    Replay,
+}
+
+/// The pending-sequence matcher (vim's): `typed` are the pending keys (`None` = a key no mapping
+/// can hold), `maps` every mapping's keys. While `can_wait` and `typed` is a proper prefix of some
+/// mapping: `Wait`. Else the longest mapping `typed` starts with fires; else the first key is
+/// replayed. A timeout is the same call with `can_wait` false.
+pub fn resolve_mapping<'a>(typed: &[Option<MapKey>], maps: impl Iterator<Item = &'a [MapKey]> + Clone, can_wait: bool) -> MapStep {
+    let starts = |m: &[MapKey], t: &[Option<MapKey>]| t.len() <= m.len() && t.iter().zip(m).all(|(t, m)| *t == Some(*m));
+    if can_wait && maps.clone().any(|m| m.len() > typed.len() && starts(m, typed)) {
+        return MapStep::Wait;
+    }
+    let mut best: Option<(usize, usize)> = None;
+    for (i, m) in maps.enumerate() {
+        if m.len() <= typed.len() && starts(m, &typed[..m.len()]) && best.is_none_or(|(_, len)| m.len() > len) {
+            best = Some((i, m.len()));
+        }
+    }
+    match best {
+        Some((index, len)) => MapStep::Fire { index, len },
+        None => MapStep::Replay,
     }
 }
 
@@ -522,6 +673,22 @@ pub struct Keys {
     gi_waiting: bool,
     /// C-SCRIPT: the user's scripts (`script.rs`); None until a file exists.
     pub scripts: Option<crate::script::Scripts>,
+    /// C-SCRIPT-MAP: NORMAL key presses held back because they start a user mapping, oldest first,
+    /// and when the wait for the next key ends (`MAP_TIMEOUT_MS`). Empty while no mapping is typed.
+    map_pending: Vec<PendingKey>,
+    map_deadline: Option<Instant>,
+    /// A mapping timer is running (set by the compositor, `State::arm_map_timer`).
+    pub map_armed: bool,
+}
+
+/// C-SCRIPT-MAP: a key press waiting in `Keys::map_pending`. `live`: the press being handled right
+/// now (its return value says whether the page gets it); a press held back from an earlier event
+/// can no longer go to the page.
+#[derive(Clone, Copy, Debug)]
+struct PendingKey {
+    code: u32,
+    key: KeyInput,
+    live: bool,
 }
 
 impl Keys {
@@ -542,6 +709,9 @@ impl Keys {
             gi_at: None,
             gi_waiting: false,
             scripts: None,
+            map_pending: Vec::new(),
+            map_deadline: None,
+            map_armed: false,
             line: TextEditBuffer::default(),
             ghost: None,
             cache: CompleteCache::new(state_dir.clone()),
@@ -613,6 +783,7 @@ impl Keys {
         }
         self.esc = EscState::Idle;
         self.pending_seq = None;
+        self.drop_map_pending();
         self.repeating = None;
         (pressed, ours)
     }
@@ -682,7 +853,7 @@ impl Keys {
                     VimMode::Command => self.command_line_key(key),
                     VimMode::Search => self.search_line_key(key),
                     VimMode::Pick => self.pick_key(key),
-                    VimMode::Normal => return self.normal_key(code, key, repeat, now),
+                    VimMode::Normal => return self.normal_key_mapped(code, key, repeat, now),
                 }
                 false
             }
@@ -694,6 +865,176 @@ impl Keys {
                     return false;
                 }
                 true
+            }
+        }
+    }
+
+    /// C-SCRIPT-MAP: a NORMAL key press with the user's mappings in front of `normal_key`
+    /// (SCRIPTING.md "web.map"). With no mapping defined it is exactly `normal_key`. So it is for a
+    /// modifier key's own press (Shift for the `T` of `gT` does not break a sequence), for an OS
+    /// repeat with nothing pending, and for the key after a half-typed built-in sequence (`g`, `y`):
+    /// that one takes its second key unmapped, as vim reads the second key of `gg` with mappings
+    /// off. Otherwise the press joins the pending keys and `resolve_mapping` decides: wait, run a
+    /// mapping, or hand the first key to `normal_key` as if no mapping existed (the rest are matched
+    /// again).
+    fn normal_key_mapped(&mut self, code: u32, key: &KeyInput, repeat: bool, now: Instant) -> bool {
+        if !self.scripts.as_ref().is_some_and(|s| s.has_maps()) {
+            return self.normal_key(code, key, repeat, now);
+        }
+        // A wait that ran out before the timer fired (or the tests' clock): its keys go first.
+        if self.map_deadline.is_some_and(|d| now >= d) {
+            self.flush_map_pending(now);
+        }
+        let idle = self.map_pending.is_empty();
+        if idle && (self.pending_seq.is_some() || repeat || is_modifier_sym(key.sym)) {
+            return self.normal_key(code, key, repeat, now);
+        }
+        if is_modifier_sym(key.sym) {
+            // Shift for the `T` of `gT`: waits in line but never takes part in a match, and it is
+            // handled in its turn if the keys before it are replayed (`normal_key` gives a
+            // modifier's press nothing but the end of a half-typed `g`, as without mappings).
+            self.map_pending.push(PendingKey {
+                code,
+                key: *key,
+                live: false,
+            });
+            return false;
+        }
+        if repeat {
+            // An OS repeat ends the wait (the key is held, not typed again): the pending keys are
+            // handled at once, then the repeat as without mappings.
+            self.flush_map_pending(now);
+            return self.normal_key(code, key, repeat, now);
+        }
+        self.map_pending.push(PendingKey {
+            code,
+            key: *key,
+            live: true,
+        });
+        let forward = self.drain_map_pending(now, true);
+        for p in &mut self.map_pending {
+            p.live = false;
+        }
+        forward
+    }
+
+    /// The mapping wait ran out: the pending keys are handled without waiting further.
+    fn flush_map_pending(&mut self, now: Instant) {
+        self.drain_map_pending(now, false);
+    }
+
+    /// Resolves `map_pending` from the front until it is empty or waits for more (`can_wait`).
+    /// Returns whether the page gets the live press.
+    fn drain_map_pending(&mut self, now: Instant, can_wait: bool) -> bool {
+        let mut forward = false;
+        self.map_deadline = None;
+        while !self.map_pending.is_empty() {
+            let normal = self.key_mode == KeyMode::Normal && self.vim_mode == VimMode::Normal;
+            // A mapping or a replayed key left NORMAL (opened the `:` line, ...): the keys typed
+            // after it go where they would have gone (into the line), in order. A replayed key that
+            // armed a built-in sequence: the next key completes it, unmapped.
+            if !normal || self.pending_seq.is_some() || is_modifier_sym(self.map_pending[0].key.sym) {
+                let p = self.map_pending.remove(0);
+                let f = if normal {
+                    self.normal_key(p.code, &p.key, false, now)
+                } else {
+                    self.press(p.code, &p.key, false, now)
+                };
+                forward |= self.settle_replayed(p, f);
+                continue;
+            }
+            let typed: Vec<Option<MapKey>> = self
+                .map_pending
+                .iter()
+                .filter(|p| !is_modifier_sym(p.key.sym))
+                .map(|p| MapKey::from_input(&p.key))
+                .collect();
+            let step = match self.scripts.as_ref() {
+                Some(s) => s.resolve_map(&typed, can_wait),
+                None => MapStep::Replay,
+            };
+            match step {
+                MapStep::Wait => {
+                    self.map_deadline = Some(now + Duration::from_millis(MAP_TIMEOUT_MS));
+                    break;
+                }
+                MapStep::Fire { index, len } => {
+                    // The mapping's keys and the modifier presses among them.
+                    let mut keys = 0;
+                    while keys < len && !self.map_pending.is_empty() {
+                        let p = self.map_pending.remove(0);
+                        if !is_modifier_sym(p.key.sym) {
+                            keys += 1;
+                        }
+                    }
+                    self.run_mapping(index);
+                }
+                MapStep::Replay => {
+                    let p = self.map_pending.remove(0);
+                    let f = self.normal_key(p.code, &p.key, false, now);
+                    forward |= self.settle_replayed(p, f);
+                }
+            }
+        }
+        forward
+    }
+
+    /// After a pending key was handled: whether the page gets it (only the live press can go to the
+    /// page), and a key released while it waited lets go of what its binding holds (a scroll key).
+    fn settle_replayed(&mut self, p: PendingKey, forward: bool) -> bool {
+        if p.live {
+            return forward;
+        }
+        if !self.down.contains(&p.code) {
+            let mut i = 0;
+            while i < self.held.len() {
+                if self.held[i].0 == p.code {
+                    let (_, synth) = self.held.remove(i);
+                    self.effects.push(Effect::KeyUp(synth));
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        false
+    }
+
+    /// Mode changes and focus loss drop the keys waiting for a mapping (as they drop a pending `g`).
+    fn drop_map_pending(&mut self) {
+        self.map_pending.clear();
+        self.map_deadline = None;
+    }
+
+    /// Whether keys wait for a mapping, and for how long (the compositor's timer).
+    pub fn map_wait(&self, now: Instant) -> Option<Duration> {
+        self.map_deadline.map(|d| d.saturating_duration_since(now))
+    }
+
+    /// The compositor's mapping timer: when the wait has run out, the pending keys are handled as
+    /// without the longer mapping. Returns the wait left, None when nothing waits any more.
+    pub fn map_tick(&mut self, now: Instant) -> Option<Duration> {
+        let d = self.map_deadline?;
+        if now < d {
+            return Some(d - now);
+        }
+        self.flush_map_pending(now);
+        self.map_wait(now)
+    }
+
+    /// Runs mapping `index`'s rhs: a `:` line (runs with `<CR>`, else opens the line with it typed)
+    /// or a function (a call into JS under `SCRIPT_BUDGET_MS`).
+    fn run_mapping(&mut self, index: usize) {
+        let Some(s) = self.scripts.as_mut() else { return };
+        let Some((keys, rhs)) = s.map_rhs(index) else { return };
+        match rhs {
+            crate::script::MapRhs::Line(MapLine { text, run: true }) => {
+                self.effects.push(Effect::Log(format!("map {keys}: :{text}")));
+                self.run_command_line(&text);
+            }
+            crate::script::MapRhs::Line(MapLine { text, run: false }) => self.open_line_with(&text),
+            crate::script::MapRhs::Func(f) => {
+                let r = s.call_map(f);
+                self.finish_script_call(r);
             }
         }
     }
@@ -774,6 +1115,9 @@ impl Keys {
         self.key_mode = mode;
         self.esc = EscState::Idle;
         self.pending_seq = None;
+        if mode == KeyMode::Input {
+            self.drop_map_pending();
+        }
         if mode == KeyMode::Input && self.vim_mode != VimMode::Normal {
             self.close_line();
         }
@@ -1173,7 +1517,9 @@ impl Keys {
         Ok(url)
     }
 
-    /// Opens the `:` line with `text` already typed (`:new` without an argument types `go `).
+    /// Opens the `:` line with `text` already typed (`:new` without an argument types `go `; a
+    /// `web.map` string rhs without `<CR>`, C-SCRIPT-MAP). C-EDITURL's fill-in (the page's URL after
+    /// `go ` and the other URL commands, selected) belongs here, so both of those get it.
     pub fn open_line_with(&mut self, text: &str) {
         self.open_line();
         self.line.insert_str(text);

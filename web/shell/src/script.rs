@@ -2,7 +2,7 @@
 //!
 //! QuickJS (rquickjs) with no `std`/`os` modules, no module loader and no timers. Every file is
 //! evaluated as one classic script in strict mode, all in one context. The only thing a script sees
-//! is the global `web`: `web.cmd`, `web.command`, `web.on("ready")`.
+//! is the global `web`: `web.cmd`, `web.command`, `web.map` (C-SCRIPT-MAP), `web.on("ready")`.
 //!
 //! Re-entrancy: no JS function ever holds a borrow of the shell. `web.cmd(line)` only appends the
 //! line to a queue (a `RefCell` borrowed for the push and nothing else); after each call into JS
@@ -24,7 +24,7 @@ use rquickjs::context::EvalOptions;
 use rquickjs::{Context, Ctx, Exception, Function, Object, Persistent, Runtime, Value};
 
 use crate::config::{SCRIPT_BUDGET_MS, SCRIPT_DEPTH_MAX};
-use crate::keys::{Effect, Keys};
+use crate::keys::{parse_map_keys, parse_map_rhs, resolve_mapping, Effect, Keys, MapKey, MapLine, MapStep};
 
 /// One script to load: where it is and the name errors give it (`init.js`, or a profile's path).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,12 +72,30 @@ pub struct CallResult {
     pub error: Option<ScriptError>,
 }
 
+/// C-SCRIPT-MAP: what a mapping does (SCRIPTING.md "web.map").
+#[derive(Clone)]
+pub enum MapRhs {
+    /// A `:` line: runs with `<CR>`, else opens the `:` line with it typed.
+    Line(MapLine),
+    /// A function, called with no arguments.
+    Func(Persistent<Function<'static>>),
+}
+
+/// One `web.map("n", keys, rhs)`: the keys as written (for the log) and parsed.
+struct Mapping {
+    notation: String,
+    keys: Vec<MapKey>,
+    rhs: MapRhs,
+}
+
 /// What the scripts registered (shared with the `web` functions; borrowed only for a push or a lookup).
 #[derive(Default)]
 struct Registry {
     queue: Vec<String>,
     commands: BTreeMap<String, Persistent<Function<'static>>>,
     ready: Vec<Persistent<Function<'static>>>,
+    /// NORMAL-mode mappings, in the order made (mapping the same keys again replaces in place).
+    maps: Vec<Mapping>,
 }
 
 /// The QuickJS runtime and its one context.
@@ -107,6 +125,7 @@ impl Drop for Scripts {
         let mut r = self.reg.borrow_mut();
         r.commands.clear();
         r.ready.clear();
+        r.maps.clear();
     }
 }
 
@@ -184,6 +203,28 @@ impl Scripts {
         self.call(&label, move |ctx| f.restore(ctx)?.call::<_, Value>((args,)).map(|_| ()))
     }
 
+    /// C-SCRIPT-MAP: whether any NORMAL mapping exists (with none, keys go straight to the bindings).
+    pub fn has_maps(&self) -> bool {
+        !self.reg.borrow().maps.is_empty()
+    }
+
+    /// `resolve_mapping` over the mappings.
+    pub fn resolve_map(&self, typed: &[Option<MapKey>], can_wait: bool) -> MapStep {
+        let r = self.reg.borrow();
+        resolve_mapping(typed, r.maps.iter().map(|m| m.keys.as_slice()), can_wait)
+    }
+
+    /// Mapping `index`'s keys (as written) and what it does.
+    pub fn map_rhs(&self, index: usize) -> Option<(String, MapRhs)> {
+        self.reg.borrow().maps.get(index).map(|m| (m.notation.clone(), m.rhs.clone()))
+    }
+
+    /// Calls a mapping's function (no arguments).
+    pub fn call_map(&mut self, f: Persistent<Function<'static>>) -> CallResult {
+        let label = self.fallback.clone();
+        self.call(&label, move |ctx| f.restore(ctx)?.call::<_, Value>(()).map(|_| ()))
+    }
+
     /// The `ready` handlers in order (the event fires once: later calls give nothing).
     pub fn take_ready(&mut self) -> (Vec<String>, Vec<Persistent<Function<'static>>>) {
         if self.ready_fired {
@@ -240,7 +281,41 @@ impl Scripts {
     }
 }
 
-/// `web` and its three functions on the global object.
+/// `web.map(mode, keys, rhs)`: checks everything at map time (an error throws, so it shows as
+/// `init.js:LINE: web.map: ...`) and stores the mapping, replacing one with the same keys.
+fn web_map<'js>(ctx: &Ctx<'js>, reg: &Rc<RefCell<Registry>>, mode: String, keys: String, rhs: Value<'js>) -> rquickjs::Result<()> {
+    if mode != "n" {
+        return Err(Exception::throw_type(
+            ctx,
+            &format!("web.map: unknown mode {mode:?} (known: \"n\")"),
+        ));
+    }
+    let parsed = parse_map_keys(&keys).map_err(|m| Exception::throw_type(ctx, &m))?;
+    let rhs = if let Some(f) = rhs.as_function() {
+        MapRhs::Func(Persistent::save(ctx, f.clone()))
+    } else if let Some(s) = rhs.as_string() {
+        let s = s.to_string()?;
+        MapRhs::Line(parse_map_rhs(&s).map_err(|m| Exception::throw_type(ctx, &m))?)
+    } else {
+        return Err(Exception::throw_type(
+            ctx,
+            &format!("web.map: rhs must be a ':' line or a function, not {}", rhs.type_name()),
+        ));
+    };
+    let mut r = reg.borrow_mut();
+    let mapping = Mapping {
+        notation: keys,
+        keys: parsed,
+        rhs,
+    };
+    match r.maps.iter_mut().find(|m| m.keys == mapping.keys) {
+        Some(old) => *old = mapping,
+        None => r.maps.push(mapping),
+    }
+    Ok(())
+}
+
+/// `web` and its functions on the global object.
 fn install_web<'js>(ctx: &Ctx<'js>, reg: &Rc<RefCell<Registry>>) -> rquickjs::Result<()> {
     let web = Object::new(ctx.clone())?;
     let r = reg.clone();
@@ -265,6 +340,13 @@ fn install_web<'js>(ctx: &Ctx<'js>, reg: &Rc<RefCell<Registry>>) -> rquickjs::Re
             let f = Persistent::save(&ctx, f);
             r.borrow_mut().commands.insert(name, f);
             Ok(())
+        })?,
+    )?;
+    let r = reg.clone();
+    web.set(
+        "map",
+        Function::new(ctx.clone(), move |ctx: Ctx<'js>, mode: String, keys: String, rhs: Value<'js>| {
+            web_map(&ctx, &r, mode, keys, rhs)
         })?,
     )?;
     let r = reg.clone();
@@ -450,7 +532,7 @@ impl Keys {
     }
 
     /// After a call into JS: its error, then the lines it queued.
-    fn finish_script_call(&mut self, r: CallResult) {
+    pub(crate) fn finish_script_call(&mut self, r: CallResult) {
         if let Some(e) = r.error {
             self.script_error(e);
         }

@@ -159,6 +159,32 @@ impl crate::state::State {
         self.keys.repeat_armed = armed.is_ok();
     }
 
+    /// C-SCRIPT-MAP: after a key event, starts the timer that ends the wait for the rest of a user
+    /// mapping (`MAP_TIMEOUT_MS`); the pending keys are then handled as without it. One timer at a
+    /// time; it follows a deadline moved by later keys and ends itself when nothing waits.
+    pub fn arm_map_timer(&mut self) {
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        if self.keys.map_armed {
+            return;
+        }
+        let Some(wait) = self.keys.map_wait(Instant::now()) else {
+            return;
+        };
+        let armed = self.loop_handle.insert_source(Timer::from_duration(wait), |_, _, state| {
+            let left = state.keys.map_tick(Instant::now());
+            let time = state.log_ms() as u32;
+            state.apply_key_effects(time);
+            match left {
+                Some(wait) => TimeoutAction::ToDuration(wait),
+                None => {
+                    state.keys.map_armed = false;
+                    TimeoutAction::Drop
+                }
+            }
+        });
+        self.keys.map_armed = armed.is_ok();
+    }
+
     /// The desktop's active layout group (index into the keymap's layouts) goes to the seat.
     pub fn set_desktop_group(&mut self, group: u32) {
         use smithay::input::keyboard::Layout;

@@ -2,6 +2,37 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-24 Key mappings: vim's matcher, in front of the built-in keys (C-SCRIPT-MAP)
+
+The implementer's choices (C-SCRIPT-MAP), not asked; KEYS.md T118-T124.
+
+- **Zero cost without mappings.** The matcher (`Keys::normal_key_mapped`, keys.rs) is skipped
+  entirely while no `web.map` exists, so NORMAL is the old code path; with mappings, a key that
+  starts none of them goes to that path at once. Tests replay key streams (gg, gi, yy, Ctrl-^, held
+  `j`, Esc Esc, the lines, a pseudo-random stream) against a shell without scripts, one with a script
+  but no mapping, and one with unrelated mappings, and require the same effects, page deliveries and
+  modes after every event (c_script_map_tests.rs).
+- **The built-in two-key sequences keep their own machine.** KEY_SEQUENCES has no timer (a lone
+  `g` waits forever); the mapping matcher sits in front of it with its own `MAP_TIMEOUT_MS`, and
+  replays a pending key into the unchanged `resolve_sequence`. Unifying them would have changed
+  when a lone `g` expires.
+- **The second key of a half-typed built-in sequence is not mapped**, as vim reads a command's
+  second key (`gg`'s) with mappings off. So mapping `gh` leaves `gg`, `gi` exactly as they were,
+  not delayed; mapping `gg` itself replaces it (a mapping takes precedence over the sequence).
+- **vim's resolution**: keys that start a longer mapping wait; a key that continues none (or the
+  timeout) runs the longest mapping the pending keys start with, else hands the first one to the
+  built-in keys and matches the rest again. A replayed key cannot reach the page any more (its
+  event is gone); a scroll key it holds is let go at once if the key was released meanwhile.
+- **Modifier presses are ignored by the matcher** (Shift for the `T` of `gT`), but stay in line
+  and are replayed in order, so a replayed `g` followed by Shift behaves as it does today (Shift ends
+  a pending `g`).
+- **An OS repeat ends the wait** (a held key is not typed again). Keys after a mapping that opened
+  the `:` line go into the line, in order (vim's typeahead). INPUT or focus loss drops pending keys.
+- **No guard on `:`** (PR #735's question): a mapping of `:` hides the command line, as in vim.
+  Esc cannot be expressed in the notation, so Esc Esc and the line's Esc cannot be lost.
+- C-EDITURL's fill-in goes into `Keys::open_line_with`, the one place a line opens with text
+  (`:new` with no argument and a mapping without `<CR>`).
+
 ## 2026-11-24 A mapping's `:` line runs with `<CR>`, otherwise it opens the line (vim's contract)
 
 User: "I think we could have both 'prefill a command' and 'run a command' use the exact same interface";

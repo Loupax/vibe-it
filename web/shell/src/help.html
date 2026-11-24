@@ -71,6 +71,14 @@ switch back; press <code>Esc</code> twice.</li>
 it would for that key. The keys are the <code>BINDINGS</code> and
 <code>SCROLL_INPUTS</code> tables in <code>web/shell/src/config.rs</code>, with
 the timing next to them. There is no config file: edit that file and rebuild.</p>
+<p>Your own keys: <code>web.map("n", keys, rhs)</code> in <code>~/.config/web/init.js</code>
+maps keys in this mode, in vim's notation (<code>"gh"</code>, <code>"&lt;C-x&gt;"</code>,
+<code>"&lt;lt&gt;"</code> for <code>&lt;</code>). The rhs is a <code>:</code> line or a function:
+<code>web.map("n", "gh", ":go https://example.com&lt;CR&gt;")</code> runs the line;
+without the final <code>&lt;CR&gt;</code>, <code>web.map("n", "ge", ":go ")</code> opens the command
+line with that text typed. A mapping wins over the keys above (even <code>:</code>, as in vim; Esc
+cannot be mapped). While the keys typed are the start of a longer mapping, web waits up to
+<code>MAP_TIMEOUT_MS</code> (1 s) for the next one, then handles them as without the mapping.</p>
 
 <h2>Command line</h2>
 <p>In NORMAL mode press <code>:</code>, type a command, then <code>Enter</code>
