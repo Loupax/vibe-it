@@ -2,6 +2,19 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-24 Script heap limit and unhandled rejections (C-SCRIPT-MEM)
+
+- `SCRIPT_MEMORY_MAX` = 64 MiB through `Runtime::set_memory_limit`, no GC threshold change. A config script
+  holds kilobytes, so 64 MiB is far above any use and far below what the 100 ms budget alone let a loop take
+  (hundreds of MB). QuickJS raises a catchable `InternalError: out of memory`; the call fails like any
+  script error. After a failed call the shell runs `run_gc` so cycles from the aborted allocation are freed;
+  the runtime stays usable (tests: the same allocating command fails the same way twice, small ones work).
+- Unhandled rejections use rquickjs's host promise rejection tracker: a rejection with no handler is
+  recorded, a later `handled` notification removes it (by the promise's address), and what is left after the
+  call and its pending jobs ran is reported once (bar: `FILE:LINE: unhandled rejection: msg`, log: with the
+  stack). Reporting at the end of the call, not at rejection time, keeps `p = Promise.reject(); p.catch()`
+  quiet. A call that also failed keeps its own error in the bar; the rejections are appended to the log text.
+
 ## 2026-11-24 Key mappings: vim's matcher, in front of the built-in keys (C-SCRIPT-MAP)
 
 The implementer's choices (C-SCRIPT-MAP), not asked; KEYS.md T118-T124.

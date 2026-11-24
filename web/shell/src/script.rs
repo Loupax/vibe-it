@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use rquickjs::context::EvalOptions;
 use rquickjs::{Context, Ctx, Exception, Function, Object, Persistent, Runtime, Value};
 
-use crate::config::{SCRIPT_BUDGET_MS, SCRIPT_DEPTH_MAX};
+use crate::config::{SCRIPT_BUDGET_MS, SCRIPT_DEPTH_MAX, SCRIPT_MEMORY_MAX};
 use crate::keys::{parse_map_keys, parse_map_rhs, resolve_mapping, Effect, Keys, MapKey, MapLine, MapStep};
 
 /// One script to load: where it is and the name errors give it (`init.js`, or a profile's path).
@@ -103,6 +103,9 @@ pub struct Scripts {
     reg: Rc<RefCell<Registry>>,
     deadline: Rc<Cell<Option<Instant>>>,
     interrupted: Rc<Cell<bool>>,
+    /// Promises rejected with no handler yet: (identity, message, stack). One that gets a handler
+    /// before the call ends is removed; what is left is reported.
+    rejected: Rc<RefCell<Vec<(usize, String, String)>>>,
     budget: Duration,
     /// The label errors without a script frame get.
     fallback: String,
@@ -152,12 +155,29 @@ impl Scripts {
                 over
             })));
         }
+        // C-SCRIPT-MEM: an allocation loop ends with QuickJS's out-of-memory error instead of growing.
+        rt.set_memory_limit(SCRIPT_MEMORY_MAX);
+        let rejected: Rc<RefCell<Vec<(usize, String, String)>>> = Rc::default();
+        {
+            let rejected = rejected.clone();
+            rt.set_host_promise_rejection_tracker(Some(Box::new(move |_ctx, promise, reason, handled| {
+                let id = promise_id(&promise);
+                let mut r = rejected.borrow_mut();
+                if handled {
+                    r.retain(|(i, _, _)| *i != id);
+                } else {
+                    let (message, stack) = message_stack(&reason);
+                    r.push((id, message, stack));
+                }
+            })));
+        }
         let reg: Rc<RefCell<Registry>> = Rc::default();
         ctx.with(|ctx| install_web(&ctx, &reg)).map_err(|e| format!("script setup: {e}"))?;
         Ok(Scripts {
             reg,
             deadline,
             interrupted,
+            rejected,
             budget,
             fallback: "init.js".to_string(),
             files: 0,
@@ -262,6 +282,23 @@ impl Scripts {
         self.deadline.set(None);
         // A pending job (a promise reaction) would run with no budget later: run them now, under it.
         self.run_jobs();
+        let mut error = error;
+        // Promises still rejected with no handler: reported like any other script error (once: drained).
+        let rejected = std::mem::take(&mut *self.rejected.borrow_mut());
+        for (_, message, stack) in rejected {
+            let e = build_error(&self.fallback, &format!("unhandled rejection: {message}"), &stack);
+            error = Some(match error {
+                None => e,
+                Some(mut first) => {
+                    first.full = format!("{}\n{}", first.full, e.full);
+                    first
+                }
+            });
+        }
+        if error.is_some() {
+            // An out-of-memory error leaves garbage (cycles) behind: collect it so the next call has room.
+            self.rt.run_gc();
+        }
         CallResult {
             lines: std::mem::take(&mut self.reg.borrow_mut().queue),
             error,
@@ -373,15 +410,30 @@ fn install_web<'js>(ctx: &Ctx<'js>, reg: &Rc<RefCell<Registry>>) -> rquickjs::Re
 
 /// The bar's `FILE:LINE: message` and the log's full text for a caught exception.
 fn describe(fallback: &str, v: &Value, interrupted: Option<Duration>) -> ScriptError {
-    let (message, stack) = match v.as_object().and_then(|o| Exception::from_object(o.clone())) {
-        Some(e) => (e.message().unwrap_or_default(), e.stack().unwrap_or_default()),
-        None => (value_text(v), String::new()),
-    };
+    let (message, stack) = message_stack(v);
     let message = match interrupted {
         Some(b) => format!("interrupted: ran longer than SCRIPT_BUDGET_MS ({} ms)", b.as_millis()),
         None => message,
     };
-    let at = stack_location(&stack).unwrap_or_else(|| fallback.to_string());
+    build_error(fallback, &message, &stack)
+}
+
+/// A thrown or rejected value's message and stack text.
+fn message_stack(v: &Value) -> (String, String) {
+    match v.as_object().and_then(|o| Exception::from_object(o.clone())) {
+        Some(e) => (e.message().unwrap_or_default(), e.stack().unwrap_or_default()),
+        None => (value_text(v), String::new()),
+    }
+}
+
+/// A promise's identity (its heap address) for matching "rejected" with "handled later".
+fn promise_id(p: &Value) -> usize {
+    // SAFETY: reading the pointer member of a live object value; it is only compared, never followed.
+    unsafe { p.as_raw().u.ptr as usize }
+}
+
+fn build_error(fallback: &str, message: &str, stack: &str) -> ScriptError {
+    let at = stack_location(stack).unwrap_or_else(|| fallback.to_string());
     let bar = format!("{at}: {message}");
     let full = if stack.trim().is_empty() {
         bar.clone()

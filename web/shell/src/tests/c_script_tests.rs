@@ -13,13 +13,13 @@ use crate::script::{init_files, stack_location, valid_command_name, ScriptFile};
 
 const BUDGET: Duration = Duration::from_millis(SCRIPT_BUDGET_MS);
 
-fn press(k: &mut Keys, key: KeyInput) {
+pub(super) fn press(k: &mut Keys, key: KeyInput) {
     k.key(key.sym.raw(), true, &key, Instant::now());
     k.key(key.sym.raw(), false, &key, Instant::now());
 }
 
 /// Types `:line` (Delete hides a ghost) and Enter.
-fn type_line(k: &mut Keys, line: &str) {
+pub(super) fn type_line(k: &mut Keys, line: &str) {
     press(k, KeyInput::ch(':'));
     for c in line.chars() {
         press(k, if c == ' ' { KeyInput::sym(Keysym::space) } else { KeyInput::ch(c) });
@@ -38,7 +38,7 @@ fn sent(k: &mut Keys) -> Vec<Command> {
         .collect()
 }
 
-fn logs(k: &Keys) -> Vec<String> {
+pub(super) fn logs(k: &Keys) -> Vec<String> {
     k.effects
         .iter()
         .filter_map(|e| match e {
@@ -49,7 +49,7 @@ fn logs(k: &Keys) -> Vec<String> {
 }
 
 /// A shell whose first tab exists (what `ready` waits for), with `src` loaded as init.js.
-fn shell(src: &str) -> Keys {
+pub(super) fn shell(src: &str) -> Keys {
     let mut k = Keys::new(None, String::new(), None);
     k.load_script_source("init.js", src, BUDGET);
     assert_eq!(k.buffers.tab_created(1, None), TabCreated::Buffer(1));

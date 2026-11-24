@@ -347,6 +347,11 @@ pub const SCRIPT_BUDGET_MS: u64 = 100;
 /// `web.cmd` calls may nest through user commands this deep (`:A` running `:B` running ...); deeper,
 /// the chain stops with an error.
 pub const SCRIPT_DEPTH_MAX: usize = 16;
+/// C-SCRIPT-MEM: the script runtime's heap limit (QuickJS `set_memory_limit`). A script that allocates past it
+/// gets QuickJS's out-of-memory error (status bar, log) and web keeps running. 64 MiB: a config script holds
+/// kilobytes (a 100k-entry array is ~2 MiB), so this is ~30x any real use, and a runaway loop is stopped at
+/// a size that costs the shell nothing (the 100 ms budget alone allowed a few hundred MB).
+pub const SCRIPT_MEMORY_MAX: usize = 64 * 1024 * 1024;
 /// C-SCRIPT-MAP: while the keys typed in NORMAL are the start of a longer `web.map` mapping, the shell
 /// waits this many milliseconds for the next key (vim's `timeoutlen`, same default); then the keys are
 /// handled as without the mapping (or a shorter mapping they complete runs). With no mapping sharing a
