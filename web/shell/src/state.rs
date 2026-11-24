@@ -548,6 +548,18 @@ impl State {
                     self.keys.message = m;
                 }
             }
+            // C-MIDCLICK (KEYS.md T105): a middle-click on a link of the page on screen is `:new <url>`.
+            Event::OpenLink { tab, ref url } => {
+                if self.keys.buffers.current().tab == Some(tab) {
+                    // As `:new`: the new buffer starts in NORMAL (the click may have come in INPUT).
+                    self.keys.set_key_mode(crate::keys::KeyMode::Normal);
+                    self.keys.open_buffer(url);
+                    self.apply_key_effects(0);
+                    self.sync_page();
+                } else {
+                    self.log(&format!("open-link from tab {tab}, not the page on screen: ignored"));
+                }
+            }
             Event::TabClosed { tab } => {
                 self.pairing.tab_closed(tab);
                 self.visits.remove(&tab);

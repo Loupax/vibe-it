@@ -475,7 +475,20 @@ wrap_client! {
             if crate::notify_spike::handle_message(page_of(&browser), msg) {
                 return 1;
             }
-            if CefString::from(&msg.name()).to_string() != crate::renderer::EDITABLE_MSG {
+            let name = CefString::from(&msg.name()).to_string();
+            if name == crate::renderer::MIDDLE_MSG {
+                // C-MIDCLICK: a middle-click on a link (newtab::MIDDLE_JS): the shell opens it as `:new`.
+                let url = msg.argument_list().map(|a| CefString::from(&a.string(0)).to_string()).unwrap_or_default();
+                match (page_of(&browser), newtab::middle_click_url(&url)) {
+                    (Some(tab), Some(url)) => {
+                        log!("middle-click on a link: {url}");
+                        emit(Event::OpenLink { tab, url });
+                    }
+                    _ => log!("middle-click message refused: {url:?}"),
+                }
+                return 1;
+            }
+            if name != crate::renderer::EDITABLE_MSG {
                 return 0;
             }
             let Some(id) = page_of(&browser) else { return 1 };

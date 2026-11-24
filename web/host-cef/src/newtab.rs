@@ -5,7 +5,7 @@
 //!   disposition and user gesture. The host is the popup blocker (it runs Chromium with
 //!   `--disable-popup-blocking`, so every popup reaches it, C4-SPIKE).
 //! - `open_url_action`: what `OnOpenURLFromTab` does (a navigation the engine wants in another tab
-//!   outside the popup path: real Ctrl/middle/Shift clicks on links).
+//!   outside the popup path: real Ctrl/Shift clicks on links; a middle-click never gets here, `MIDDLE_JS` cancels it first).
 //!
 //! The context menu is gone altogether since C-NOMENU: see `HostContextMenuHandler`.
 
@@ -104,9 +104,74 @@ pub fn same_popup_url(recorded: &str, now: &str) -> bool {
 /// tell from a target=_blank click.
 pub const CTRL_SHIFT_JS: &str = "addEventListener('click',function(e){if(e.ctrlKey&&e.shiftKey&&e.target&&e.target.closest&&e.target.closest('a[href],area[href]'))e.preventDefault();},true);";
 
+/// C-MIDCLICK: the name of the function the renderer hands the script below (set on `window`, taken
+/// into the script's closure and deleted before any page script runs, so pages never see it).
+pub const MIDDLE_FN: &str = "__webHostMiddleClick";
+
+/// Run in every page's main world by the renderer, after it has put the function `MIDDLE_FN` on
+/// `window`: a middle-click (an `auxclick` with `button` 1: Ctrl+click is a `click` with button 0,
+/// so the DOM tells the two apart where Chromium's NEW_BACKGROUND_TAB disposition cannot) with no
+/// modifier on a link (`a[href]`, `area[href]`, SVG `a` too) cancels the click's own navigation and
+/// hands the link's absolute URL to the host, which tells the shell (`open-link`). Middle-clicks on
+/// anything else are untouched; `javascript:` links are left to Chromium (which drops them).
+pub const MIDDLE_JS: &str = "(function(f){delete window.__webHostMiddleClick;addEventListener('auxclick',function(e){if(e.button!==1||e.ctrlKey||e.shiftKey||e.altKey||e.metaKey||!e.target||!e.target.closest)return;var a=e.target.closest('a[href],area[href]');if(!a)return;var u;try{u=new URL(a.getAttribute('href'),document.baseURI).href}catch(x){return}if(/^javascript:/i.test(u))return;e.preventDefault();f(u);},true);})(window.__webHostMiddleClick);";
+
+/// What the host accepts from the renderer's middle-click message (a compromised renderer could send
+/// anything): the URL when it is `http:`, `https:` or `file:`, else None.
+pub fn middle_click_url(url: &str) -> Option<String> {
+    let l = url.to_ascii_lowercase();
+    ["http://", "https://", "file://"]
+        .iter()
+        .any(|p| l.starts_with(p))
+        .then(|| url.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn middle_js_takes_only_an_unmodified_middle_button_on_a_link() {
+        assert!(MIDDLE_JS.contains("'auxclick'"));
+        assert!(MIDDLE_JS.contains("e.button!==1"));
+        for m in ["ctrlKey", "shiftKey", "altKey", "metaKey"] {
+            assert!(MIDDLE_JS.contains(&format!("e.{m}")), "{m}");
+        }
+        assert!(MIDDLE_JS.contains("closest('a[href],area[href]')"));
+        assert!(MIDDLE_JS.contains("preventDefault"));
+        assert!(!MIDDLE_JS.contains("stopPropagation"));
+        // The function is taken into the closure and removed from window up front.
+        assert!(MIDDLE_JS.starts_with("(function(f){delete window.__webHostMiddleClick;"));
+        assert!(MIDDLE_JS.contains(MIDDLE_FN));
+        // Ctrl+click stays a `click`: nothing here listens to it.
+        assert!(!MIDDLE_JS.contains("'click'"));
+    }
+
+    #[test]
+    fn middle_click_urls_are_web_or_file() {
+        assert_eq!(middle_click_url("https://a.test/x?y#z").as_deref(), Some("https://a.test/x?y#z"));
+        assert_eq!(middle_click_url("HTTP://a.test/").as_deref(), Some("HTTP://a.test/"));
+        assert_eq!(middle_click_url("file:///tmp/a.html").as_deref(), Some("file:///tmp/a.html"));
+        for bad in [
+            "",
+            "javascript:alert(1)",
+            "data:text/html,x",
+            "about:blank",
+            "chrome://gpu",
+            "/relative",
+            "mailto:a@b.test",
+        ] {
+            assert_eq!(middle_click_url(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn middle_and_ctrl_click_dispositions_stay_dropped() {
+        // Chromium reports both as NEW_BACKGROUND_TAB; the host cannot tell them apart there, so a middle-click
+        // is cancelled in the renderer (MIDDLE_JS) and this path keeps dropping what is left.
+        assert_eq!(open_url_action(D::CEF_WOD_NEW_BACKGROUND_TAB), PopupAction::Drop);
+        assert_eq!(popup_action(D::CEF_WOD_NEW_BACKGROUND_TAB, true, false), PopupAction::Drop);
+    }
 
     #[test]
     fn script_popups_with_a_gesture_open_a_page() {

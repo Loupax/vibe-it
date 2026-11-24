@@ -90,6 +90,11 @@ pub enum Event {
         #[serde(default)]
         features: String,
     },
+    /// C-MIDCLICK: a middle-click on a link of page `tab`: open `url` as `:new <url>` does.
+    OpenLink {
+        tab: u64,
+        url: String,
+    },
     Error {
         message: String,
     },
@@ -288,6 +293,13 @@ mod tests {
                     name: "login".into(),
                     frame: "sub".into(),
                     features: "popup".into(),
+                },
+            ),
+            (
+                r#"{"event":"open-link","tab":2,"url":"https://a.test/x"}"#,
+                Event::OpenLink {
+                    tab: 2,
+                    url: "https://a.test/x".into(),
                 },
             ),
             (r#"{"event":"tab-closed","tab":1}"#, Event::TabClosed { tab: 1 }),

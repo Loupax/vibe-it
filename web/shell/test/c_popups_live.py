@@ -251,18 +251,23 @@ def main():
                 inject(f"move:{g.bx + x},{g.by + y}", "wait:100", f"hold:{held}", "click", "release", "wait:1500")
                 if any('"tab-created"' in l or '"event":"url"' in l for l in log.lines[k:]):
                     raise Fail(f"{held}-click on the target=_blank link opened or loaded something: {log.lines[k:]}")
+            # C-MIDCLICK: a middle-click is `:new <url>` (an open-link, not a popup: no opener).
             k = log.mark()
-            inject(f"move:{g.bx + x},{g.by + y}", "wait:100", "mclick", "wait:1500")
-            if any('"tab-created"' in l or '"event":"url"' in l for l in log.lines[k:]):
-                raise Fail(f"a middle-click opened or loaded something: {log.lines[k:]}")
+            inject(f"move:{g.bx + x},{g.by + y}", "wait:100", "mclick", "wait:300")
+            log.wait(r'host event: \{"event":"open-link","tab":' + str(tabs["opener"]) + r',"url":"' + re.escape(child("blank")), k, 10)
+            log.wait(r"buffer 6 of 2 is current", k, 15)
+            if any('"tab-created"' in l and '"opener"' in l for l in log.lines[k:]):
+                raise Fail("a middle-click made a popup")
+            k = command("bd", r"NORMAL \| buffer 6 killed")
+            log.wait(r"buffer 1 of 1 is current", k, 5)
             # a plain click right after still opens the popup (the modifiers were restored)
             k = log.mark()
             click("blank")
             tab = created(k, "popup")
-            log.wait(r"buffer 6 of 2 is current", k, 15)
-            k = command("bd", r"NORMAL \| buffer 6 killed")
+            log.wait(r"buffer 7 of 2 is current", k, 15)
+            k = command("bd", r"NORMAL \| buffer 7 killed")
             log.wait(r"buffer 1 of 1 is current", k, 5)
-            return "NORMAL: Ctrl/Shift/Ctrl+Shift/middle-click on target=_blank open nothing; a plain click opens buffer 6"
+            return "NORMAL: Ctrl/Shift/Ctrl+Shift-click on target=_blank open nothing; a middle-click opens buffer 6 (no opener); a plain click opens buffer 7"
 
         step("T92 modifier clicks in NORMAL (as INPUT: nothing opens)", modifiers_in_normal)
 
