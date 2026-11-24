@@ -246,7 +246,7 @@ stop early on a hard failure.
       (STASH.md "Forget site"); say so in STASH.md. STASH.md section, KEYS.md rows (next T number),
       help.html "Command line", unit tests in src/tests/c_cmdhist_tests.rs (incl. reload from a file, trim,
       dedup), a live step (run lines, restart web with the same state dir, Up recalls them).
-- [ ] [WIP] C-REPEAT [XS] (after C-CMDHIST; DECISIONS.md 2026-11-24 "Repeating the last command: vim's @:") vim's
+- [x] C-REPEAT [XS] (DONE 2026-11-24, 22ebe21, #743: @: @@ :@: :@@; KEYS T140-T147; a modifier press no longer ends a pending sequence, so g Shift g = gg) (after C-CMDHIST; DECISIONS.md 2026-11-24 "Repeating the last command: vim's @:") vim's
       `@:`, as close to vim's contract as web allows (user, 2026-11-24: "Create a @: and we can map it to . on
       the scripting layer if we want. Let's stay as closer to the vim contract as possible so muscle memory
       takes over"). Not scriptable with SCRIPTING.md's API (nothing tells a script which line ran last), so
