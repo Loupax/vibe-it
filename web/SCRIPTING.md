@@ -13,8 +13,10 @@ addition to the API below is a user decision, recorded here with its date.
 QuickJS (the `rquickjs` crate), embedded in web-shell. Nothing runs in the engine host: the
 shell owns input and the command line, and a script never shares a process with a page.
 The runtime has no QuickJS `std`/`os` modules and no module loader: no files, no network,
-no timers, no `import`. Each file is evaluated as one classic script; the global and the
-profile script share one context, so the profile script sees what the global one defined.
+no timers, no `import`. Each file is evaluated as one classic script, in strict mode (user, 2026-11-24: so that
+user modules, ES modules and always strict, can come later without breaking a script); the
+global and the profile script share one context, so the profile script sees what the global
+one defined.
 
 ## Files and profiles
 

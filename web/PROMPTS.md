@@ -842,3 +842,11 @@ Cause (Chromium source): Blink installs `[SecureContext]` interfaces after OnCon
 > 4. Do not do session restore. My goal is to replace that, and if we need it we might need to find a "web" way to do it.
 
 Docs only: SCRIPTING.md (the spec), DECISIONS.md "User scripts", a KEYS.md "Configuration" note, README.md, TODO.txt items C-SCRIPT, C-SCRIPT-MAP, C-PROFILE. Getters and `unmap` were proposed in the discussion and left out (nothing exposed until asked).
+
+> I want to allow the user to import their own modules, but not say, os and stuff. do I have ways to do that?
+
+> ok, so if I ever decide to do so, I can?
+
+> yes, add it
+
+Answered: a custom rquickjs resolver/loader limited to `$XDG_CONFIG_HOME/web/` would do it; QuickJS has no os/std unless registered. Not done now. Added: init.js is evaluated in strict mode (SCRIPTING.md, C-SCRIPT) so a later move to ES modules breaks no script.
