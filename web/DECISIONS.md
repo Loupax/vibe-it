@@ -2,6 +2,16 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-24 Editing the page's URL in the `:` line
+
+User: "I want an easy way to edit the currently visited page. I'm thinking `:go ` to automatically fill with
+the currently open page, if it exists, and have it pre selected so the user can either wipe it clean, or move
+the cursor to the end so they can alter the ending". Built into web, not a script: the script API has no hook
+on `:` line edits and the line has no selection. Asked which commands and triggers: "Both go and new without
+argument"; "do it for all commands that open URLs" (`go`, `new`, `bufferNew`, `openExternal`). Vim's Ctrl-R
+`%` in the `:` line: "Let's skip this for now". A command that opens the `:` line with given text, so a
+profile can map a key to it (qutebrowser's `:set-cmd-text`): "Yes, that sounds good". Item C-EDITURL.
+
 ## 2026-11-24 Command-line history: Up/Down with a prefix filter, kept on disk
 
 User: "When I'm entering a command I should be able to use up or down keys to navigate history. If already

@@ -258,6 +258,39 @@ stop early on a hard failure.
         line` (vim's E30).
       - No counts (`3@:`): web has no counts anywhere; a count needs its own item.
       `.` stays unbound (config.rs BINDINGS). KEYS.md rows, help.html, unit tests in src/tests/c_repeat_tests.rs.
+- [ ] C-EDITURL [S] (user, 2026-11-24; DECISIONS.md "Editing the page's URL in the `:` line") "an easy way to edit
+      the currently visited page. I'm thinking `:go ` to automatically fill with the currently open page, if it
+      exists, and have it pre selected so the user can either wipe it clean, or move the cursor to the end so
+      they can alter the ending". Built into web: SCRIPTING.md's API has no hook on `:` line edits, `web.map`
+      cannot open the line with text (its rhs runs a command or a function), and `TextEditBuffer` (keys.rs) has
+      only `text` + `cursor`, no selection.
+      - Commands: every one that opens a URL: `go`, `new`, `bufferNew`, `openExternal`.
+      - Trigger: the line becomes exactly `<command> ` (name + one space, cursor at the end) by typing the Space
+        or by T53's Tab (which adds the space), or the line opens with that text (`:new`/`:bufferNew` with no
+        argument, T104; `:commandLine` below). Not by Backspace or Ctrl-w (clearing the selection leaves
+        `go `, which must not refill it), a paste, or a C-CMDHIST recall.
+      - Fill: the page's URL (`self.url`) after the space, selected, cursor at the end. For `:new` with no
+        argument it is the URL of the buffer just left (T104 makes the `about:blank` buffer current before
+        opening the line), so Enter at once opens a copy of that page in the new buffer and Esc leaves the
+        empty buffer as today. No page (empty, `about:blank`, the help page): nothing is filled in.
+      - With a selection: a typed character or a paste replaces it; Backspace/Delete/Ctrl-w/Ctrl-u remove it
+        (Ctrl-u also what is before it, as today); Right/End drop it with the cursor at the end, Left/Home with
+        the cursor at the start of the URL (vim's insert-mode-after-select muscle memory has no exact match
+        here; this is the GUI address bar's contract); Enter runs the line as it is (`:go <url>` reloads by
+        navigating); Esc cancels; Tab/Shift-Tab do nothing. No ghost while a selection is shown (T45 waits
+        for the first edit).
+      - Drawing: the selected range highlighted in the status bar (statusbar.rs, a new `SELECTION_BG` /
+        `SELECTION_FG` in config.rs); `BarView.line` gets the range.
+      - `:commandLine <text>` (user, 2026-11-24, as qutebrowser's `:set-cmd-text`; name to confirm in the
+        PR): opens the `:` line with `<text>` typed, verbatim after the one space that follows the name
+        (trailing spaces kept; parse it raw as `:let` is, not through `split_whitespace`). It goes through the
+        trigger above, so a profile can map "edit this page's URL" without a placeholder:
+        `web.map("n", "ge", ":commandLine go ")` (after C-SCRIPT-MAP). Its text is not run; the line it
+        opens records in C-CMDHIST only when it is run. Completion offers the name.
+      KEYS.md rows (next T numbers; T104 changes), help.html "Command line", unit tests in
+      src/tests/c_editurl_tests.rs (each trigger and non-trigger, each key on a selection, `:new` filling the
+      left buffer's URL, `:commandLine` keeping a trailing space), a live step (screenshot of the highlight,
+      edit the end of a URL and Enter).
 - [x] C-NOTIFLIST [S] (DONE 2026-11-24, c921dcd, #733: newest first, `N!` unread, Enter shows/reads the buffer; a closed
       buffer's page reopens as :new; in memory, NOTIFY_LIST_MAX 100; KEYS T112-T114) (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
       navigate and see notifications using keyboard only") `:notifications` opens the picker (C-PICK, T58-T68)
