@@ -53,6 +53,11 @@ struct Browse {
     pos: usize,
 }
 
+/// A `:@:` / `:@@` line (C-REPEAT): it repeats, it is never the line that is repeated.
+pub fn is_repeat_line(line: &str) -> bool {
+    matches!(line.split_whitespace().next(), Some("@:" | "@@"))
+}
+
 #[derive(Debug)]
 pub struct CmdHistory {
     dir: Option<PathBuf>,
@@ -89,10 +94,10 @@ impl CmdHistory {
         h
     }
 
-    /// The line run last (C-REPEAT's `@:`).
-    #[allow(dead_code)] // read by C-REPEAT
+    /// The line run last (C-REPEAT's `@:`). A `:@:` or `:@@` line is skipped: vim's `:` register keeps
+    /// the repeated line, so repeating twice repeats the same line, never itself.
     pub fn last(&self) -> Option<&str> {
-        self.entries.last().map(String::as_str)
+        self.entries.iter().rev().map(String::as_str).find(|l| !is_repeat_line(l))
     }
 
     #[allow(dead_code)] // tests

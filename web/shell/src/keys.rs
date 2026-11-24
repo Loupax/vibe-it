@@ -168,6 +168,10 @@ pub enum Action {
     /// `gi` (C-AUTOFOCUS, as Vimium): focus the last text field of the page, else the first visible
     /// one, and enter INPUT when the focus arrives.
     FocusField,
+    /// `@:` (C-REPEAT, as vim): run the last `:` line again.
+    RepeatLine,
+    /// `@@` (C-REPEAT, as vim): repeat the last `@:`.
+    RepeatRepeat,
 }
 
 /// Whether `action` ignores OS key repeat (T14 `h`/`l` "not a repeat", T55).
@@ -190,6 +194,10 @@ pub fn resolve_binding(key: &KeyInput, mode: VimMode) -> Option<Action> {
 /// the pending state and is handled as in NORMAL, so it may itself arm (`g` `y` leaves `y`
 /// pending).
 pub fn resolve_sequence(pending: Option<char>, key: &KeyInput) -> (Option<Action>, Option<char>, bool) {
+    // C-REPEAT: a modifier's own press (the Shift of the `@` and of the `:` in `@:`) keeps the pending key.
+    if pending.is_some() && is_modifier_sym(key.sym) {
+        return (None, pending, true);
+    }
     let Some(c) = key.ch else { return (None, None, false) };
     if key.ctrl || key.alt {
         return (None, None, false);
@@ -615,6 +623,8 @@ pub struct Keys {
     pub vim_mode: VimMode,
     esc: EscState,
     pending_seq: Option<char>,
+    /// An `@:` ran since start (what `@@` repeats; C-REPEAT).
+    repeated: bool,
     pub line: TextEditBuffer,
     pub ghost: Option<Ghost>,
     pub cache: CompleteCache,
@@ -700,6 +710,7 @@ impl Keys {
             vim_mode: VimMode::Normal,
             esc: EscState::Idle,
             pending_seq: None,
+            repeated: false,
             open_popups: 0,
             popup_return: None,
             caret: false,
@@ -1109,6 +1120,8 @@ impl Keys {
             Action::HistoryBack => self.effects.push(Effect::Send(Command::Back)),
             Action::HistoryForward => self.effects.push(Effect::Send(Command::Forward)),
             Action::YankUrl => self.run_command_line("let @+ = @%"),
+            Action::RepeatLine => self.repeat_line(),
+            Action::RepeatRepeat => self.repeat_repeat(),
             Action::AlternateBuffer => self.buffer_alternate(),
         }
     }
@@ -1484,9 +1497,28 @@ impl Keys {
     }
 
     /// The `:` line run last (C-REPEAT's `@:` reads it), kept across restarts.
-    #[allow(dead_code)] // read by C-REPEAT
     pub fn last_command_line(&self) -> Option<&str> {
         self.cmd_history.last()
+    }
+
+    /// `@:` and `:@:` (C-REPEAT, vim's E30 when there is no line): runs the last `:` line again. It is
+    /// not recorded, so it never becomes the last line itself.
+    pub fn repeat_line(&mut self) {
+        let Some(line) = self.last_command_line().map(str::to_string) else {
+            self.message = "web: no previous command line".to_string();
+            return;
+        };
+        self.repeated = true;
+        self.run_command_line(&line);
+    }
+
+    /// `@@` and `:@@` (C-REPEAT, vim's E748 before any `@:`): repeats the last `@:`.
+    pub fn repeat_repeat(&mut self) {
+        if !self.repeated {
+            self.message = "web: no previously used register".to_string();
+            return;
+        }
+        self.repeat_line();
     }
 
     pub(crate) fn line_edit_key(&mut self, key: &KeyInput) {
@@ -1644,6 +1676,10 @@ impl Keys {
             // C-POPUPS (KEYS.md "Popups").
             ("popupOpen", rest) => self.popup_open(rest),
             ("popupSearch", rest) => self.popup_search(&rest.join(" ")),
+            // C-REPEAT: vim's `:@:` and `:@@`.
+            ("@:", []) => self.repeat_line(),
+            ("@@", []) => self.repeat_repeat(),
+            ("@:" | "@@", _) => self.message = format!("web: usage: :{name}"),
             ("set", [opt]) => self.set_option(opt),
             ("set", _) => self.message = SET_USAGE.to_string(),
             ("q", []) | ("quit", []) => {
