@@ -551,6 +551,9 @@ popup, ever. Shell side: `shell/src/notify.rs`; knobs in config.rs (`NOTIFY_SITE
 | T108 | any | a buffer is shown (`:buffer`, `:bn`/`:bp`, Ctrl-^, `:ls` Enter, `:bd` moving on, a popup) | it has unread notifications | - | they are read: cleared, the buffer leaves `[N!]`'s count (none left: no `[N!]`) |
 | T109 | COMMAND | Enter on `:ls` / `:bufferList` | a buffer has unread notifications | PICK | its label gets `!` after vim's `%`/`#` (`1#! Chat`, `3! Mail`) and its detail starts with the latest unread notification's title, then the hostname and the description |
 | T110 | any | the visual bell | a notification of any buffer, and no flash in the last `BELL_MIN_INTERVAL_MS` (1000) | same | the status bar takes `BELL_BG`/`BELL_FG` (the mode colour, inverted) for `BELL_FLASH_MS` (150; 0 = no bell), then its own colours again. Sites: `NOTIFY_SITES` = `All` (default: every page sees permission "granted" without a prompt) or `Only(&[hostnames])` (exact; others see "denied" and send nothing); a change needs a rebuild and restart. Notifications from inside a worker are lost silently |
+| T112 | COMMAND | Enter on `:notifications [filter]` (C-NOTIFLIST) | none | PICK | the picker (T58-T68) over this session's notifications, newest first (the rows of every buffer, shown or not): label `N title` (N the buffer's number; `N! title` while unread), detail the body, the notifier's hostname and `(closed)` when the buffer is gone; typing filters on the title, body and hostname. None yet: stays, message `web: no notifications this session`. A notification of the shown buffer is listed already read (T107); showing a buffer reads all of its notifications in the list too (T108). Kept in memory only, at most `NOTIFY_LIST_MAX` (100, config.rs; the oldest go); not saved across runs |
+| T113 | PICK | Enter on a `:notifications` row | its buffer still exists | NORMAL | that buffer is shown as `:buffer N` (T77: the old one becomes Ctrl-^'s) and the notification is read, as are the buffer's others (T108) |
+| T114 | PICK | Enter on a `:notifications` row | its buffer was killed | NORMAL | the notification is read; the buffer's URL as of the notification (else the notifier's origin) is opened in a new buffer through `:new`'s path (T103), the bar says `buffer N is closed: reopened <url> as buffer M`; with no URL at all only `web: buffer N is closed and the notification has no page URL` |
 
 ## What went away in scratchy (QKEYS3)
 
@@ -559,6 +562,12 @@ popup, ever. Shell side: `shell/src/notify.rs`; knobs in config.rs (`NOTIFY_SITE
 Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked out (T2).
 
 ## Decision log
+
+- 2026-11-24 (C-NOTIFLIST): `:notifications` (T112-T114). The implementer's choices, not asked: a closed
+  buffer's notification reopens the page's URL in a new buffer (the URL of its buffer at the time, else the
+  notifier's origin) and says so, rather than doing nothing; read = Enter on it or showing its buffer; the
+  list is kept in memory only, capped at 100; no dismiss key and no `click` event to the page (the host's
+  `Notification` replacement never fires `onclick`: follow-up C-NOTIFCLICK, a host command `notify-click`).
 
 - 2026-11-24 (user, C-AUTOFOCUS): "moving to INPUT mode when input elements get focus confuses me [...] I'm thinking of not changing modes on autofocus, but should make sure that once I hit i, the autofocused input gets focus"; "include gi too". Only a focus the user caused switches to INPUT (T29:
   a mouse press, an Enter given to the page or `gi` within `CLICK_FOCUS_MS`); the page's own focus is

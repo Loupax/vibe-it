@@ -10,7 +10,7 @@ its log shows whether Chromium tried (it must not: only its start-up GetCapabili
 Buffer 1 is the probe page (web/tools/notify-probe/probe.html) told to start after a delay; buffer 2
 (`:new`) is shown meanwhile. Steps: the hidden buffer's notifications (page, service worker
 registration, iframe, a burst the host rate-limits) make the bar flash once and show `[1!]`; `:ls`
-marks buffer 1 `!` (screenshot); Ctrl-^ shows it and the mark goes; a notification of the shown buffer
+marks buffer 1 `!` (screenshot); `:notifications` lists them (unread marked), filtering and Enter show buffer 1 and the mark goes (Ctrl-^ still works); a notification of the shown buffer
 flashes without `[1!]`; the in-worker notification fails; no `Notify` reached D-Bus. Exit 0 when every
 step passed. Needs what test/live.py needs, PIL, python3-dbus and gi (fake_notifyd.py)."""
 
@@ -186,12 +186,29 @@ def main():
 
         def show():
             k = log.mark()
-            inject("hold:cs", "key:6", "release", "wait:300")
+            inject(*keys_for(":notifications"), "key:del", "key:ret", "wait:400")
+            log.wait(r">\| pick notifications \[1/5 of 5\] notice", k, 5)
+            shot("notifications.png")
+            inject(*keys_for("probe title"), "wait:300")
+            if not count(r"pick notifications \[1/\d+ of 5\]", k):
+                raise Fail("typing did not filter the notifications")
+            inject("key:ret", "wait:300")
             log.wait(r"buffer 1 of 2 is current", k, 5)
             log.wait(r"bar url: \[1\] " + re.escape(first), k, 5)
-            return "Ctrl-^: buffer 1 shown, the bar's [1!] gone"
+            return "`:notifications` (notifications.png), filtered, Enter: buffer 1 shown, the bar's [1!] gone"
 
-        step("T108 showing the buffer reads its notifications", show)
+        step("T108/T112/T113 :notifications Enter shows the buffer and reads its notifications", show)
+
+        def ctrl_caret():
+            k = log.mark()
+            inject("hold:cs", "key:6", "release", "wait:300")
+            log.wait(r"buffer 2 of 2 is current", k, 5)
+            k = log.mark()
+            inject("hold:cs", "key:6", "release", "wait:300")
+            log.wait(r"buffer 1 of 2 is current", k, 5)
+            return "Ctrl-^ both ways"
+
+        step("T77 Ctrl-^ still works", ctrl_caret)
 
         def shown_buffer():
             time.sleep(1.2)  # past the bell's interval

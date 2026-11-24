@@ -260,6 +260,8 @@ pub const BELL_BG: (u8, u8, u8) = (120, 200, 255);
 pub const BELL_FG: (u8, u8, u8) = (24, 24, 24);
 /// Unread notifications kept per buffer (the oldest go).
 pub const NOTIFY_UNREAD_MAX: usize = 20;
+/// C-NOTIFLIST: notifications `:notifications` keeps this session (memory only; the oldest go).
+pub const NOTIFY_LIST_MAX: usize = 100;
 
 // ---------- picker (C-PICK, KEYS.md "Picker") ----------
 
