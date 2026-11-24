@@ -226,7 +226,7 @@ height, `innerHeight`, maximum scroll, hit-testing, the JS thread's viewport) is
 window minus the bar. **web:** the compositor sizes the host window to the shell window
 minus the bar; the page never overlaps it. It shows the mode (or the SEARCH/COMMAND line being typed), the
 current URL and the last message (`[i/N]`, wrap messages, T16/T17 messages,
-errors). Other fields (load progress, hovered link target, pending `g`) only on request.
+errors). A script's error and an `:echo` stay through page loads until the next key (T148-T150). Other fields (load progress, hovered link target, pending `g`) only on request.
 C-BELL: `[N!]` before the buffer number counts the buffers with unread notifications, and the bar
 flashes for a notification ("Notifications").
 
@@ -604,6 +604,16 @@ consulted at all); with mappings, keys that start none of them are handled at on
 | T131 | COMMAND | Right, End / Left, Home | a selection is shown | COMMAND | the selection is dropped, the text kept: Right/End put the cursor at the end of the URL, Left/Home at its start (the GUI address bar's contract, not vim's) |
 | T132 | COMMAND | Enter / Esc / Tab, Shift-Tab, other Ctrl/Alt chords | a selection is shown | NORMAL / NORMAL / COMMAND | Enter runs the line as it is (`:go <url>` navigates, reloading the page), Esc cancels; Tab and the unbound chords do nothing and the selection stays |
 | T133 | COMMAND | Up / Down | a selection is shown | COMMAND | as T125 with the text BEFORE the selection (`go `) as the filter (not the URL); a match replaces the line as plain text (no selection, no fill), no match changes nothing. Decided by the implementer (not specified)
+| T148 | any | any key press | the message is a script's error or an `:echo` (T150) shown since no key was pressed | same | C-SCRIPT-ERRBAR: the key ends the message's protection from a page load (T149); the message itself stays until something replaces it or the next load clears it, as any other |
+| T149 | - | a page finished loading (first load of a navigation, no error) | the message is a script's error (`init.js:LINE: message`, also an error of a command, mapping or `ready` handler) or an `:echo`, and no key was pressed since | - | C-SCRIPT-ERRBAR: the message stays (every other message is cleared by the load as before). Found live: an init.js `throw` at start flashed in the bar and the first page load wiped it |
+| T150 | COMMAND | Enter on `:echo TEXT` | - | NORMAL | C-ECHO: TEXT (the rest of the line after the name and the spaces following it, verbatim: inner spacing kept) is the bar's message and the log line `echo: TEXT`; protected as T149 describes, typed or from a script (`web.cmd("echo " + x)`). No TEXT: the message is empty. No console object exists; this is how a script shows a value |
+| T151 | COMMAND | Enter on `:source` | no `web.cmd` is running | NORMAL | C-SOURCE: clean reload. The old script runtime goes with every user command, mapping and `ready` handler; a new one runs the same files again (global, then the profile's), as at start. `ready` handlers are registered but NOT fired (no duplicate start buffers). `web.cmd` lines a file queues at its top level run now (the host is connected). Bar `sourced N file(s)` (N: files that exist) |
+| T152 | COMMAND | Enter on `:source` | a file fails | NORMAL | the error shows as at start (T117, protected as T149), what ran before the error stays; the old setup is gone |
+| T153 | COMMAND | Enter on `:source` | run by `web.cmd` (a user command, mapping function or `ready` handler) | NORMAL | error `web.cmd: :source: a script cannot reload itself; ...`; nothing is reloaded. A mapping `web.map("n", "gs", ":source<CR>")` is not a script call: it reloads (T154) |
+| T154 | NORMAL | the keys of a mapping whose rhs is `:source<CR>` | - | NORMAL | reloads as T151; keys waiting for a longer mapping are matched again against the new mappings, and no mapping timer outlives them |
+| T155 | COMMAND | Enter on `:source ARGS` | any argument | NORMAL | `web: usage: :source (no arguments yet)`; nothing is reloaded (`:source FILE` is left out until asked) |
+| T156 | COMMAND | Enter on `:source` | no init.js exists | NORMAL | `sourced 0 file(s)`; the commands and mappings of the old runtime are gone. A file that appears later loads, without firing `ready` |
+| T157 | COMMAND | the first word | - | - | the ghost (T45) offers `echo` and `source` among the built-in names |
 
 ## What went away in scratchy (QKEYS3)
 

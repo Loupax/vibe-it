@@ -639,13 +639,14 @@ impl State {
             Event::FindResult {
                 id, index, count, wrapped, ..
             } => self.keys.find_result_wrapped(id, index, count, wrapped),
-            // A page that loaded clears the last message (a failed load keeps its error).
+            // A page that loaded clears the last message (a failed load keeps its error), except a script's
+            // error or an `:echo` (C-SCRIPT-ERRBAR: they stay until the user's next key).
             Event::Load {
                 ref phase,
                 ref kind,
                 ref error,
                 ..
-            } if phase == "end" && kind == "new" && error.is_none() => self.keys.message.clear(),
+            } if phase == "end" && kind == "new" && error.is_none() => self.keys.page_loaded(),
             Event::LoadError { code, ref name, .. } => {
                 // ERR_ABORTED is a stopped load (or a download), not a failure to report.
                 if code != -3 {

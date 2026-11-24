@@ -487,11 +487,16 @@ pub fn stack_location(stack: &str) -> Option<String> {
 impl Keys {
     /// At start: runs each file that exists, in order (a missing file is not an error). An error
     /// shows in the bar and the log; the next file still runs.
-    pub fn load_scripts(&mut self, files: &[ScriptFile]) {
+    pub fn load_scripts(&mut self, files: &[ScriptFile]) -> (usize, usize) {
         self.load_scripts_with(files, Duration::from_millis(SCRIPT_BUDGET_MS))
     }
 
-    pub fn load_scripts_with(&mut self, files: &[ScriptFile], budget: Duration) {
+    /// Returns how many files were read and run, and how many of those (or their reading) failed.
+    /// Remembers the files and the budget for `:source`.
+    pub fn load_scripts_with(&mut self, files: &[ScriptFile], budget: Duration) -> (usize, usize) {
+        self.script_files = files.to_vec();
+        self.script_budget = budget;
+        let (mut ran, mut failed) = (0, 0);
         for f in files {
             let source = match std::fs::read_to_string(&f.path) {
                 Ok(s) => s,
@@ -501,33 +506,78 @@ impl Keys {
                         bar: format!("{}: {e}", f.label),
                         full: format!("{}: {e}", f.path.display()),
                     });
+                    failed += 1;
                     continue;
                 }
             };
-            self.load_script_source(&f.label, &source, budget);
+            ran += 1;
+            if !self.load_script_source(&f.label, &source, budget) {
+                failed += 1;
+            }
         }
+        (ran, failed)
     }
 
-    /// Runs one script's text (`load_scripts`, and tests).
-    pub fn load_script_source(&mut self, label: &str, source: &str, budget: Duration) {
+    /// Runs one script's text (`load_scripts`, and tests). False when it failed.
+    pub fn load_script_source(&mut self, label: &str, source: &str, budget: Duration) -> bool {
         if self.scripts.is_none() {
             match Scripts::new(budget) {
                 Ok(s) => self.scripts = Some(s),
                 Err(m) => {
                     self.script_error(ScriptError { bar: m.clone(), full: m });
-                    return;
+                    return false;
                 }
             }
         }
         let start = Instant::now();
-        let Some(s) = self.scripts.as_mut() else { return };
+        let Some(s) = self.scripts.as_mut() else { return false };
         let r = s.eval_file(label, source);
         s.held.extend(r.lines);
         self.effects
             .push(Effect::Log(format!("{label}: ran in {} ms", start.elapsed().as_millis())));
-        if let Some(e) = r.error {
-            self.script_error(e);
+        match r.error {
+            Some(e) => {
+                self.script_error(e);
+                false
+            }
+            None => true,
         }
+    }
+
+    /// C-SOURCE `:source`: the scripts again, clean (SCRIPTING.md ":source"). The old runtime goes
+    /// with every command, mapping and `ready` handler (and the lines a call queued: none are left
+    /// between calls); a new one runs the same files. `ready` is not fired again.
+    pub(crate) fn source(&mut self) {
+        if self.script_lines > 0 {
+            self.script_error(ScriptError {
+                bar: "web.cmd: :source: a script cannot reload itself; type :source or map a key to it".to_string(),
+                full: "web.cmd: :source: refused: a reload from inside a script call would drop the code that is running".to_string(),
+            });
+            return;
+        }
+        let files = self.script_files.clone();
+        let budget = self.script_budget;
+        // No runtime (no file at start): `ready` is long past, never fire it for a late file.
+        let ready_fired = self.scripts.as_ref().is_none_or(|s| s.ready_fired);
+        self.scripts = None;
+        // Keys waiting for a mapping are matched again against the new mappings (the loop that
+        // called us may still be draining them); with none waiting, no timer is left running.
+        self.stop_idle_map_timer();
+        let (ran, failed) = self.load_scripts_with(&files, budget);
+        self.effects
+            .push(Effect::Log(format!("script: sourced {ran} file(s), {failed} failed")));
+        if failed == 0 {
+            self.message = format!("sourced {ran} file(s)");
+        }
+        let Some(s) = self.scripts.as_mut() else { return };
+        let held = if ready_fired {
+            s.ready_fired = true;
+            std::mem::take(&mut s.held)
+        } else {
+            Vec::new()
+        };
+        // What the files queued at their top level: with the host connected there is nothing to wait for.
+        self.run_script_lines(held);
     }
 
     /// `ready` (SCRIPTING.md): the host is connected and the first buffer exists. Runs the lines the
@@ -593,6 +643,7 @@ impl Keys {
 
     /// `web.cmd`'s lines, each as typed after `:` (a chain past the depth limit drops the rest).
     fn run_script_lines(&mut self, lines: Vec<String>) {
+        self.script_lines += 1;
         for line in lines {
             if self.scripts.as_ref().is_some_and(|s| s.overflow) {
                 break;
@@ -600,10 +651,29 @@ impl Keys {
             self.effects.push(Effect::Log(format!("script: :{line}")));
             self.run_command_line(&line);
         }
+        self.script_lines -= 1;
     }
 
+    /// A script's error: the bar (kept until the user's next key, `page_loaded`) and the log.
     fn script_error(&mut self, e: ScriptError) {
         self.effects.push(Effect::Log(format!("script error: {}", e.full)));
+        self.sticky = e.bar.clone();
         self.message = e.bar;
+    }
+
+    /// C-ECHO `:echo TEXT`: TEXT in the bar (kept until the user's next key, as a script's error)
+    /// and in the log.
+    pub(crate) fn echo(&mut self, text: &str) {
+        self.effects.push(Effect::Log(format!("echo: {text}")));
+        self.sticky = text.to_string();
+        self.message = text.to_string();
+    }
+
+    /// A page finished loading: the last message goes, unless it is one the user must see first
+    /// (a script's error, an echo: until the next key press).
+    pub fn page_loaded(&mut self) {
+        if self.sticky.is_empty() || self.message != self.sticky {
+            self.message.clear();
+        }
     }
 }
