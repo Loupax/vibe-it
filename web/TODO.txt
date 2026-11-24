@@ -144,7 +144,7 @@ stop early on a hard failure.
       `:go`'s (same completion, scheme-less words, search engine). No argument: an about:blank buffer and the `:go `
       prompt opened so you type the address straight away. KEYS.md rows next to T77-T81, the buffers table, :help,
       unit tests, and c4_live gains a step.
-- [ ] C-BARREPEAT [S] (user, 2026-11-24: "holding down a key doesn't repeat on the status bar. It's annoying when I
+- [WIP] C-BARREPEAT [S] (user, 2026-11-24: "holding down a key doesn't repeat on the status bar. It's annoying when I
       want to use backspace a lot of times.") Holding a key in the command line (`:`), the search line (`/`) and the
       picker's filter does nothing past the first press: Backspace above all, but also letters and the arrows.
       The shell owns these lines, so the page's (engine's) own key repeat does not help. First find where the
@@ -155,7 +155,7 @@ stop early on a hard failure.
       release, focus loss (C-FOCUSKEYS) and mode change. Must not change NORMAL: bindings that ignore repeat
       (action_ignores_repeat, T14/T55) stay as they are, and keys forwarded to the page keep the engine's repeat.
       KEYS.md rows, unit tests (fake clock), a live step holding Backspace in `:`.
-- [ ] C-BELL [M] (user, 2026-11-24: "We should plan a discreet notification feedback. Maybe a visual bell that
+- [WIP] C-BELL [M] (spike step running) (user, 2026-11-24: "We should plan a discreet notification feedback. Maybe a visual bell that
       causes the status bar to flash? :ls should show which buffers have unread notifications"; narrowed the same
       day: "focus on catching notify events if possible") Only the page's own Web Notifications are notifications
       (no title-counter or audio heuristics). Step 1 is a spike, with a report before building:
@@ -181,7 +181,7 @@ stop early on a hard failure.
       nothing but say so, or reopens the URL: decide in the item). Kept in memory only, capped (config.rs).
       Maybe a key to dismiss one or all. Feasibility is mostly C-BELL's: once notifications reach the shell,
       the picker already does the rest. KEYS.md rows, unit tests, a live step.
-- [ ] C-MIDCLICK [S] (user, 2026-11-24: "Middle click on links should basically do a :new") A middle-click on a
+- [WIP] C-MIDCLICK [S] (user, 2026-11-24: "Middle click on links should basically do a :new") A middle-click on a
       link opens its URL in a new buffer and makes it current, as `:new <url>` does (C-NEWBUF, T103-T104: the
       old buffer becomes the alternate for Ctrl-^), in NORMAL and INPUT. Reverses C-NOTAB for middle-click only
       (DECISIONS.md "Ctrl/middle-click on links still open nothing" and KEYS.md T92 get amended, dated);

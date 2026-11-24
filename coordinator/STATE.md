@@ -567,3 +567,6 @@ New: C6e-DESKTOP (user check), C6e-X11 (optional). web reinstalled.
 ## 2026-11-24 C-NEWBUF (user) running; behaviour approved, recorded in web/DECISIONS.md
 
 ## 2026-11-24 C-NEWBUF merged (#724, d5e86f7); web reinstalled
+
+## 2026-11-24 #725 merged (user's TODO PR: C-BARREPEAT, C-BELL, C-NOTIFLIST, C-MIDCLICK)
+Started C-BARREPEAT (Sonnet), C-MIDCLICK (Sonnet), C-BELL spike only (Opus, report before building). C-NOTIFLIST waits on C-BELL.
