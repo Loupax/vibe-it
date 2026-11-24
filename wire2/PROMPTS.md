@@ -188,3 +188,10 @@ Result: one PR. New `pool.rs`; `proxy.rs` origin step, `hub.rs`/`filter.rs` (per
 > parked connections and each idle age, plus totals and caps; one line per key, same log style. Test with two keys.
 
 Result: one PR. `UpPool::dump` in pool.rs, called from app.rs after the registry dump. NOTES.md "W2-2f".
+
+## W2-1b: re-measure tunnel throughput (2026-11-24)
+
+> W2-1b: re-measure wire2's tunnel throughput on the quiet machine (targets: no filter >= 95 % of direct, via
+> wire2-pass >= 90 %), median of several runs with uptime; if missed, find why and fix small or propose a follow-up.
+
+Result: measure-only PR; NOTES.md "W2-1b". No code change (SPLICE_F_MORE and buffer sizes tried, no gain).
