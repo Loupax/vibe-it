@@ -104,4 +104,12 @@ buffer exists (the URL argument's, as today). This is where default buffers are 
 - Every call into the script (the file itself, a mapping, a command, `ready`) has a time
   budget, `SCRIPT_BUDGET_MS` (config.rs); QuickJS's interrupt handler ends a call that
   overruns it with an error, so a stray loop cannot freeze the shell.
+- The script heap is limited to `SCRIPT_MEMORY_MAX` (config.rs, 64 MiB). A script that allocates past it
+  gets QuickJS's `out of memory` error, shown like any other (`init.js:LINE: out of memory`); web keeps
+  running, the garbage is collected, and later calls (commands, mappings, `ready`) work as before. A script
+  can catch the error itself with `try`/`catch`.
+- A promise that is rejected and has no handler by the time the call (and its promise jobs) finished is
+  reported once, in the bar and the log: `init.js:LINE: unhandled rejection: message`. This covers `async`
+  functions in commands, mappings and `ready`, and rejected promises in the file itself. A rejection that
+  gets a `.catch` or `try`/`await` in time is not reported.
 - `web.cmd` calls nested through user commands have a depth limit (an error, not a hang).
