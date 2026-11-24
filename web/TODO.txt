@@ -290,13 +290,13 @@ stop early on a hard failure.
       src/tests/c_editurl_tests.rs (each trigger and non-trigger, each key on a selection, `:new` filling the
       left buffer's URL), a live step (screenshot of the highlight,
       edit the end of a URL and Enter).
-- [ ] [WIP] C-SCRIPT-ERRBAR [XS] (bug, found 2026-11-24 from the user's report "I don't see the error") An init.js error
+- [x] C-SCRIPT-ERRBAR [XS] (DONE 2026-11-24, 9e5a0e3, #744: Keys.sticky, kept until the next key) (bug, found 2026-11-24 from the user's report "I don't see the error") An init.js error
       at start (`init.js:LINE: message`, script.rs `script_error`) is written to the bar before the first page loads,
       and the first successful load clears it (state.rs: `phase == "end" && kind == "new"` -> `message.clear()`), so
       it flashes and is gone. A script error must stay until the user's next key (like vim's startup errors), not be
       cleared by a page load; other load-cleared messages unchanged. Unit test + the live step (throwing init.js,
       page loads, error still in the bar).
-- [ ] [WIP] C-SOURCE [S] (user, 2026-11-24: "do we have a :source command for rerunning the config?" -> clean reload,
+- [x] C-SOURCE [S] (DONE 2026-11-24, 9e5a0e3, #744: KEYS T148-T157; top-level web.cmd lines run at once on :source) (user, 2026-11-24: "do we have a :source command for rerunning the config?" -> clean reload,
       user agreed) `:source` re-runs the profile's scripts as at start, minus the start buffers: drop every user
       command and mapping and the old QuickJS context, new context, run init_files (global, then profile) again;
       `ready` handlers are registered again but NOT fired (no duplicate buffers). Errors as at start (bar + log; what
@@ -304,7 +304,7 @@ stop early on a hard failure.
       Calling `:source` from a script (web.cmd) is an error (no reload from inside a call). SCRIPTING.md, KEYS.md,
       help.html, unit tests (removed command gone, changed mapping replaced, ready not refired, error keeps earlier
       setup), a live step.
-- [ ] [WIP] C-ECHO [XS] (user, 2026-11-24: asked for `console.log` for testing init.js, then "create an action item
+- [x] C-ECHO [XS] (DONE 2026-11-24, 9e5a0e3, #744: sticky also when typed) (user, 2026-11-24: asked for `console.log` for testing init.js, then "create an action item
       for ... an :echo command") `:echo TEXT` shows TEXT in the status bar (the rest of the line, verbatim, vim's
       `:echo` without expressions) and writes it to the log as `[web] echo: TEXT`. Scripts use it as
       `web.cmd("echo " + x)`; no `console` object (SCRIPTING.md: nothing exposed unasked). KEYS.md, help.html,

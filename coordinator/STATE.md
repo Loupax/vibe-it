@@ -614,3 +614,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-24 C-EDITURL merged (#742, 8f61e3e, after a rebase by its agent over C-REPEAT); web reinstalled. The #735/#737 scripting + command-line plans are complete. No agents running.
 
 ## 2026-11-24 User: no :source, wants it + :echo; their init.js throw is invisible -> bug: first page load clears the startup script error (state.rs:648). Filed C-SCRIPT-ERRBAR, C-SOURCE (clean reload, ready not refired), C-ECHO; one Sonnet agent for all three (same code).
+
+## 2026-11-24 #744 merged (C-SOURCE, C-ECHO, C-SCRIPT-ERRBAR; 9e5a0e3); web reinstalled. Scripting guide artifact BYDUUbTC2cpKnjQXn5685J updated.
