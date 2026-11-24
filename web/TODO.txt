@@ -81,7 +81,7 @@ stop early on a hard failure.
       matched on URL and title; Enter opens the URL in the current page. Done when the KEYS.md rows have
       tests named after them and a live check opens a history entry through the picker.
 
-- [WIP] C-PICK-PAGE [XS] (from #707) PageUp/PageDown move the picker selection by a screenful.
+- [x] C-PICK-PAGE [XS] (DONE 2026-11-24, 9e9b8d0, #721: PageUp/PageDown move PICKER_MAX_ROWS (12), clamped; KEYS T61a) (from #707) PageUp/PageDown move the picker selection by a screenful.
 
 - [x] C-BOOKMARKS [S] (DONE 2026-11-23, d9a3035, #711: bookmarks.rs, KEYS.md T69-T76; unasked choices: search
       newest first, delete by exact URL, hand-edited file normalized on rewrite) (after C-PICK; same decision) Bookmarks: `DIR/bookmarks` (STASH.md "Bookmarks"),

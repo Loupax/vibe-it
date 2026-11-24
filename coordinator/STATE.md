@@ -551,3 +551,7 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 CEF 156.0.31 built locally with proprietary codecs (non-official, bundled OpenH264). Scripts/docs only in the PR.
 ci_then_push.sh now exports CEF_PATH=~/.cache/web-cef-build/dist when it exists, so web installs use it.
 New: C-H264-WEBEX (user check), C-H264-REBUILD, C-H264-OFFICIAL (optional). Build tree (40 GB) kept for rebuilds.
+
+## 2026-11-24 C-PICK-PAGE merged (#721, 9e9b8d0)
+Picker PageUp/PageDown by 12 rows (fixed, not the drawn row count; agent asked if the user wants the latter: left as is).
+web reinstall deferred until W2-1b's measurements finish (quiet machine).
