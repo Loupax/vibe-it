@@ -198,7 +198,7 @@ stop early on a hard failure.
 - [ ] C-NOTIFCLICK [S] optional (from #733) Picking a notification in `:notifications` while its buffer exists also
       fires the page's `click` event on that Notification (host command `notify-click`; the notify.rs shim keeps the
       objects). Sites often navigate to the conversation on click.
-- [ ] C-SCRIPT [M] (user, 2026-11-24; DECISIONS.md "User scripts", SCRIPTING.md) QuickJS (rquickjs) in web-shell,
+- [ ] [WIP] C-SCRIPT [M] (user, 2026-11-24; DECISIONS.md "User scripts", SCRIPTING.md) QuickJS (rquickjs) in web-shell,
       no std/os modules, no module loader. Load `$XDG_CONFIG_HOME/web/init.js` at start, in strict mode (so a
       later switch to ES modules, which are always strict, breaks no script); `web.cmd`,
       `web.command` (uppercase names, offered by completion), `web.on("ready")` (once, host connected and the

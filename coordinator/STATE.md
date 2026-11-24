@@ -594,3 +594,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-24 C-BELL-CRASH: Gmail renderer abort from notify.rs non-configurable Notification; fix agent (Opus) started
 
 ## 2026-11-24 C-BELL-CRASH merged (#734, 0d51243); web reinstalled
+
+## 2026-11-24 Merged #735 (user's PR, docs: init.js spec SCRIPTING.md; PROMPTS.md frozen, no new entries) 019d2a2; title/body corrected first. C-SCRIPT started (Opus, user's choice).
