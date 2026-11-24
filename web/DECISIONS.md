@@ -2,6 +2,13 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-24 Command-line history: Up/Down with a prefix filter, kept on disk
+
+User: "When I'm entering a command I should be able to use up or down keys to navigate history. If already
+typed something, that should be used as filtering."; then "Keep the command history on disk, like vim". The `:`
+lines run are kept in the state directory (`DIR/cmdhistory`, STASH.md once built) and survive a restart, as
+vim's shada keeps its cmdline history. Item C-CMDHIST (TODO.txt).
+
 ## 2026-11-24 Repeating the last command: vim's @:
 
 User: "We need a command that repeats the last performed command, similar to vims `.`"; then "Create a @: and

@@ -230,9 +230,18 @@ stop early on a hard failure.
       the newest the typed text comes back. No match: nothing changes. Any other key ends browsing and keeps
       the recalled text. A recalled line shows no ghost (else Enter would run the line plus a ghost, not the
       line). Held Up/Down repeat via C-BARREPEAT already. The `/` line gets the same only if asked.
-      DECIDE: kept in memory per run, or on disk in the state dir (vim's shada does; then STASH.md, mode 0600,
-      and forget-site has to drop lines naming the site, e.g. `:go site.com`). KEYS.md rows (next T number),
-      help.html "Command line", unit tests in src/tests/c_cmdhist_tests.rs, a live step.
+      On disk, as vim's shada (user, 2026-11-24: "Keep the command history on disk, like vim"; DECISIONS.md):
+      `DIR/cmdhistory` in the state directory (per profile once C-PROFILE lands), mode 0600, dir 0700, one
+      line per run `:` line (a `:` line has no newline; strip control characters as history.rs does).
+      Appended as each line runs (one `write`, `O_APPEND`, as history.rs: a crash loses nothing); read
+      once at start, duplicates dropped keeping the newest; trimmed at start to the newest N (config.rs,
+      e.g. `CMD_HISTORY_MAX`; vim's 'history' option) by temp file + rename. C-SINGLE runs one web per
+      state directory, so there is one writer. No state dir (tests, `--state-dir` unset and unknown): in
+      memory only. The last line survives a restart, so C-REPEAT's `@:` works right after start (vim's
+      shada keeps the `:` register too). forget-site leaves it alone, as it leaves the URL history alone
+      (STASH.md "Forget site"); say so in STASH.md. STASH.md section, KEYS.md rows (next T number),
+      help.html "Command line", unit tests in src/tests/c_cmdhist_tests.rs (incl. reload from a file, trim,
+      dedup), a live step (run lines, restart web with the same state dir, Up recalls them).
 - [ ] C-REPEAT [XS] (after C-CMDHIST; DECISIONS.md 2026-11-24 "Repeating the last command: vim's @:") vim's
       `@:`, as close to vim's contract as web allows (user, 2026-11-24: "Create a @: and we can map it to . on
       the scripting layer if we want. Let's stay as closer to the vim contract as possible so muscle memory
