@@ -83,6 +83,11 @@ muscle memory takes over". So web gets vim's `@:` (and `@@`, `:@:`), repeating `
 `.` stays unbound and a profile can map it (`web.map("n", ".", ":@:<CR>")`). It is built in because SCRIPTING.md's
 API cannot see which line ran last. Items C-CMDHIST, C-REPEAT (TODO.txt).
 
+Implementer's choices (C-REPEAT), not asked: `@@` before any `@:` is vim's E748 text; `:@:` and `:@@` lines
+stay in the Up/Down list (vim records them) but `CmdHistory::last` skips them, which is vim's `:` register
+keeping the repeated line, and it keeps a `:@:` line from repeating itself forever. `@@` also works after a
+`:@:` (vim counts it as `@:`).
+
 ## 2026-11-24 Prompts are no longer logged
 
 User: "I'm wondering if we should drop storing prompts altogether"; "update the relevant files so no prompt

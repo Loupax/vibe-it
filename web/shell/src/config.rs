@@ -134,6 +134,18 @@ pub const KEY_SEQUENCES: &[KeySeq] = &[
         second: 'y',
         action: Action::YankUrl,
     },
+    // `@:` (C-REPEAT, vim's contract): run the last `:` line again; `@@` repeats the last `@:`.
+    // `@` then any other key is handled as NORMAL handles that key (no other registers).
+    KeySeq {
+        first: '@',
+        second: ':',
+        action: Action::RepeatLine,
+    },
+    KeySeq {
+        first: '@',
+        second: '@',
+        action: Action::RepeatRepeat,
+    },
 ];
 
 // ---------- scrolling (KEYS.md T13, web note) ----------

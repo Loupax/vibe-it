@@ -591,6 +591,14 @@ consulted at all); with mappings, keys that start none of them are handled at on
 | T126 | COMMAND | Up / Down | no line matches, or Down while not browsing | COMMAND | nothing changes |
 | T127 | COMMAND | any other key | browsing | COMMAND | browsing ends, the recalled text stays as typed (the next Up filters by it). A recalled line shows no ghost, so Enter runs exactly it |
 | T128 | COMMAND | Enter | a non-empty line | NORMAL | the line (ghost included, T50) is appended to `DIR/cmdhistory` (STASH.md "Command history"; 0600, kept across restarts, `CMD_HISTORY_MAX` lines, per profile). Lines run by a binding, `web.cmd` or a mapping (T115, T118-T123) are not kept. A line opened with text (`open_line_with`: `:new`, a mapping without `<CR>`) filters by that text. The `/` line has no history |
+| T140 | NORMAL | `@` | none | A | nothing |
+| T141 | A | `:` | a `:` line ran before (kept across restarts, T128) | NORMAL | C-REPEAT, vim's `@:`: the last `:` line runs again as typed (a user command runs its function, T115). Only `:` lines, never NORMAL keys; `.` stays unbound (`web.map("n", ".", ":@:<CR>")` makes it). No counts |
+| T142 | A | `:` | no `:` line ran yet | NORMAL | `web: no previous command line` (vim's E30) |
+| T143 | A | `@` | an `@:` ran since start | NORMAL | vim's `@@`: the last `@:` again |
+| T144 | A | `@` | no `@:` ran yet | NORMAL | `web: no previously used register` (vim's E748) |
+| T145 | A | any other key | none | NORMAL | handle that key as in NORMAL (no other registers) |
+| T146 | COMMAND | Enter | the line is `@:` or `@@` (the commands `:@:`, `:@@`) | NORMAL | the same as the keys T141-T144, so a mapping can use `:@:<CR>`. A repeat is not the last line (vim: the `:` register keeps the repeated line), so repeating twice repeats the same line, not itself; a `:@:` line stays in the Up/Down list (T125) but `@:` skips it. These rows take T140+ so C-EDITURL's T129+ do not clash |
+| T147 | A | a modifier's own press (Shift) | none | A | the pending `@` stays: a keyboard holds Shift for the `@` and again for the `:` of `@:`, so Shift's press between them must not end the sequence (the live run found it). Applies to every two-key sequence (`g`, `y` too; `g` Shift `g` is now `gg`) |
 
 ## What went away in scratchy (QKEYS3)
 
