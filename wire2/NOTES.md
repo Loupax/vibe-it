@@ -789,3 +789,36 @@ Ages are oldest first (the order they would be closed in); `chain=-` is the empt
 to copy the ages. Beyond SPEC.md (not edited). Closes the "SIGUSR1 does not list pooled connections" gap of W2-2e.
 Test: `sigusr1_dumps_the_pool_one_line_per_key` in tests/w2_2e_pool.rs (two keys: chain [gate] with 2 parked
 connections, empty chain with 1; waits for the log lines, bounded 5 s).
+
+## W2-1b: tunnel throughput re-measured (2026-11-24)
+
+Quiet machine (idle load about 0.3; the test run itself lifts the 1-minute figure to 1.5-2.7, no other agent was
+measuring), kernel 7.2.11, release build, 4 GiB per run, median of 9 runs per session, each session under
+`flock /tmp/scratchy-perf.lock`, tests `perf_tunnel_throughput_vs_direct` (w2_1_perf) and
+`perf_tunnel_through_pass_vs_direct` (w2_f_perf), same commit as main at 6ce9faea. 11 sessions each:
+
+| What | Per-session ratios, sorted | Median | Target |
+|---|---|---|---|
+| Tunnel, no filter, vs direct | 88.7 91.4 91.7 91.8 94.2 94.9 96.9 98.6 98.9 99.0 99.8 % (tunnel 6.0-6.4 GiB/s, direct 6.0-6.9) | 94.9 % | >= 95 % |
+| Tunnel via wire2-pass vs direct | 75.3 77.6 77.7 78.6 79.0 79.4 79.9 80.8 82.8 85.6 88.4 % (pass 4.9-5.4 GiB/s) | 79.4 % | >= 90 % |
+
+No-filter: at the target within noise (the direct baseline itself swings 6.0-6.9 GiB/s between sessions, so single
+ratios range 89-100 %); the tunnel absolute speed is steady at 6.0-6.4 GiB/s. Nothing to fix.
+
+Through pass: MISSES the target (W2-F measured 89 % on a busier machine, so that figure was luck or a
+different kernel). The path is three splice hops (browser -> proxy -> pass -> hub -> origin) against one
+direct, so about 5.2 GiB/s of the 6.5 direct is where it settles. Small fixes tried (env-var test hooks, not
+kept), 3 sessions each, pass test:
+
+| Variant | Ratios | 
+|---|---|
+| baseline (1 MiB unix buffers) | 77.9 78.9 80.7 % |
+| + SPLICE_F_MORE on the pipe -> socket splice | 75.4 77.9 82.1 % (no gain) |
+| 512 KiB unix buffers | 76.1 79.3 86.4 % (noise) |
+| 2 MiB unix buffers | 56.2 61.1 67.1 % (worse) |
+| 4 MiB + SPLICE_F_MORE | 63.7 64.6 66.6 % (worse) |
+
+So neither SPLICE_F_MORE nor buffer size moves it; the remaining cost is the extra hops (wakeups and
+cache traffic per 1 MiB chunk), not a tunable. A real gain would need fewer hops (for example pass handing
+the hub connection's fd over to the proxy so a pure pass-through tunnel is one splice), which changes the
+SPEC's chain design; proposed as a follow-up, not done here.
