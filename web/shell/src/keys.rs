@@ -382,6 +382,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "bufferNew",
     "bufferNext",
     "bufferPrev",
+    "echo",
     "forget-site",
     "go",
     "help",
@@ -398,6 +399,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "quit",
     "refresh",
     "set",
+    "source",
 ];
 
 /// C-EDITURL: the commands that open a URL; `<name> ` typed fills in the page's URL, selected.
@@ -640,6 +642,14 @@ pub struct Keys {
     pub cache: CompleteCache,
     /// The last message (KEYS.md "Status bar").
     pub message: String,
+    /// C-SCRIPT-ERRBAR: the text of a script's error or an `:echo` while it is still the message
+    /// and no key was pressed since; a page load leaves such a message alone (`page_loaded`).
+    pub(crate) sticky: String,
+    /// What `:source` loads again, and the budget its calls get (set by `load_scripts_with`).
+    pub(crate) script_files: Vec<crate::script::ScriptFile>,
+    pub(crate) script_budget: Duration,
+    /// `web.cmd` lines being run right now (`:source` is refused from them).
+    pub(crate) script_lines: usize,
     /// The page's URL as the host reported it (register `%`).
     pub url: String,
     /// The page's title as the host reported it ("" when none yet; `:bookmarkAdd` stores it).
@@ -739,6 +749,10 @@ impl Keys {
             ghost: None,
             cache: CompleteCache::new(state_dir.clone()),
             message: String::new(),
+            sticky: String::new(),
+            script_files: Vec::new(),
+            script_budget: Duration::from_millis(crate::config::SCRIPT_BUDGET_MS),
+            script_lines: 0,
             url: String::new(),
             title: String::new(),
             help_url,
@@ -779,6 +793,8 @@ impl Keys {
             // never sees a keyup without its keydown, nor misses one (no stuck keys).
             return self.forwarded.remove(&code);
         }
+        // C-SCRIPT-ERRBAR: the user's next key ends the protection of a script's message.
+        self.sticky.clear();
         let repeat = !self.down.insert(code);
         let was_line = self.in_line_mode();
         let forward = self.press(code, key, repeat, now);
@@ -1027,6 +1043,13 @@ impl Keys {
     fn drop_map_pending(&mut self) {
         self.map_pending.clear();
         self.map_deadline = None;
+    }
+
+    /// C-SOURCE: with no key waiting for a mapping, no timer runs for one.
+    pub(crate) fn stop_idle_map_timer(&mut self) {
+        if self.map_pending.is_empty() {
+            self.map_deadline = None;
+        }
     }
 
     /// Whether keys wait for a mapping, and for how long (the compositor's timer).
@@ -1723,6 +1746,12 @@ impl Keys {
             self.message = crate::registers::let_message(raw, &self.url, self.clipboard.as_deref_mut());
             return;
         }
+        // C-ECHO: the rest of the line, verbatim (not split on whitespace).
+        if name == "echo" {
+            let raw = input.trim_start().strip_prefix(name).unwrap_or("");
+            self.echo(raw.trim_start());
+            return;
+        }
         self.dispatch_command(name, &args);
     }
 
@@ -1795,6 +1824,10 @@ impl Keys {
             ("@:", []) => self.repeat_line(),
             ("@@", []) => self.repeat_repeat(),
             ("@:" | "@@", _) => self.message = format!("web: usage: :{name}"),
+            ("echo", rest) => self.echo(&rest.join(" ")),
+            // C-SOURCE: the scripts again, clean (arguments: not yet).
+            ("source", []) => self.source(),
+            ("source", _) => self.message = "web: usage: :source (no arguments yet)".to_string(),
             ("set", [opt]) => self.set_option(opt),
             ("set", _) => self.message = SET_USAGE.to_string(),
             ("q", []) | ("quit", []) => {

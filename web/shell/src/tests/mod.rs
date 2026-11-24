@@ -29,6 +29,7 @@ mod c_repeat_tests;
 mod c_script_map_tests;
 mod c_script_mem_tests;
 mod c_script_tests;
+mod c_source_tests;
 mod completion_tests;
 mod history_tests;
 mod keys_tests;

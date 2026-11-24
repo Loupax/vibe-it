@@ -85,6 +85,30 @@ next key; on a timeout or a key that matches nothing, the pending keys are handl
 they would have been without the mapping. Other keys (`<A-...>`, `<Space>`, arrows, ...)
 come when a mapping needs them.
 
+### Commands for scripts: `:echo` and `:source`
+
+Not on `web`: they are `:` commands (user, 2026-11-24), so a script reaches them through `web.cmd`.
+
+`:echo TEXT` shows TEXT in the status bar (the rest of the line, verbatim) and writes
+`[web] echo: TEXT` to the log. There is no `console` object; this is how a script shows a value
+while the user is testing an `init.js`:
+
+```js
+web.command("Where", () => web.cmd("echo profile " + "work" + ", " + 2 + " buffers"));
+web.on("ready", () => web.cmd("echo init.js ran"));
+```
+
+`:source` runs the scripts again, as at start but clean (user, 2026-11-24): every user command,
+mapping and `ready` handler is dropped with the old QuickJS context, a new context runs the same
+files again (the global one, then the profile's: the profile is the one the shell started with) and
+the bar says `sourced N file(s)`. `ready` handlers are registered again but not fired, so the start
+buffers are not opened a second time; `web.cmd` lines at the top level of a file, which at start wait
+for `ready`, run at once (the host is connected). Errors show as at start and what ran before the
+error stays. `:source` is a command for the user: `web.cmd("source")` (a user command, a mapping
+function, `ready`) is an error, because a reload from inside a call would drop the code that is
+running; `web.map("n", "gs", ":source<CR>")` works, as the line is the user's. `:source FILE` does not
+exist yet.
+
 ### `web.on("ready", fn)`
 
 Calls `fn` once per start of the shell, when the engine host is connected and the first
@@ -101,6 +125,10 @@ buffer exists (the URL argument's, as today). This is where default buffers are 
   error goes to the log.
 - An error in a mapped function, a user command or the `ready` handler shows in the
   status bar the same way.
+- **Sticky messages** (C-SCRIPT-ERRBAR): a script's error, and the text of an `:echo`, stay in the bar
+  until the user's next key. Loading a page clears the bar's message as always, except these (without
+  this an `init.js` error at start was gone as soon as the first page loaded). After the next key such a
+  message is an ordinary one again.
 - Every call into the script (the file itself, a mapping, a command, `ready`) has a time
   budget, `SCRIPT_BUDGET_MS` (config.rs); QuickJS's interrupt handler ends a call that
   overruns it with an error, so a stray loop cannot freeze the shell.

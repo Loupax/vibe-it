@@ -117,6 +117,28 @@ the order is the one synchronous calls would give. Lines queued at the top level
 (no engine host before it). Depth: user commands nested through `web.cmd` past `SCRIPT_DEPTH_MAX` stop the whole
 chain with an error.
 
+## 2026-11-24 Sticky script messages, :source, :echo (C-SCRIPT-ERRBAR, C-SOURCE, C-ECHO)
+
+User's reports: "I don't see the error" (a throwing init.js), "do we have a :source command?", `console.log` for
+testing, then `:echo`. The rest are the implementer's choices, not asked:
+
+- **Sticky by text.** `Keys.sticky` holds the text of the last script error or `:echo`. A page load clears
+  the message unless it is still exactly that text, and any key press empties `sticky`. Comparing the text
+  (rather than a flag on the message) means a message that replaced it, or a flag that went stale, can never
+  protect the wrong text, and none of the ~30 places that assign `message` need to know. Typed `:echo` is
+  protected too (one rule; the user's next key, the Enter, comes before the command).
+- **`:source` drops the whole `Scripts` value** (its Drop clears the persistent handles before the
+  runtime) and loads the stored files into a new one, so there is no partial-unregister bookkeeping. The
+  queue of `web.cmd` lines is drained after every call, so none is pending when `:source` runs; the files'
+  held top-level lines run immediately instead of waiting for a `ready` that will not come again. If
+  `ready` had not fired yet (a `:source` before the first tab) it still fires once, for the new handlers; if
+  there was no runtime at start it never fires.
+- **`:source` inside a script call is refused** with a counter on `run_script_lines` (every `web.cmd` line
+  runs inside it), not by checking JS frames: the lines run after the call returned, so a reload would be
+  safe, but the spec says error and a script that reloads itself is a loop waiting to happen.
+- **Mapping timers:** keys waiting for a longer mapping stay pending and are matched against the new mappings
+  (the draining loop may be running when a `:source<CR>` mapping fires); with none pending the timer is cleared.
+
 ## 2026-11-24 User scripts: init.js per profile plus a global one, QuickJS in the shell
 
 User: "I want to be able to expose configuration similar to how nvim does it. I'm thinking using
