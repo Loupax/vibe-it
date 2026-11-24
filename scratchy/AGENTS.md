@@ -49,7 +49,7 @@
    hover or scroll changes, drive real input: `tools/nest.sh` (nested dwl)
    plus `tools/inject` (virtual pointer/keyboard); see `tools/README`.
    Recipe background is in `REGRESSIONS.md` "How this was tested".
-7. Add a `PROMPTS.md` entry. Update `NOTES.md` if architecture changed.
+7. Update `NOTES.md` if architecture changed. No `PROMPTS.md` entry (user, 2026-11-24: frozen).
 8. Tick the item in `TODO.txt`. Add a new
    narrower `[ ]` item for anything deliberately left out. Then ARCHIVE it in the same commit:
    append the ticked item's full text, unchanged, to the end of `TODO-DONE.txt` under a line
@@ -77,7 +77,7 @@
 - Before killing a scratchy process, `pgrep -fa scratchy` and kill
   specific PIDs. The user may have their own instance running.
 - Cross-references in tracking files use commit hashes, not `vN` labels.
-- `PROMPTS.md` is append-only.
+- `PROMPTS.md` is frozen (user, 2026-11-24): add nothing.
 - Don't vendor third-party source (WPT, browser UA sheets). Use it as reference.
 - scratchy never talks to the internet itself: no network crates, no TCP/UDP/DNS,
   only unix sockets to wire (user rule 2026-11-17, enforced by TODO.txt QNET1). New

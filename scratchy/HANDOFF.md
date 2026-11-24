@@ -25,7 +25,7 @@ QUEUE, in its order, with both agent slots, before any other item. It supersedes
   `gh pr merge <n> --merge`. On a classifier denial: leave the PR open and surface it to the user (do not merge for
   the agent). Opus investigates/measures only (docs commits to main); Sonnet implements.
 - Per-item checklist: AGENTS.md (clippy <= tools/clippy-baseline.txt = 74, full cargo test on BOTH configs, WPT no
-  pass->fail, PROMPTS.md entry, TODO tick + separate fill-in-hash commit, js-report 0 errors on 3 pages, viewed
+  pass->fail, TODO tick + separate fill-in-hash commit, js-report 0 errors on 3 pages, viewed
   nested-dwl screenshot when style/paint changes).
 - Agents delete their own build dirs after their PR merges (AGENTS.md "Clean up after your PR merges"). The disk
   filled up once (186 worktrees x 3-6 GB); check `df -h /` and prune merged worktrees if it creeps up.

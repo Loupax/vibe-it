@@ -2,6 +2,15 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-24 Prompts are no longer logged
+
+User: "I'm wondering if we should drop storing prompts altogether"; "update the relevant files so no prompt
+gets updated anymore. Will remove it from main in a few days". No script or agent reads PROMPTS.md as input,
+and it caused most merge conflicts (merge_pr.sh's keep-both rule). The why of a decision goes here, with the
+user's words; an item's result goes in its PR body and commit message, large reports in `notes/`.
+PROMPTS.md files are frozen until removed. Repo-wide: root README.md, COORDINATOR_PROMPT.md,
+coordinator/AGENT_RULES.md, scratchy/AGENTS.md.
+
 ## 2026-11-24 User scripts: init.js per profile plus a global one, QuickJS in the shell
 
 User: "I want to be able to expose configuration similar to how nvim does it. I'm thinking using

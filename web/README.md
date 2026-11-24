@@ -36,7 +36,7 @@ Architecture C (DECISIONS.md, TODO.txt C1-C8):
   (virtual keyboard and pointer), copied from scratchy.
 - `DECISIONS.md`: what has been decided and why.
 - `TODO.txt`: the plan (C1-C8, E1) and the spike record (W1-W7), each step with a check that ends it.
-- `PROMPTS.md`: the exact prompts that produced this project, in order.
+- `PROMPTS.md`: FROZEN (user, 2026-11-24): the prompts up to then; add nothing, it is being removed.
 
 ## Install and uninstall
 
