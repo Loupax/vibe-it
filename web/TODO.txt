@@ -181,6 +181,17 @@ stop early on a hard failure.
       nothing but say so, or reopens the URL: decide in the item). Kept in memory only, capped (config.rs).
       Maybe a key to dismiss one or all. Feasibility is mostly C-BELL's: once notifications reach the shell,
       the picker already does the rest. KEYS.md rows, unit tests, a live step.
+- [ ] C-MIDCLICK [S] (user, 2026-11-24: "Middle click on links should basically do a :new") A middle-click on a
+      link opens its URL in a new buffer and makes it current, as `:new <url>` does (C-NEWBUF, T103-T104: the
+      old buffer becomes the alternate for Ctrl-^), in NORMAL and INPUT. Reverses C-NOTAB for middle-click only
+      (DECISIONS.md "Ctrl/middle-click on links still open nothing" and KEYS.md T92 get amended, dated);
+      Ctrl-click and Shift-click keep their current behaviour. Host: Chromium gives a middle-click
+      NEW_BACKGROUND_TAB, the same disposition as Ctrl+click, so newtab.rs `popup_action`/`open_url_action`
+      cannot tell them apart; find how (the shell knows which button it forwarded and the modifiers held, or
+      the renderer sees the auxclick, as `CTRL_SHIFT_JS` does for Ctrl+Shift) and say which in the item. Open
+      it like `:new`: no `window.opener`, no popup blocking (a real click). Middle-click on anything not a link
+      stays as it is (no paste, DECISIONS.md "No middle-click paste"; autoscroll off). KEYS.md rows, unit tests
+      for the disposition rule, a c4_live step: middle-click a link -> a new current buffer at its URL.
 - [-] C-VRESIZE DROPPED (user, 2026-11-24: "it's generic, I can't resize this terminal either": KWin/desktop,
       not web; no agent ran)
 - [x] C-EXTERNAL [S] (DONE 2026-11-23, 5e6c5f4, #719: :openExternal [url], $BROWSER/xdg-open, detached, no shell,
