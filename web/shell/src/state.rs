@@ -257,6 +257,12 @@ impl State {
             self.log(&format!("page window paired with tab {tab}"));
         }
         self.sync_page();
+        // C-SCRIPT: the first tab means the host is connected and the first buffer exists: `ready`
+        // (once per start; `script_ready` does nothing after the first time).
+        if self.keys.scripts.is_some() {
+            self.keys.script_ready();
+            self.apply_key_effects(0);
+        }
     }
 
     /// A page that is not a popup: the first one, `new-tab`'s answer, or one nobody asked for.

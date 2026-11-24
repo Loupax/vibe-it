@@ -559,6 +559,17 @@ popup, ever. Shell side: `shell/src/notify.rs`; knobs in config.rs (`NOTIFY_SITE
 | T113 | PICK | Enter on a `:notifications` row | its buffer still exists | NORMAL | that buffer is shown as `:buffer N` (T77: the old one becomes Ctrl-^'s) and the notification is read, as are the buffer's others (T108) |
 | T114 | PICK | Enter on a `:notifications` row | its buffer was killed | NORMAL | the notification is read; the buffer's URL as of the notification (else the notifier's origin) is opened in a new buffer through `:new`'s path (T103), the bar says `buffer N is closed: reopened <url> as buffer M`; with no URL at all only `web: buffer N is closed and the notification has no page URL` |
 
+## User commands (C-SCRIPT)
+
+User, 2026-11-24 (DECISIONS.md "User scripts", SCRIPTING.md): `init.js` defines commands with
+`web.command(Name, fn)` and runs `:` lines with `web.cmd(line)`.
+
+| ID | Mode | Key | Condition | Next | Action |
+|---|---|---|---|---|---|
+| T115 | COMMAND | Enter on `:Name [args]` | a script defined `Name` (it starts with an uppercase letter, so it never shadows a built-in) | NORMAL | calls the script's function with the arguments as one array of strings, split as built-ins split theirs (`:Name a b` -> `["a", "b"]`; none -> `[]`). The `:` lines it hands to `web.cmd` run after it returns, in order, each as typed after `:` (a leading `:` dropped); a line naming a user command runs that one's function there, so the order is as if `web.cmd` had run each line at once. A line's error shows in the bar as the command's would. An exception: `init.js:LINE: message` in the bar, the stack in the log. A call longer than `SCRIPT_BUDGET_MS` (100) is interrupted: `init.js:LINE: interrupted: ran longer than SCRIPT_BUDGET_MS (100 ms)` (QuickJS gives an interrupted call the line its function starts on). User commands nested through `web.cmd` deeper than `SCRIPT_DEPTH_MAX` (16): `web.cmd: :Name: user commands nested deeper than 16; stopped`, and the rest of that chain is dropped. Not defined: T27's `web: unknown command` |
+| T116 | COMMAND | the first word | - | - | the ghost (T45) offers the user commands after the built-in names (`:H` -> `Hello`); names are case-sensitive, so `:h` offers only built-ins |
+| T117 | - | start | `$XDG_CONFIG_HOME/web/init.js` (default `~/.config/web/init.js`) exists | - | runs it (strict mode, one context); a failing file stops where it failed, what it set up stays, web starts anyway (`init.js:LINE: message`). Lines it hands to `web.cmd` at its top level wait for `ready`. `ready` fires once when the engine host's first tab exists: those lines run, then each `web.on("ready")` handler in order (an error in one does not stop the next). A URL handed over later (C-SINGLE) does not fire it again |
+
 ## What went away in scratchy (QKEYS3)
 
 `:set vim` / `:set novim` (`App::vim_enabled`), the SIGUSR1 toggle
@@ -567,6 +578,10 @@ Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked ou
 
 ## Decision log
 
+- 2026-11-24 (C-SCRIPT): user commands (T115-T117). The implementer's choices, not asked:
+  `SCRIPT_BUDGET_MS` 100 and `SCRIPT_DEPTH_MAX` 16; `web.cmd` queues its line and the shell runs it
+  right after the call returns (DECISIONS.md "web.cmd queues"); top-level `web.cmd` lines wait for `ready`;
+  user commands complete after the built-ins; `web` is frozen.
 - 2026-11-24 (C-NOTIFLIST): `:notifications` (T112-T114). The implementer's choices, not asked: a closed
   buffer's notification reopens the page's URL in a new buffer (the URL of its buffer at the time, else the
   notifier's origin) and says so, rather than doing nothing; read = Enter on it or showing its buffer; the

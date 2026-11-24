@@ -341,6 +341,8 @@ pub enum Effect {
     OpenExternal(String),
     /// A command for page `tab`, shown or not (C-AUTOFOCUS: `blur-field` to a background buffer).
     SendTo(u64, Command),
+    /// C-SCRIPT: a line for web's log (a script's error with its stack, what `web.cmd` ran).
+    Log(String),
 }
 
 /// C-AUTOFOCUS: what an `editable-focused true` did (`Keys::editable_focused`; the compositor logs it).
@@ -518,6 +520,8 @@ pub struct Keys {
     /// `field-result` is still awaited (`last` failed: ask for `first`; none: the message).
     gi_at: Option<Instant>,
     gi_waiting: bool,
+    /// C-SCRIPT: the user's scripts (`script.rs`); None until a file exists.
+    pub scripts: Option<crate::script::Scripts>,
 }
 
 impl Keys {
@@ -537,6 +541,7 @@ impl Keys {
             page_key_at: None,
             gi_at: None,
             gi_waiting: false,
+            scripts: None,
             line: TextEditBuffer::default(),
             ghost: None,
             cache: CompleteCache::new(state_dir.clone()),
@@ -892,6 +897,7 @@ impl Keys {
         if let Some(sink) = &self.sink {
             cache = cache.with_external(sink.clone(), self.url.clone());
         }
+        cache.user_commands = self.user_command_names();
         self.cache = cache;
     }
 
@@ -1269,6 +1275,8 @@ impl Keys {
                     self.effects.push(Effect::Quit)
                 }
             }
+            // C-SCRIPT: a command a script defined (`web.command`; uppercase, so never a built-in).
+            _ if self.user_command(name, args) => {}
             _ => {
                 let rest = args.join(" ");
                 self.message = format!("web: unknown command: :{name}{}{rest}", if rest.is_empty() { "" } else { " " });

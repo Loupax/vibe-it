@@ -338,3 +338,12 @@ pub const SPACE_AFTER_ARG: &[&str] = &["set"];
 pub const HISTORY: bool = true;
 /// At startup a history file with more lines than this keeps only the newest ones.
 pub const HISTORY_MAX_LINES: usize = 50_000;
+
+// ---------- user scripts (SCRIPTING.md, C-SCRIPT) ----------
+
+/// Every call into a user script (the file itself, a user command, the `ready` handler) may run this
+/// many milliseconds; QuickJS's interrupt handler then ends it with an error in the status bar.
+pub const SCRIPT_BUDGET_MS: u64 = 100;
+/// `web.cmd` calls may nest through user commands this deep (`:A` running `:B` running ...); deeper,
+/// the chain stops with an error.
+pub const SCRIPT_DEPTH_MAX: usize = 16;

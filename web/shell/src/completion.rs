@@ -126,6 +126,8 @@ pub struct CompleteCache {
     ext: RefCell<HashMap<(String, usize), Vec<String>>>,
     /// (command, argument position) pairs already started: one run per line and position.
     ext_started: RefCell<HashSet<(String, usize)>>,
+    /// C-SCRIPT: the user commands (`web.command`), sorted; offered after the built-in names.
+    pub user_commands: Vec<String>,
 }
 
 impl CompleteCache {
@@ -140,6 +142,7 @@ impl CompleteCache {
             url: String::new(),
             ext: RefCell::new(HashMap::new()),
             ext_started: RefCell::new(HashSet::new()),
+            user_commands: Vec::new(),
         }
     }
 
@@ -380,6 +383,7 @@ pub fn complete_command_names(ctx: &CompleteCtx) -> Vec<String> {
         .into_iter()
         .chain(crate::keys::COMMAND_NAMES.iter().filter(|n| n.starts_with(ctx.word)))
         .map(|n| n.to_string())
+        .chain(ctx.cache.user_commands.iter().filter(|n| n.starts_with(ctx.word)).cloned())
         .collect()
 }
 

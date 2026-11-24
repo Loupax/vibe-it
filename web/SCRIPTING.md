@@ -45,6 +45,11 @@ Runs `line` as if typed after `:` and Enter (a leading `:` is dropped). It is th
 a script acts on the browser: whatever a `:command` can do, a script can do, and nothing
 more. Errors show in the status bar as the command's would.
 
+(C-SCRIPT, 2026-11-24, forced by the implementation:) the line runs right after the current call
+into the script returns, in order with the others it queued; a line naming a user command runs
+that one's function there, so the order is as if each line had run at once. At the top level of
+`init.js` there is no engine host yet: those lines run when `ready` fires, before its handlers.
+
 ### `web.command(Name, fn)`
 
 Defines the command `:Name`. `Name` must start with an uppercase letter (as nvim's user

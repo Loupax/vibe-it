@@ -32,6 +32,7 @@ mod probe;
 mod protocol;
 mod registers;
 mod render;
+mod script;
 mod selection;
 mod state;
 mod statusbar;
@@ -369,6 +370,14 @@ fn main() {
     state.apply_output_state();
     state.damage_tracker = Some(OutputDamageTracker::from_output(&state.output));
     state.keys.clipboard = Some(Box::new(desktop_clipboard));
+    // C-SCRIPT: the user's init.js (SCRIPTING.md); its `ready` handlers run at the first tab.
+    let script_start = Instant::now();
+    state.keys.load_scripts(&script::init_files(&env));
+    eprintln!(
+        "[web +{}ms] scripts loaded in {} us",
+        start.elapsed().as_millis(),
+        script_start.elapsed().as_micros()
+    );
 
     control
         .register(&event_loop.handle())

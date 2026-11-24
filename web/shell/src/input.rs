@@ -254,6 +254,7 @@ impl State {
                 }
                 Effect::Send(cmd) => self.send(cmd),
                 Effect::SendTo(tab, cmd) => self.send_to(tab, cmd),
+                Effect::Log(line) => self.log(&line),
                 Effect::KeyDown(k) | Effect::KeyUp(k) => {
                     let st = if matches!(effect, Effect::KeyDown(_)) {
                         KeyState::Pressed
