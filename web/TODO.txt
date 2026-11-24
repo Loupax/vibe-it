@@ -310,7 +310,7 @@ stop early on a hard failure.
       `web.cmd("echo " + x)`; no `console` object (SCRIPTING.md: nothing exposed unasked). KEYS.md, help.html,
       SCRIPTING.md example, unit tests. Interacts with C-SCRIPT-ERRBAR: an echo from init.js at start must also
       survive the first page load (same fix: messages set before/at start, from scripts, stay until a key).
-- [ ] [WIP] C-DESKTOP-ENTRY [XS] (user, 2026-11-24: "why can't I run web from the gui launcher? it works from the
+- [x] C-DESKTOP-ENTRY [XS] (DONE 2026-11-24, 23489de, #745: StartupWMClass=web, no icon, no MimeType) (user, 2026-11-24: "why can't I run web from the gui launcher? it works from the
       terminal") Found: install.sh writes no .desktop file, and the Plasma session PATH (systemctl --user
       show-environment) has no ~/.local/bin, so neither the app menu/KRunner nor Alt+F2 `web` finds it. install.sh
       writes `$XDG_DATA_HOME/applications/web.desktop` (default ~/.local/share/applications; atomically, like the
