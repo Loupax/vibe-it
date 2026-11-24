@@ -144,6 +144,54 @@ stop early on a hard failure.
       `:go`'s (same completion, scheme-less words, search engine). No argument: an about:blank buffer and the `:go `
       prompt opened so you type the address straight away. KEYS.md rows next to T77-T81, the buffers table, :help,
       unit tests, and c4_live gains a step.
+- [ ] C-BARREPEAT [S] (user, 2026-11-24: "holding down a key doesn't repeat on the status bar. It's annoying when I
+      want to use backspace a lot of times.") Holding a key in the command line (`:`), the search line (`/`) and the
+      picker's filter does nothing past the first press: Backspace above all, but also letters and the arrows.
+      The shell owns these lines, so the page's (engine's) own key repeat does not help. First find where the
+      repeats are lost (KeyState::key marks a press of a key already down as `repeat`, so check whether the
+      winit/smithay input path delivers OS repeats at all, on Wayland and X11); if it does not, the shell repeats
+      held keys itself with the desktop's rate and delay (wl_keyboard.repeat_info on Wayland, XKB on X11; a
+      config.rs default when unknown), only for keys the shell consumes in COMMAND/SEARCH/PICK, stopping on
+      release, focus loss (C-FOCUSKEYS) and mode change. Must not change NORMAL: bindings that ignore repeat
+      (action_ignores_repeat, T14/T55) stay as they are, and keys forwarded to the page keep the engine's repeat.
+      KEYS.md rows, unit tests (fake clock), a live step holding Backspace in `:`.
+- [ ] C-BELL [M] (user, 2026-11-24: "We should plan a discreet notification feedback. Maybe a visual bell that
+      causes the status bar to flash? :ls should show which buffers have unread notifications"; narrowed the same
+      day: "focus on catching notify events if possible") Only the page's own Web Notifications are notifications
+      (no title-counter or audio heuristics). Step 1 is a spike, with a report before building:
+      - Can CEF give us the page's notifications? Check `new Notification(...)` and
+        ServiceWorkerRegistration.showNotification on a local test page: what Notification.permission and
+        requestPermission() say under our CEF runtime (Chrome-style or Alloy), and whether any CEF handler or
+        Chromium hook sees the notification (permission prompt handler, Chrome's notification platform bridge
+        going to D-Bus/libnotify). If nothing exposes them: a script injected at document start (renderer
+        OnContextCreated or a V8 extension) that reports permission as granted and forwards each notification's
+        title/body/tag to the host over a CEF process message. Say which works and what it costs. Push
+        messages to closed pages need Google's push service and are out of scope; only open buffers notify.
+      - Then build: host->shell `notify <id> <title> <body>` (PROTOCOL.md); per-buffer unread state, cleared
+        when the buffer is shown; the visual bell: the status bar flashes briefly (inverted or accent colour,
+        ~150 ms, config.rs), rate-limited, for any buffer; the bar shows how many buffers have unread
+        notifications (e.g. `[2!]`); `:ls`/`:bufferList` puts `!` after vim's `%`/`#` on those buffers and the
+        latest notification's title in the detail column. No sound, no desktop popups.
+      KEYS.md rows, unit tests, a live step with the local test page.
+- [ ] C-NOTIFLIST [S] (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
+      navigate and see notifications using keyboard only") `:notifications` opens the picker (C-PICK, T58-T68)
+      over the notifications received this session, newest first: label = the buffer number and title, detail =
+      the notification's body and the site's hostname, unread ones marked; typing filters; Enter shows that
+      buffer (T78) and marks the notification read; a closed buffer's notifications stay listed (Enter then does
+      nothing but say so, or reopens the URL: decide in the item). Kept in memory only, capped (config.rs).
+      Maybe a key to dismiss one or all. Feasibility is mostly C-BELL's: once notifications reach the shell,
+      the picker already does the rest. KEYS.md rows, unit tests, a live step.
+- [ ] C-MIDCLICK [S] (user, 2026-11-24: "Middle click on links should basically do a :new") A middle-click on a
+      link opens its URL in a new buffer and makes it current, as `:new <url>` does (C-NEWBUF, T103-T104: the
+      old buffer becomes the alternate for Ctrl-^), in NORMAL and INPUT. Reverses C-NOTAB for middle-click only
+      (DECISIONS.md "Ctrl/middle-click on links still open nothing" and KEYS.md T92 get amended, dated);
+      Ctrl-click and Shift-click keep their current behaviour. Host: Chromium gives a middle-click
+      NEW_BACKGROUND_TAB, the same disposition as Ctrl+click, so newtab.rs `popup_action`/`open_url_action`
+      cannot tell them apart; find how (the shell knows which button it forwarded and the modifiers held, or
+      the renderer sees the auxclick, as `CTRL_SHIFT_JS` does for Ctrl+Shift) and say which in the item. Open
+      it like `:new`: no `window.opener`, no popup blocking (a real click). Middle-click on anything not a link
+      stays as it is (no paste, DECISIONS.md "No middle-click paste"; autoscroll off). KEYS.md rows, unit tests
+      for the disposition rule, a c4_live step: middle-click a link -> a new current buffer at its URL.
 - [-] C-VRESIZE DROPPED (user, 2026-11-24: "it's generic, I can't resize this terminal either": KWin/desktop,
       not web; no agent ran)
 - [x] C-EXTERNAL [S] (DONE 2026-11-23, 5e6c5f4, #719: :openExternal [url], $BROWSER/xdg-open, detached, no shell,
