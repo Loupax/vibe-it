@@ -256,7 +256,7 @@ stop early on a hard failure.
       - `@@` (another row) repeats the last `@:`; before any `@:` it says `web: no previously used register`
         (vim's E748). `@` then any other key: handled as NORMAL handles that key (no other registers).
       - `:@:` the command does the same as the keys (vim has it too), so a script maps it with the API as
-        specified: `web.map("n", ".", ":@:")` once C-SCRIPT-MAP lands.
+        specified: `web.map("n", ".", ":@:<CR>")` once C-SCRIPT-MAP lands.
       - Neither `@:` nor `:@:` becomes the last command line (vim: the `:` register keeps the repeated line),
         so repeating twice repeats the same line, not itself. No previous line: `web: no previous command
         line` (vim's E30).
