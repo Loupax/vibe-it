@@ -390,8 +390,8 @@ fn c4_t90_the_ghost_offers_long_names_an_alias_runs_as_typed() {
         assert!(COMMAND_NAMES.contains(&n), "{n}");
     }
     let cache = CompleteCache::new(None);
-    let g = compute_ghost("bufferN", 7, &cache).unwrap();
-    assert_eq!(g.rest("bufferN"), "ext");
+    let g = compute_ghost("bufferNe", 8, &cache).unwrap();
+    assert_eq!(g.rest("bufferNe"), "w");
     // `b` typed in full: no ghost text, Enter runs `:b` (not `:bookmarkAdd`); Tab still cycles.
     let g = compute_ghost("b", 1, &cache).unwrap();
     assert_eq!(g.rest("b"), "");

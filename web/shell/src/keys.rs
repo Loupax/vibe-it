@@ -208,6 +208,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "bufferDescribe",
     "bufferKill",
     "bufferList",
+    "bufferNew",
     "bufferNext",
     "bufferPrev",
     "forget-site",
@@ -217,6 +218,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "historyFront",
     "historySearch",
     "let",
+    "new",
     "openExternal",
     "popupOpen",
     "popupSearch",
@@ -945,6 +947,26 @@ impl Keys {
         self.recompute_ghost();
     }
 
+    /// What `:go word` opens (shared with `:new`): `go_url`, except that a scheme-less word that is a
+    /// history URL minus its scheme runs as that URL (C3-GOHTTP: an http:// site stays http://). A
+    /// typed scheme never gets that far.
+    pub fn go_target(&self, word: &str) -> Result<String, String> {
+        let url = go_url(word, &self.url)?;
+        if !word.contains("://") && url.starts_with("https://") {
+            if let Some(scheme) = crate::completion::history_scheme_for(&self.cache, word) {
+                return Ok(format!("{scheme}{word}"));
+            }
+        }
+        Ok(url)
+    }
+
+    /// Opens the `:` line with `text` already typed (`:new` without an argument types `go `).
+    pub fn open_line_with(&mut self, text: &str) {
+        self.open_line();
+        self.line.insert_str(text);
+        self.recompute_ghost();
+    }
+
     /// `:openExternal`: checks the scheme and queues the hand-over (the message comes from it).
     fn open_external(&mut self, url: &str) {
         match crate::external::check_url(url) {
@@ -972,20 +994,13 @@ impl Keys {
     pub fn dispatch_command(&mut self, name: &str, args: &[&str]) {
         let send = |me: &mut Keys, c: Command| me.effects.push(Effect::Send(c));
         match (name, args) {
-            ("go", [word]) => match go_url(word, &self.url) {
-                // C3-GOHTTP: a scheme-less word that is a history URL minus its scheme runs
-                // as that URL (an http:// site stays http://). A typed scheme never gets here.
-                Ok(url) if !word.contains("://") && url.starts_with("https://") => {
-                    let url = match crate::completion::history_scheme_for(&self.cache, word) {
-                        Some(scheme) => format!("{scheme}{word}"),
-                        None => url,
-                    };
-                    send(self, Command::Open { url })
-                }
+            ("go", [word]) => match self.go_target(word) {
                 Ok(url) => send(self, Command::Open { url }),
                 Err(m) => self.message = m,
             },
             ("go", _) => self.message = "web: usage: :go <url>".to_string(),
+            // C-NEWBUF (KEYS.md T103-T104): a new buffer; the argument is `:go`'s.
+            ("new", rest) | ("bufferNew", rest) => self.buffer_new(rest),
             // C-EXTERNAL (KEYS.md "Opening a page in another browser").
             ("openExternal", []) => {
                 let url = self.url.clone();
