@@ -262,7 +262,7 @@ stop early on a hard failure.
         line` (vim's E30).
       - No counts (`3@:`): web has no counts anywhere; a count needs its own item.
       `.` stays unbound (config.rs BINDINGS). KEYS.md rows, help.html, unit tests in src/tests/c_repeat_tests.rs.
-- [ ] [WIP] C-EDITURL [S] (user, 2026-11-24; DECISIONS.md "Editing the page's URL in the `:` line") "an easy way to edit
+- [x] C-EDITURL [S] (DONE 2026-11-24, 8f61e3e, #742: SELECTION_BG/FG; Up/Down on a selection filters by `go `; KEYS T129-T133) (user, 2026-11-24; DECISIONS.md "Editing the page's URL in the `:` line") "an easy way to edit
       the currently visited page. I'm thinking `:go ` to automatically fill with the currently open page, if it
       exists, and have it pre selected so the user can either wipe it clean, or move the cursor to the end so
       they can alter the ending". Built into web: SCRIPTING.md's API has no hook on `:` line edits, and

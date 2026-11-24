@@ -610,3 +610,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-24 C-CMDHIST merged (#741, 00c6c63); web reinstalled. Started C-EDITURL (Sonnet; : line editing, statusbar) and C-REPEAT (Sonnet; KEY_SEQUENCES + :@:), different parts of keys.rs.
 
 ## 2026-11-24 C-REPEAT merged (#743, 22ebe21); web reinstalled. Side fix: Shift press between sequence keys no longer drops the pending key. C-EDITURL running. Note: agents share scratchpad paths; tell agents to use a per-item subdir.
+
+## 2026-11-24 C-EDITURL merged (#742, 8f61e3e, after a rebase by its agent over C-REPEAT); web reinstalled. The #735/#737 scripting + command-line plans are complete. No agents running.
