@@ -1,6 +1,6 @@
 //! The `web` command line.
 //!
-//!   web [--engine cef] [--proxy HOST:PORT] [--state-dir DIR] [--host-bin PATH] [URL] [-- HOST-ARGS...]
+//!   web [--engine cef] [--proxy HOST:PORT] [--profile NAME] [--state-dir DIR] [--host-bin PATH] [URL] [-- HOST-ARGS...]
 //!
 //! `--proxy` is optional and handed to the engine host unchanged (DECISIONS.md "The proxy is
 //! optional"). Everything after `--` goes to the engine host as is (e.g. Chromium switches).
@@ -26,6 +26,8 @@ pub struct Args {
     pub engine: Engine,
     pub proxy: Option<String>,
     pub state_dir: Option<PathBuf>,
+    /// `--profile NAME` (C-PROFILE): `[A-Za-z0-9_-]+`; its own init.js and state directory.
+    pub profile: Option<String>,
     pub host_bin: Option<PathBuf>,
     pub url: Option<String>,
     /// `--forget-site <site>` (P-FORGET-SHELL): forget the site and exit, no window.
@@ -33,11 +35,15 @@ pub struct Args {
     pub host_args: Vec<String>,
 }
 
-pub const USAGE: &str = "usage: web [--engine cef] [--proxy HOST:PORT] [--state-dir DIR] [--host-bin PATH] [URL] [-- HOST-ARGS...]
-       web [--state-dir DIR] [--host-bin PATH] --forget-site SITE
+pub const USAGE: &str =
+    "usage: web [--engine cef] [--proxy HOST:PORT] [--profile NAME] [--state-dir DIR] [--host-bin PATH] [URL] [-- HOST-ARGS...]
+       web [--profile NAME] [--state-dir DIR] [--host-bin PATH] --forget-site SITE
   --engine cef       the engine host (cef is the only one for now)
   --proxy HOST:PORT  send every request through this HTTP forward proxy (default: direct)
-  --state-dir DIR    state directory (default $WEB_STATE_DIR, else $XDG_STATE_HOME/web)
+  --profile NAME     run $XDG_CONFIG_HOME/web/profiles/NAME/init.js after the global init.js, with its
+                     own state directory (NAME: letters, digits, _ and -; see --state-dir)
+  --state-dir DIR    state directory (default $WEB_STATE_DIR, else $XDG_STATE_HOME/web; with
+                     --profile NAME: that plus /profiles/NAME; DIR itself is always used as given)
   --host-bin PATH    the engine host binary (default $WEB_HOST_CEF, else web-host-cef next to
                      this binary, else on PATH)
   --forget-site SITE forget SITE's cookies and storage (through the running web on the same state
@@ -46,12 +52,18 @@ pub const USAGE: &str = "usage: web [--engine cef] [--proxy HOST:PORT] [--state-
   and this command exits 0; with no URL it only says that one runs.
   -- HOST-ARGS       passed to the engine host unchanged (e.g. Chromium switches)";
 
+/// A profile name: `[A-Za-z0-9_-]+` (it becomes a directory name, so no dots or slashes).
+pub fn valid_profile_name(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
 /// Parses the arguments after the program name. `Ok(None)` means `--help`.
 pub fn parse<I: IntoIterator<Item = String>>(argv: I) -> Result<Option<Args>, String> {
     let mut a = Args {
         engine: Engine::Cef,
         proxy: None,
         state_dir: None,
+        profile: None,
         host_bin: None,
         url: None,
         forget_site: None,
@@ -93,6 +105,13 @@ pub fn parse<I: IntoIterator<Item = String>>(argv: I) -> Result<Option<Args>, St
                     a.proxy = Some(v)
                 }
                 "state-dir" => a.state_dir = Some(PathBuf::from(value()?)),
+                "profile" => {
+                    let v = value()?;
+                    if !valid_profile_name(&v) {
+                        return Err(format!("--profile {v:?}: a name is letters, digits, _ and - (at least one)"));
+                    }
+                    a.profile = Some(v)
+                }
                 "host-bin" => a.host_bin = Some(PathBuf::from(value()?)),
                 "forget-site" => {
                     let v = value()?;
@@ -170,6 +189,25 @@ mod tests {
         assert!(p(&["--forget-site"]).is_err());
         assert!(p(&["--forget-site="]).is_err());
         assert!(p(&["--forget-site", "a.test", "b.test"]).is_err());
+    }
+
+    #[test]
+    fn profile_names_and_spellings() {
+        assert_eq!(p(&[]).unwrap().unwrap().profile, None);
+        assert_eq!(p(&["--profile", "work"]).unwrap().unwrap().profile.as_deref(), Some("work"));
+        assert_eq!(p(&["--profile=a_B-9"]).unwrap().unwrap().profile.as_deref(), Some("a_B-9"));
+        let a = p(&["--profile=w", "--state-dir", "/s", "x.org"]).unwrap().unwrap();
+        assert_eq!(
+            (a.profile.as_deref(), a.state_dir, a.url.as_deref()),
+            (Some("w"), Some(PathBuf::from("/s")), Some("x.org"))
+        );
+        let a = p(&["--forget-site", "a.test", "--profile=w"]).unwrap().unwrap();
+        assert_eq!((a.profile.as_deref(), a.forget_site.as_deref()), (Some("w"), Some("a.test")));
+        for bad in ["", "a b", "a/b", "..", "a.b", "../x", "é"] {
+            assert!(p(&["--profile", bad]).is_err(), "{bad:?}");
+            assert!(p(&[&format!("--profile={bad}")]).is_err(), "{bad:?}");
+        }
+        assert!(p(&["--profile"]).is_err());
     }
 
     #[test]

@@ -9,8 +9,16 @@ store is dropped; see the end of this file.
 
 ## State directory
 
-- `--state-dir DIR` / `WEB_STATE_DIR`; default `$XDG_STATE_HOME/web`
+- `--state-dir DIR` (exact) / `WEB_STATE_DIR` (a base); default `$XDG_STATE_HOME/web`
   (`~/.local/state/web` when unset). Created with mode 0700.
+- `--profile NAME` (C-PROFILE, SCRIPTING.md "Files and profiles"): the base (`WEB_STATE_DIR`, else
+  `$XDG_STATE_HOME/web`, else `~/.local/state/web`) gets `/profiles/NAME`, so each profile has its
+  own history, bookmarks, engine profile (cookies, storage), lock and socket, and its own running
+  web (C-SINGLE below finds it through this directory: `web --profile NAME URL` and
+  `web --profile NAME --forget-site SITE` act on that profile only). `--state-dir DIR` is used as
+  given and wins over everything, `--profile` included (the script still follows the profile).
+  `WEB_STATE_DIR` is a base, not an exact path, so a profile under it stays distinct. The
+  directories are created 0700, parents included. Without `--profile`: as above, unchanged.
 - A tmpfs directory (e.g. `$XDG_RUNTIME_DIR/web`) gives state that survives web
   restarts but not a logout (as in scratchy).
 - If the directory cannot be used, web logs once and runs with an in-memory profile
@@ -24,6 +32,8 @@ DIR/
   engines/
     cef/                  <- web-host-cef's profile: cookies, localStorage, IndexedDB, cache
     webkit/               <- web-host-webkit's data and cache directories
+  profiles/NAME/          <- with --profile NAME the state directory is this one, same tree inside
+                             (DIR is $XDG_STATE_HOME/web for the default profile only)
 ```
 
 - Each engine host gets its own profile directory from the shell and must never fall

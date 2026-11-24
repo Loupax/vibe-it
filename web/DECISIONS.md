@@ -76,6 +76,11 @@ global." Spec: SCRIPTING.md.
   `web.map`, `web.on("ready")`. Scripts act only through `:commands`. Getters (current URL, buffers, mode)
   and `unmap` were proposed and left out until needed. What `ready` passes is decided as it gets used.
 - **`--profile NAME`**: the profile's script and its own state directory. Without it, the global script only.
+  Built as C-PROFILE: the state directory is the base plus `/profiles/NAME`. `WEB_STATE_DIR` stays a
+  base (so with `--profile` it gives `$WEB_STATE_DIR/profiles/NAME`; used as an exact path it would put
+  every profile in one directory and one lock). Only `--state-dir` names the exact directory and beats
+  the profile's. C-SINGLE and `--forget-site` already key off the state directory, so they follow with
+  no code of their own. Names are `[A-Za-z0-9_-]+` because the name is a directory name (no `.`, no `/`).
 - **No session restore.** User: "My goal is to replace that, and if we need it we might need to find a 'web'
   way to do it." A profile's `ready` handler opens its buffers at every start.
 
