@@ -546,3 +546,8 @@ with SCRATCHY_INCR off/on/check, screenshots looked at, memory under cap), then 
 - 2026-11-23 Merged #718 C-WEBEX 71ef452 (report). Filed C-H264-BUILD, C-EXTERNAL (user), C-SHARE-CHECK (user), C-SHARE-TAB (optional).
 - 2026-11-23 USER: do both: :openExternal (C-EXTERNAL) and build CEF with proprietary codecs (C-H264-BUILD; 20G cap for that build only, outside the repo, never published). web/DECISIONS.md. Launched both.
 - 2026-11-23 Merged #719 C-EXTERNAL 5e6c5f4; web reinstalled. C-H264-BUILD running (hours).
+
+## 2026-11-24 C-H264-BUILD merged (#720, 0639b45)
+CEF 156.0.31 built locally with proprietary codecs (non-official, bundled OpenH264). Scripts/docs only in the PR.
+ci_then_push.sh now exports CEF_PATH=~/.cache/web-cef-build/dist when it exists, so web installs use it.
+New: C-H264-WEBEX (user check), C-H264-REBUILD, C-H264-OFFICIAL (optional). Build tree (40 GB) kept for rebuilds.

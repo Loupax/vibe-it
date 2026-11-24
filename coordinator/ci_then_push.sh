@@ -20,6 +20,8 @@ git log --oneline -1 origin/main
 if [ "$INSTALL" = web ]; then
   # web needs CEF's runtime files beside the host: web/install.sh builds and installs both (user's machine only).
   if [ -d "$HOME/.cache/web-spike/cef" ]; then
+    # C-H264-BUILD: prefer our own CEF with proprietary codecs when it has been built (never committed).
+    if [ -d "$HOME/.cache/web-cef-build/dist" ]; then export CEF_PATH=$HOME/.cache/web-cef-build/dist; echo "web: using CEF from $CEF_PATH"; fi
     timeout 3000 web/install.sh 2>&1 | tail -2
   else
     echo "not the user's machine: skipping web install"

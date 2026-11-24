@@ -127,10 +127,16 @@ stop early on a hard failure.
 - [x] C-WEBEX [S] (DONE 2026-11-23, 71ef452, #718: both messages come from Webex's H.264 check,
       RTCRtpReceiver.getCapabilities('video') without video/H264; our CEF build has no proprietary codecs.
       UA/client hints are not the issue; getDisplayMedia reaches the portal. Report: web/notes/C-WEBEX.md)
-- [WIP] C-H264-BUILD [L] (user, 2026-11-23: "Let's do both. Create :openExternal but let's also build chromium";
+- [x] C-H264-BUILD [L] (DONE 2026-11-24, 0639b45, #720: CEF 156.0.31 non-official, proprietary codecs + WebRTC H.264
+      via bundled OpenH264/FFmpeg (variant A, not A2); ~5h10m, peak 12.3G, 40 GB tree in ~/.cache/web-cef-build,
+      libcef 533 MB; drive.py PASS, probe shows H264; ci_then_push installs with CEF_PATH when dist exists) (user, 2026-11-23: "Let's do both. Create :openExternal but let's also build chromium";
       memory cap 20G for this build only) (from #718) Build CEF 156 with proprietary_codecs=true ffmpeg_branding=Chrome (WebRTC
       H.264 on), variant A2 linking system libopenh264 + FFmpeg. ~100+ GB disk, hours of build, link needs well over
       the 6G cap (user approval), a rebuild per Chromium security release, H.264/AAC patents: never publish it.
+- [ ] C-H264-WEBEX [XS] USER (from #720) Open Webex in web (installed now uses the H.264 CEF): banner gone? can you join?
+- [ ] C-H264-REBUILD [S] (from #720) At the next CEF 156 release: incremental rebuild per web/tools/cef-build/README.md,
+      record its time there.
+- [ ] C-H264-OFFICIAL [M] optional (from #720) Try is_official_build=true (+PGO) within 20G; measure vs non-official.
 - [x] C-EXTERNAL [S] (DONE 2026-11-23, 5e6c5f4, #719: :openExternal [url], $BROWSER/xdg-open, detached, no shell,
       http/https/file only; scheme-less words get https:// (no history-scheme lookup yet)) (user, 2026-11-23) (from #718) `:openExternal [url]` hands the page to another browser ($BROWSER or
       xdg-open): a cheap workaround for Webex now and DRM sites (C-DRM).
