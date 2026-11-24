@@ -555,3 +555,7 @@ New: C-H264-WEBEX (user check), C-H264-REBUILD, C-H264-OFFICIAL (optional). Buil
 ## 2026-11-24 C-PICK-PAGE merged (#721, 9e9b8d0)
 Picker PageUp/PageDown by 12 rows (fixed, not the drawn row count; agent asked if the user wants the latter: left as is).
 web reinstall deferred until W2-1b's measurements finish (quiet machine).
+
+## 2026-11-24 W2-1b merged (#722, 3a9cde3)
+No-filter 94.9 % (at target within noise); via pass 79.4 % vs 90 % target. W2-1d = user decision (fd passing vs relax target).
+C6e (IME) started now that the machine-quiet measurement is over; web reinstalled with #721.
