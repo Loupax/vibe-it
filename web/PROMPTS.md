@@ -825,6 +825,8 @@ Cause (Chromium source): Blink installs `[SecureContext]` interfaces after OnCon
 
 ## 2026-11-24 C-SCRIPT design (user scripts, init.js per profile; claude/loving-dirac-1hbuvx)
 
+A design discussion: the user's prompts verbatim, each followed by the agent's answer, condensed.
+
 > Let's discuss a big feature for web: Scripting. I want to be able to expose configuration similar to how nvim does it. I'm thinking using javascript since we have that already. Baseline would be to expose methods for:
 >
 > Setting hotkeys to :commands
@@ -832,6 +834,19 @@ Cause (Chromium source): Blink installs `[SecureContext]` interfaces after OnCon
 > Attaching functions to hotkeys
 >
 > That way I can set my default buffers for example. I think we should have one init script file per profile, and maybe a global. What do you think?
+
+Answer: good feature, but (1) it reverses the 2026-11-20 decision "config.rs, no runtime config file"
+(KEYS.md "Configuration"); (2) web-shell has no JS engine: JS exists only in CEF's renderer and in paused
+scratchy (V8). The script must run in the shell, which owns input and the command line. Not in the CEF host
+(the pages' process, and tied to one engine), not V8 (15 min build, ~63 MB); QuickJS via rquickjs, whose
+interrupt handler lets a time budget stop a runaway loop. Alternative under the per-need rule: a vimrc-style
+file of plain `:` commands covers keys-to-commands and start buffers with no engine; JS is only needed for
+functions on keys. Proposed API: `web.cmd(line)` as the only way to act (scripts can do what `:commands` can),
+`web.map`, `web.command`, `web.on('ready')` (needed: the top level runs before the host is connected), plus
+read-only getters and `web.unmap`. Key notation like vim's needs a general pending-sequence matcher (today:
+single-key BINDINGS, fixed two-char KEY_SEQUENCES, no Alt). Errors never stop startup; `:source` to reload.
+Profiles: none exist today beyond `--state-dir`; proposed `$XDG_CONFIG_HOME/web/init.js` (global, first) and
+`.../profiles/NAME/init.js`, with `--profile NAME` also picking the state directory. Open: session restore.
 
 > 1. It reverses a decision you recorded.
 >
@@ -841,12 +856,33 @@ Cause (Chromium source): Blink installs `[SecureContext]` interfaces after OnCon
 > 3. I agree with the interface you suggest.  The smallest the better, and do not expose anything until explicitly said. We'll decide what the event is going to contain as we use it.
 > 4. Do not do session restore. My goal is to replace that, and if we need it we might need to find a "web" way to do it.
 
-Docs only: SCRIPTING.md (the spec), DECISIONS.md "User scripts", a KEYS.md "Configuration" note, README.md, TODO.txt items C-SCRIPT, C-SCRIPT-MAP, C-PROFILE. Getters and `unmap` were proposed in the discussion and left out (nothing exposed until asked).
+Answer: wrote SCRIPTING.md (spec), DECISIONS.md "User scripts", a KEYS.md "Configuration" note, README.md,
+TODO.txt C-SCRIPT, C-SCRIPT-MAP, C-PROFILE. Exposed: `web.cmd`, `web.command`, `web.map`, `web.on("ready")`
+only; the getters and `unmap` were left out per "do not expose anything until explicitly said". Choices the
+user may revisit: user command names start uppercase (never shadow a built-in); `web.map` NORMAL only,
+notation characters, `<C-x>`, `<lt>`; `ready` once per shell start (host connected, first buffer exists),
+passes nothing; profile state at `$XDG_STATE_HOME/web/profiles/NAME/`; a failing script never stops web,
+SCRIPT_BUDGET_MS per call.
 
 > I want to allow the user to import their own modules, but not say, os and stuff. do I have ways to do that?
 
+Answer: yes. QuickJS's `std`/`os` come from quickjs-libc and exist only if the embedder registers them, so
+the runtime has no `os` at all: an imported module has exactly init.js's powers (the `web.*` calls). The
+boundary is what the runtime contains, not a deny-list. rquickjs takes a custom resolver and loader: relative
+imports against the importing file, bare names from `$XDG_CONFIG_HOME/web/modules/NAME.js` (as nvim's `lua/`);
+the canonical path must stay under `$XDG_CONFIG_HOME/web/` (no `..` or symlink escape, no absolute paths or
+URLs); `"os"` is just "module not found"; modules cached once. Costs: init.js becomes an ES module (strict);
+async/`import()` need the job queue run under the same budget. Offered to spec it now or as a later item.
+
 > ok, so if I ever decide to do so, I can?
+
+Answer: yes, nothing in the design blocks it. The one thing that would break on the switch to ES modules is
+sloppy-mode code; evaluating init.js in strict mode from the start avoids that. Offered to add it to C-SCRIPT.
 
 > yes, add it
 
-Answered: a custom rquickjs resolver/loader limited to `$XDG_CONFIG_HOME/web/` would do it; QuickJS has no os/std unless registered. Not done now. Added: init.js is evaluated in strict mode (SCRIPTING.md, C-SCRIPT) so a later move to ES modules breaks no script.
+Answer: C-SCRIPT and SCRIPTING.md "Engine" now say init.js is evaluated in strict mode, and why.
+
+> just noticed, prompts only have my side of the conversation. I'd say that's not very useful
+
+Answer: this entry rewritten as a dialogue: each prompt verbatim, each answer condensed.
