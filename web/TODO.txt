@@ -310,6 +310,18 @@ stop early on a hard failure.
       `web.cmd("echo " + x)`; no `console` object (SCRIPTING.md: nothing exposed unasked). KEYS.md, help.html,
       SCRIPTING.md example, unit tests. Interacts with C-SCRIPT-ERRBAR: an echo from init.js at start must also
       survive the first page load (same fix: messages set before/at start, from scripts, stay until a key).
+- [ ] [WIP] C-DESKTOP-ENTRY [XS] (user, 2026-11-24: "why can't I run web from the gui launcher? it works from the
+      terminal") Found: install.sh writes no .desktop file, and the Plasma session PATH (systemctl --user
+      show-environment) has no ~/.local/bin, so neither the app menu/KRunner nor Alt+F2 `web` finds it. install.sh
+      writes `$XDG_DATA_HOME/applications/web.desktop` (default ~/.local/share/applications; atomically, like the
+      bin symlink) with an ABSOLUTE Exec (`$PREFIX/bin/web %u`), Name=web, GenericName=Web Browser,
+      Categories=Network;WebBrowser;, Terminal=false, StartupWMClass matching the shell's app_id/WM_CLASS (check
+      what web sets; set one if it sets none), and Icon only if web has one (else leave it out). NO MimeType /
+      x-scheme-handler lines: becoming a URL handler or the default browser is a separate user decision. Run
+      update-desktop-database on that dir if present (no error if absent). README install/uninstall lines (rm the
+      .desktop). `desktop-file-validate` clean if installed. Where logs go when launched from the menu (journal)
+      noted in the README. Never touch the user's real ~/.local in tests: test with --prefix and XDG_DATA_HOME
+      under a scratch dir.
 - [x] C-NOTIFLIST [S] (DONE 2026-11-24, c921dcd, #733: newest first, `N!` unread, Enter shows/reads the buffer; a closed
       buffer's page reopens as :new; in memory, NOTIFY_LIST_MAX 100; KEYS T112-T114) (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
       navigate and see notifications using keyboard only") `:notifications` opens the picker (C-PICK, T58-T68)
