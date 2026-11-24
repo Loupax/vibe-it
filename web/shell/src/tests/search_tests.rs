@@ -82,7 +82,11 @@ fn keys_t08_slash_opens_an_empty_search_line() {
     tap(&mut k, KeyInput::ch('/'));
     assert_eq!(k.vim_mode, VimMode::Search);
     assert_eq!(k.key_mode, KeyMode::Normal);
-    assert_eq!(k.bar_view().line, Some(('/', String::new(), 0)), "the line takes the bar, prompt /");
+    assert_eq!(
+        k.bar_view().line,
+        Some(('/', String::new(), 0, None)),
+        "the line takes the bar, prompt /"
+    );
     assert!(effects(&mut k).is_empty());
 }
 
@@ -91,7 +95,7 @@ fn keys_t22_the_search_line_edits_like_the_command_line() {
     let mut k = keys();
     tap(&mut k, KeyInput::ch('/'));
     type_str(&mut k, "foo bar");
-    assert_eq!(k.bar_view().line, Some(('/', "foo bar".into(), 7)));
+    assert_eq!(k.bar_view().line, Some(('/', "foo bar".into(), 7, None)));
     tap(&mut k, KeyInput::sym(Keysym::BackSpace));
     tap(&mut k, KeyInput::sym(Keysym::Left));
     type_str(&mut k, "X");

@@ -134,7 +134,7 @@ fn keys_t58_history_search_opens_the_picker_in_ranking_order() {
     assert_eq!(p.matches().next().unwrap().detail, "https://www.example.org/");
     assert_eq!(selected_url(&k), "https://www.example.org/", "the first row is selected");
     let v = k.bar_view();
-    assert_eq!(v.line, Some(('>', String::new(), 0)), "the bar shows the (empty) filter");
+    assert_eq!(v.line, Some(('>', String::new(), 0, None)), "the bar shows the (empty) filter");
 }
 
 #[test]
@@ -183,7 +183,7 @@ fn keys_t59_typing_filters_and_selects_the_best() {
         press(&mut k, KeyInput::sym(Keysym::BackSpace));
     }
     assert_eq!(k.picker.as_ref().unwrap().match_count(), 6);
-    assert_eq!(k.bar_view().line, Some(('>', String::new(), 0)));
+    assert_eq!(k.bar_view().line, Some(('>', String::new(), 0, None)));
 }
 
 #[test]

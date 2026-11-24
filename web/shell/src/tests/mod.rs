@@ -14,6 +14,7 @@ mod c_barrepeat_tests;
 mod c_bell_tests;
 mod c_bookmarks_tests;
 mod c_cmdhist_tests;
+mod c_editurl_tests;
 mod c_enter_tests;
 mod c_external_tests;
 mod c_flicker_tests;

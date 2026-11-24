@@ -98,9 +98,10 @@ fn c_newbuf_t104_new_without_an_argument_opens_blank_and_the_go_prompt() {
     assert_eq!(k.buffers.current, 2);
     assert_eq!(k.buffers.alternate, Some(1));
     assert_eq!(k.vim_mode, VimMode::Command, "the : line is open");
-    assert_eq!(k.line.text, "go ");
-    assert_eq!(k.line.cursor, 3);
-    // Typing the address and Enter runs :go in the new buffer.
+    // C-EDITURL amends T104: the URL of the buffer left is filled in, selected (c_editurl_tests.rs).
+    assert_eq!(k.line.text, format!("go {A}"));
+    assert_eq!(k.line.sel, Some((3, 3 + A.len())));
+    // Typing the address (it replaces the selection) and Enter runs :go in the new buffer.
     for c in "b.test".chars() {
         press(&mut k, KeyInput::ch(c));
     }
