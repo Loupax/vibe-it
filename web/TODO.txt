@@ -290,6 +290,26 @@ stop early on a hard failure.
       src/tests/c_editurl_tests.rs (each trigger and non-trigger, each key on a selection, `:new` filling the
       left buffer's URL), a live step (screenshot of the highlight,
       edit the end of a URL and Enter).
+- [ ] [WIP] C-SCRIPT-ERRBAR [XS] (bug, found 2026-11-24 from the user's report "I don't see the error") An init.js error
+      at start (`init.js:LINE: message`, script.rs `script_error`) is written to the bar before the first page loads,
+      and the first successful load clears it (state.rs: `phase == "end" && kind == "new"` -> `message.clear()`), so
+      it flashes and is gone. A script error must stay until the user's next key (like vim's startup errors), not be
+      cleared by a page load; other load-cleared messages unchanged. Unit test + the live step (throwing init.js,
+      page loads, error still in the bar).
+- [ ] [WIP] C-SOURCE [S] (user, 2026-11-24: "do we have a :source command for rerunning the config?" -> clean reload,
+      user agreed) `:source` re-runs the profile's scripts as at start, minus the start buffers: drop every user
+      command and mapping and the old QuickJS context, new context, run init_files (global, then profile) again;
+      `ready` handlers are registered again but NOT fired (no duplicate buffers). Errors as at start (bar + log; what
+      ran before the error stays). Bar on success: `sourced N file(s)`. `:source FILE` left out until asked.
+      Calling `:source` from a script (web.cmd) is an error (no reload from inside a call). SCRIPTING.md, KEYS.md,
+      help.html, unit tests (removed command gone, changed mapping replaced, ready not refired, error keeps earlier
+      setup), a live step.
+- [ ] [WIP] C-ECHO [XS] (user, 2026-11-24: asked for `console.log` for testing init.js, then "create an action item
+      for ... an :echo command") `:echo TEXT` shows TEXT in the status bar (the rest of the line, verbatim, vim's
+      `:echo` without expressions) and writes it to the log as `[web] echo: TEXT`. Scripts use it as
+      `web.cmd("echo " + x)`; no `console` object (SCRIPTING.md: nothing exposed unasked). KEYS.md, help.html,
+      SCRIPTING.md example, unit tests. Interacts with C-SCRIPT-ERRBAR: an echo from init.js at start must also
+      survive the first page load (same fix: messages set before/at start, from scripts, stay until a key).
 - [x] C-NOTIFLIST [S] (DONE 2026-11-24, c921dcd, #733: newest first, `N!` unread, Enter shows/reads the buffer; a closed
       buffer's page reopens as :new; in memory, NOTIFY_LIST_MAX 100; KEYS T112-T114) (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
       navigate and see notifications using keyboard only") `:notifications` opens the picker (C-PICK, T58-T68)

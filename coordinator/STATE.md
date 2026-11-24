@@ -612,3 +612,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-24 C-REPEAT merged (#743, 22ebe21); web reinstalled. Side fix: Shift press between sequence keys no longer drops the pending key. C-EDITURL running. Note: agents share scratchpad paths; tell agents to use a per-item subdir.
 
 ## 2026-11-24 C-EDITURL merged (#742, 8f61e3e, after a rebase by its agent over C-REPEAT); web reinstalled. The #735/#737 scripting + command-line plans are complete. No agents running.
+
+## 2026-11-24 User: no :source, wants it + :echo; their init.js throw is invisible -> bug: first page load clears the startup script error (state.rs:648). Filed C-SCRIPT-ERRBAR, C-SOURCE (clean reload, ready not refired), C-ECHO; one Sonnet agent for all three (same code).
