@@ -582,3 +582,5 @@ Queue (user: no reprioritising): C-MIDCLICK (running) -> C-BELL step 2 -> C-AUTO
 
 ## 2026-11-24 C-MIDCLICK merged (#729, d56e9eb); web reinstalled; C-BELL step 2 started (Opus)
 Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain link clicks.
+
+## 2026-11-24 C-WALLET investigated (#730, 9c63ced); decision put to the user

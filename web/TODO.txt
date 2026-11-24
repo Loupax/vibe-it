@@ -190,7 +190,11 @@ stop early on a hard failure.
       nothing but say so, or reopens the URL: decide in the item). Kept in memory only, capped (config.rs).
       Maybe a key to dismiss one or all. Feasibility is mostly C-BELL's: once notifications reach the shell,
       the picker already does the rest. KEYS.md rows, unit tests, a live step.
-- [WIP] C-WALLET [S] (from #727) Something in the host's startup asks KDE's wallet / secret service (seen on a private
+- [ ] C-WALLET [S] USER DECISION (investigated 2026-11-24, 9c63ced, #730, web/notes/C-WALLET.md: Chromium's OSCrypt
+      opens KWallet "kdewallet" (appid "Chromium") at every host start and keeps "Chromium Safe Storage" there;
+      the prompt shows when the wallet is locked. Options: --password-store=basic (no wallet, cookies effectively
+      unencrypted at rest; recommended by the agent) or keep the default. Switching logs every site out once.
+      If basic: host option --password-store (default basic), README, DECISIONS, unit test.) (from #727) Something in the host's startup asks KDE's wallet / secret service (seen on a private
       bus: kwalletd6 + a password dialog). On the user's real bus Chromium likely keeps its cookie-encryption key
       ("Chromium Safe Storage") in KWallet. Find what asks and when, what --password-store=basic (or a
       profile-local key) would change for cookie encryption at rest, and recommend; changing it is a user decision.
