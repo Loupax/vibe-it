@@ -137,6 +137,10 @@ stop early on a hard failure.
 - [ ] C-H264-REBUILD [S] (from #720) At the next CEF 156 release: incremental rebuild per web/tools/cef-build/README.md,
       record its time there.
 - [ ] C-H264-OFFICIAL [M] optional (from #720) Try is_official_build=true (+PGO) within 20G; measure vs non-official.
+- [WIP] C-VRESIZE [S] BUG (user, 2026-11-24: "I cannot resize the web window vertically, only horizontally"; KDE Plasma
+      Wayland/KWin) KWin reports the web window not maximized, no tile, min 150x150, no max, resizeable, at the full
+      work area 1920x1034 (same as st). Find why vertical resize fails (shell snapping its height back? buffer size
+      vs configure?), fix, and add a check (gpu-nest.sh runs KWin --virtual).
 - [x] C-EXTERNAL [S] (DONE 2026-11-23, 5e6c5f4, #719: :openExternal [url], $BROWSER/xdg-open, detached, no shell,
       http/https/file only; scheme-less words get https:// (no history-scheme lookup yet)) (user, 2026-11-23) (from #718) `:openExternal [url]` hands the page to another browser ($BROWSER or
       xdg-open): a cheap workaround for Webex now and DRM sites (C-DRM).
