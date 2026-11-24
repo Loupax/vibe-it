@@ -56,7 +56,7 @@ tunnels are copied with small fixed buffers and backpressure, never whole.
 - [x] W2-1a [S] (DONE in W2-2 #674: hidden `--test-resolve GLOB=IP`) (from #669) Test-only name mapping (hosts file via env in test builds, or a hidden
       `--resolve host=ip`) so tests can use `www.example.test` as the spec does. W2-2/W2-F routing
       tests need it.
-- [ ] W2-1b [S] (run when no CEF agents load the machine) (from #669; + W2-F3 from #682: tunnel via pass >= 90 %, no-filter >= 95 %) Re-measure tunnel throughput on a quiet machine or with `perf`; decide
+- [WIP] W2-1b [S] (run when no CEF agents load the machine) (from #669; + W2-F3 from #682: tunnel via pass >= 90 %, no-filter >= 95 %) Re-measure tunnel throughput on a quiet machine or with `perf`; decide
       whether the >= 95 % target needs work (SPLICE_F_MORE, fewer wakeups).
 - [x] W2-1c [XS] (DECIDED 2026-11-23: keep heads in the counts) (from #669) Access-log up/down byte counts: include heads
       (today) or payload only?
