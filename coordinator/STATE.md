@@ -588,3 +588,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-24 C-BELL merged (#731, 0a2c6f2); web reinstalled; C-AUTOFOCUS started (Opus). C-NOTIFLIST after it (shares keys.rs).
 
 ## 2026-11-24 C-AUTOFOCUS merged (#732, e83a42a); web reinstalled; C-NOTIFLIST started (Sonnet)
+
+## 2026-11-24 C-NOTIFLIST merged (#733, c921dcd; I moved its prompt entry from root PROMPTS.md to web/); web reinstalled. New optional C-NOTIFCLICK.

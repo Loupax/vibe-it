@@ -183,7 +183,11 @@ stop early on a hard failure.
         notifications (e.g. `[2!]`); `:ls`/`:bufferList` puts `!` after vim's `%`/`#` on those buffers and the
         latest notification's title in the detail column. No sound, no desktop popups.
       KEYS.md rows, unit tests, a live step with the local test page.
-- [WIP] C-NOTIFLIST [S] (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
+- [ ] C-NOTIFCLICK [S] optional (from #733) Picking a notification in `:notifications` while its buffer exists also
+      fires the page's `click` event on that Notification (host command `notify-click`; the notify.rs shim keeps the
+      objects). Sites often navigate to the conversation on click.
+- [x] C-NOTIFLIST [S] (DONE 2026-11-24, c921dcd, #733: newest first, `N!` unread, Enter shows/reads the buffer; a closed
+      buffer's page reopens as :new; in memory, NOTIFY_LIST_MAX 100; KEYS T112-T114) (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
       navigate and see notifications using keyboard only") `:notifications` opens the picker (C-PICK, T58-T68)
       over the notifications received this session, newest first: label = the buffer number and title, detail =
       the notification's body and the site's hostname, unread ones marked; typing filters; Enter shows that
