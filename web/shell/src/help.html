@@ -102,6 +102,14 @@ restarts, separately for each profile). What you had typed filters them: type
 <code>go</code>, then <code>Up</code> recalls the newest line starting with <code>go</code>;
 <code>Down</code> goes newer, and past the newest your typed text comes back. Any other key ends
 the walk and keeps the text. A recalled line shows no ghost.</p>
+<p>Typing <code>go </code>, <code>new </code>, <code>bufferNew </code> or <code>openExternal </code>
+(the commands that open a URL; <code>Tab</code> after the name too, or a key mapped to
+<code>:go </code>) fills in the address of the page you are on, selected. Type to replace it,
+<code>Backspace</code> to wipe it, <code>Right</code> or <code>End</code> to edit its end,
+<code>Left</code> or <code>Home</code> to edit its start, or <code>Enter</code> to go there again.
+<code>:new</code> with no address fills in the page of the buffer you left. Pages with no address
+(empty, <code>about:blank</code>, this help) fill nothing, and neither do a paste, Backspace back to
+<code>go </code> or a recalled line.</p>
 <p><code>:go</code> suggests from the pages you visited: sites you visit most
 first (<code>you</code> suggests YouTube's home page even if you mostly watched
 videos), then single pages. <code>https://</code>, <code>http://</code> and
@@ -109,7 +117,7 @@ videos), then single pages. <code>https://</code>, <code>http://</code> and
 <table>
 <tr><th>Command</th><th>Effect</th></tr>
 <tr><td><code>:go &lt;url&gt;</code></td><td>Go to a URL. Without a scheme <code>https://</code> is assumed (<code>:go example.com</code>); <code>/x</code>, <code>./x</code>, <code>../x</code>, <code>#x</code>, <code>?x</code> are relative to the page on screen</td></tr>
-<tr><td><code>:new [url]</code> (<code>:bufferNew</code>)</td><td>Open a new buffer and show it (<code>Ctrl-^</code> goes back). The address is <code>:go</code>'s (same completion, <code>https://</code> assumed). With no address the buffer is empty and the <code>:go </code> prompt opens, so type the address straight away</td></tr>
+<tr><td><code>:new [url]</code> (<code>:bufferNew</code>)</td><td>Open a new buffer and show it (<code>Ctrl-^</code> goes back). The address is <code>:go</code>'s (same completion, <code>https://</code> assumed). With no address the buffer is empty and the <code>:go </code> prompt opens (with the page you left filled in, selected), so type the address straight away</td></tr>
 <tr><td><code>:notifications [filter]</code></td><td>A list of the notifications pages showed this session, newest first: the buffer number and title, then the text and the site (<code>!</code> after the number while unread; <code>(closed)</code> when its buffer is gone). Type to filter, <code>Enter</code> shows that buffer and marks the notification read; for a closed buffer it opens the page again in a new buffer and says so</td></tr>
 <tr><td><code>:openExternal [url]</code></td><td>Open the page (or <code>url</code>, normalised as for <code>:go</code>) in another browser: <code>$BROWSER</code> (first entry that exists), else <code>xdg-open</code>; <code>EXTERNAL_BROWSER</code> in <code>config.rs</code> overrides. Only http, https and file URLs. For sites web cannot show (Webex needs H.264; user, 2026-11-23: &ldquo;Let&rsquo;s do both. Create :openExternal but let&rsquo;s also build chromium&rdquo;)</td></tr>
 <tr><td><code>:refresh</code></td><td>Reload the page</td></tr>

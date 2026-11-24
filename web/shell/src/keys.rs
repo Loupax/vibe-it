@@ -400,6 +400,9 @@ pub const COMMAND_NAMES: &[&str] = &[
     "set",
 ];
 
+/// C-EDITURL: the commands that open a URL; `<name> ` typed fills in the page's URL, selected.
+pub const URL_COMMANDS: [&str; 4] = ["go", "new", "bufferNew", "openExternal"];
+
 /// Short names `dispatch_command` also runs (C4: vim's aliases of the buffer commands). The ghost
 /// never offers them; typed in full, an alias leads the first word's candidates, so Enter runs it
 /// as typed (`:b` stays `:b`, not the ghost's `bookmarkAdd`).
@@ -425,12 +428,15 @@ pub fn token_start_before(text: &str, cursor: usize) -> usize {
 pub struct TextEditBuffer {
     pub text: String,
     pub cursor: usize,
+    /// C-EDITURL: the selected byte range of `text` (the page's URL just filled in), if any.
+    pub sel: Option<(usize, usize)>,
 }
 
 impl TextEditBuffer {
     pub fn clear(&mut self) {
         self.text.clear();
         self.cursor = 0;
+        self.sel = None;
     }
 
     pub fn insert(&mut self, c: char) {
@@ -603,6 +609,9 @@ pub fn go_url(word: &str, current: &str) -> Result<String, String> {
     Ok(format!("https://{word}"))
 }
 
+/// C-EDITURL: a selected byte range `(start, end)` of the line's text.
+pub type Selection = (usize, usize);
+
 /// The status bar's contents (drawn by `statusbar.rs`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BarView {
@@ -610,7 +619,8 @@ pub struct BarView {
     pub url: String,
     pub message: String,
     /// While the `:` line is open: the prompt, the text and the cursor (it takes the strip).
-    pub line: Option<(char, String, usize)>,
+    /// C-EDITURL: the last is the selected byte range of the text (drawn highlighted), if any.
+    pub line: Option<(char, String, usize, Option<Selection>)>,
     /// The dimmed ghost after the line's text (empty = none).
     pub ghost: String,
     /// C-BELL: the visual bell is lit (the bar takes `BELL_BG`/`BELL_FG`).
@@ -1440,6 +1450,11 @@ impl Keys {
         if !updown {
             self.cmd_history.end_browse(); // C-CMDHIST: any other key ends browsing, keeping the text
         }
+        let enter = s == Keysym::Return || s == Keysym::KP_Enter;
+        if self.line.sel.is_some() && s != Keysym::Escape && !enter {
+            self.selection_key(key);
+            return;
+        }
         if updown {
             self.history_key(matches!(s, Keysym::Up | Keysym::KP_Up));
         } else if s == Keysym::Escape {
@@ -1461,6 +1476,11 @@ impl Keys {
                 } else if let Some(add) = g.tab(&text) {
                     self.line.insert_str(&add);
                     self.recompute_ghost();
+                    // C-EDITURL: Tab completing the name (it adds the space) fills in the URL.
+                    if self.line.text != text {
+                        let page = self.url.clone();
+                        self.maybe_fill_url(&page);
+                    }
                 }
             }
         } else if s == Keysym::Delete || s == Keysym::KP_Delete {
@@ -1478,7 +1498,95 @@ impl Keys {
         } else {
             self.line_edit_key(key);
             self.recompute_ghost();
+            // C-EDITURL: the Space that makes the line exactly `go ` fills in the URL.
+            if key.ch == Some(' ') && !key.ctrl && !key.alt && !key.logo {
+                let page = self.url.clone();
+                self.maybe_fill_url(&page);
+            }
         }
+    }
+
+    /// C-EDITURL (KEYS.md T129-T133): the line is exactly `<command> `, cursor at the end, for a command
+    /// that opens a URL: the page's URL goes after it, selected. No page (empty, `about:blank`, the
+    /// help page): nothing. Called only where a trigger happened (typed Space, Tab, a line opened with
+    /// text), never after Backspace, Ctrl-w, a paste or a history recall.
+    fn maybe_fill_url(&mut self, page: &str) {
+        let is_cmd = URL_COMMANDS.iter().any(|c| self.line.text.strip_suffix(' ') == Some(*c));
+        if !is_cmd || self.line.cursor != self.line.text.len() {
+            return;
+        }
+        if page.is_empty() || page == "about:blank" || page == self.help_url {
+            return;
+        }
+        let start = self.line.cursor;
+        self.line.insert_str(page);
+        let end = self.line.cursor;
+        if end > start {
+            self.line.sel = Some((start, end));
+            self.ghost = None; // T45 waits for the first edit
+        }
+    }
+
+    /// C-EDITURL (T130-T133): a key while the URL is selected (Esc and Enter are the line's own).
+    fn selection_key(&mut self, key: &KeyInput) {
+        let Some((a, b)) = self.line.sel else { return };
+        let s = key.sym;
+        let left = matches!(s, Keysym::Left | Keysym::KP_Left | Keysym::Home | Keysym::KP_Home);
+        let right = matches!(s, Keysym::Right | Keysym::KP_Right | Keysym::End | Keysym::KP_End);
+        if matches!(s, Keysym::Up | Keysym::KP_Up | Keysym::Down | Keysym::KP_Down) {
+            // History filtered by what is before the selection (`go `), not by the URL.
+            let up = matches!(s, Keysym::Up | Keysym::KP_Up);
+            let prefix = self.line.text[..a].to_string();
+            let t = if up {
+                self.cmd_history.up(&prefix)
+            } else {
+                self.cmd_history.down()
+            };
+            if let Some(t) = t {
+                self.line.sel = None;
+                self.line.cursor = t.len();
+                self.line.text = t;
+                self.ghost = None;
+            }
+        } else if left || right {
+            self.line.sel = None;
+            self.line.cursor = if left { a } else { self.line.text.len() };
+            self.recompute_ghost();
+        } else if s == Keysym::BackSpace || s == Keysym::Delete || s == Keysym::KP_Delete || (key.ctrl && key.ch == Some('w')) {
+            self.remove_selection();
+        } else if key.ctrl && key.ch == Some('u') {
+            self.line.text.replace_range(..b, "");
+            self.line.cursor = 0;
+            self.line.sel = None;
+            self.recompute_ghost();
+        } else if is_paste_chord(key) {
+            let before = self.line.text.clone();
+            self.remove_selection();
+            self.paste();
+            if self.line.text == format!("{}{}", &before[..a], &before[b..]) {
+                // an empty or unreadable clipboard changes nothing: the selection stays
+                self.line.text = before;
+                self.line.sel = Some((a, b));
+                self.line.cursor = b;
+                self.ghost = None;
+            } else {
+                self.recompute_ghost();
+            }
+        } else if !key.ctrl && !key.alt && !key.logo {
+            if let Some(c) = key.ch {
+                self.remove_selection();
+                self.line.insert(c);
+                self.recompute_ghost();
+            }
+        }
+    }
+
+    fn remove_selection(&mut self) {
+        if let Some((a, b)) = self.line.sel.take() {
+            self.line.text.replace_range(a..b, "");
+            self.line.cursor = a;
+        }
+        self.recompute_ghost();
     }
 
     /// C-CMDHIST (KEYS.md T125-T128): Up/Down recall the `:` lines run, filtered by what was typed.
@@ -1585,9 +1693,16 @@ impl Keys {
     /// `web.map` string rhs without `<CR>`, C-SCRIPT-MAP). C-EDITURL's fill-in (the page's URL after
     /// `go ` and the other URL commands, selected) belongs here, so both of those get it.
     pub fn open_line_with(&mut self, text: &str) {
+        let page = self.url.clone();
+        self.open_line_filled(text, &page);
+    }
+
+    /// `open_line_with`, the URL to fill in given (`:new` fills the one of the buffer it left).
+    pub fn open_line_filled(&mut self, text: &str, page: &str) {
         self.open_line();
         self.line.insert_str(text);
         self.recompute_ghost();
+        self.maybe_fill_url(page);
     }
 
     /// `:openExternal`: checks the scheme and queues the hand-over (the message comes from it).
@@ -1730,7 +1845,7 @@ impl Keys {
             VimMode::Pick => Some('>'),
             VimMode::Normal => None,
         };
-        let line = prompt.map(|p| (p, self.line.text.clone(), self.line.cursor));
+        let line = prompt.map(|p| (p, self.line.text.clone(), self.line.cursor, self.line.sel));
         BarView {
             mode: mode_name(self.key_mode).to_string(),
             // C4: the current buffer's number before the URL; C-BELL: before it, how many buffers

@@ -176,7 +176,10 @@ impl State {
         // The status bar's state, logged when it changes (what the live check reads).
         let v = self.keys.bar_view();
         let desc = match &v.line {
-            Some((p, text, _)) => format!("{p}{text}|{}{}", v.ghost, self.keys.pick_log()),
+            Some((p, text, _, sel)) => {
+                let sel = sel.map(|(a, b)| format!(" [selected {a}..{b}]")).unwrap_or_default();
+                format!("{p}{text}|{}{}{sel}", v.ghost, self.keys.pick_log())
+            }
             None => format!("{} | {}", v.mode, v.message),
         };
         // C4: the URL part (with the buffer number) on a line of its own, when it changes.

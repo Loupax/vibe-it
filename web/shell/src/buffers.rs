@@ -386,8 +386,9 @@ impl Keys {
     pub fn buffer_new(&mut self, args: &[&str]) {
         match args {
             [] => {
+                let left = self.url.clone();
                 self.open_buffer("about:blank");
-                self.open_line_with("go ");
+                self.open_line_filled("go ", &left); // C-EDITURL: the URL of the buffer just left
             }
             [word] => match self.go_target(word) {
                 Ok(url) => {

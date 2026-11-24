@@ -267,8 +267,9 @@ fn map_without_cr_opens_the_line_with_the_text() {
     tap_str(&mut k, "ge", t);
     assert!(effects(&mut k).is_empty(), "nothing runs");
     assert_eq!(k.vim_mode, VimMode::Command);
-    assert_eq!(k.line.text, "go ");
-    assert_eq!(k.line.cursor, 3, "cursor at the end");
+    assert_eq!(k.line.text, "go https://a.test/");
+    assert_eq!(k.line.sel, Some((3, 18)), "C-EDITURL: the page URL, selected");
+    assert_eq!(k.line.cursor, 18, "cursor at the end");
     // The user finishes the line.
     for c in "http://127.0.0.1:1/x".chars() {
         tap(&mut k, KeyInput::ch(c), t);

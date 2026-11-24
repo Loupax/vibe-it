@@ -245,6 +245,10 @@ pub const STATUS_BAR_FG: (u8, u8, u8) = (225, 225, 225);
 pub const STATUS_BAR_MODE_FG: (u8, u8, u8) = (120, 200, 255);
 /// Ghost (suggestion) text colour in the `:` line, RGB (dimmed).
 pub const GHOST_FG: (u8, u8, u8) = (120, 120, 120);
+/// C-EDITURL: background of the selected text in the `:` line (the page's URL just filled in), RGB.
+pub const SELECTION_BG: (u8, u8, u8) = (60, 110, 190);
+/// C-EDITURL: text colour of the selected text in the `:` line, RGB.
+pub const SELECTION_FG: (u8, u8, u8) = (255, 255, 255);
 
 // ---------- notifications (C-BELL, KEYS.md "Notifications") ----------
 

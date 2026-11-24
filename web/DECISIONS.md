@@ -65,6 +65,13 @@ argument"; "do it for all commands that open URLs" (`go`, `new`, `bufferNew`, `o
 profile can map a key to it (qutebrowser's `:set-cmd-text`): "Yes, that sounds good"; later the same day
 replaced by the map syntax (entry above), and dropped ("drop :commandLine"). Item C-EDITURL.
 
+Built (implementer's choices, not asked; why): the selection is a byte range in `TextEditBuffer` (`sel`), cleared
+by every edit, so no key can leave a stale range; the fill happens only where a trigger fired (typed Space, Tab,
+`open_line_with`/`open_line_filled`), never by looking at the text afterwards, so Backspace/Ctrl-w/recalls
+that reach `go ` cannot refill it. Up/Down while selected browse history filtered by the text before the
+selection (`go `), not by the URL (which would match nothing); a match replaces the line as plain text. Tab and
+unbound chords keep the selection. The `/` line has none. Colours `SELECTION_BG`/`SELECTION_FG` in config.rs.
+
 ## 2026-11-24 Command-line history: Up/Down with a prefix filter, kept on disk
 
 User: "When I'm entering a command I should be able to use up or down keys to navigate history. If already

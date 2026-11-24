@@ -48,7 +48,7 @@ fn view(mode: &str, line: Option<&str>, ghost: &str) -> BarView {
         mode: mode.into(),
         url: "https://example.com/".into(),
         message: "a message".into(),
-        line: line.map(|l| (':', l.to_string(), l.len())),
+        line: line.map(|l| (':', l.to_string(), l.len(), None)),
         ghost: ghost.into(),
         flash: false,
     }

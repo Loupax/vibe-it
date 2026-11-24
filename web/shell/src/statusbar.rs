@@ -12,8 +12,8 @@ use smithay::utils::{Rectangle, Transform};
 use tiny_skia::{Paint, Pixmap, Rect};
 
 use crate::config::{
-    BELL_BG, BELL_FG, GHOST_FG, STATUS_BAR_BG, STATUS_BAR_FG, STATUS_BAR_FONT_PX, STATUS_BAR_GAP, STATUS_BAR_MIN_URL_W, STATUS_BAR_MODE_FG,
-    STATUS_BAR_PAD_X,
+    BELL_BG, BELL_FG, GHOST_FG, SELECTION_BG, SELECTION_FG, STATUS_BAR_BG, STATUS_BAR_FG, STATUS_BAR_FONT_PX, STATUS_BAR_GAP,
+    STATUS_BAR_MIN_URL_W, STATUS_BAR_MODE_FG, STATUS_BAR_PAD_X,
 };
 use crate::keys::BarView;
 
@@ -212,9 +212,22 @@ impl Painter {
         pm.fill(tiny_skia::Color::from_rgba8(bg.0, bg.1, bg.2, 255));
         let avail = (w as f32 - 2.0 * pad).max(0.0);
         let fg = rgb(fg_rgb);
-        if let Some((prompt, text, cursor)) = &view.line {
+        if let Some((prompt, text, cursor, sel)) = &view.line {
             let display = format!("{prompt}{text}");
             let text_w = self.text(&mut pm, &display, pad, avail, fg);
+            if let Some((a, b)) = *sel {
+                // C-EDITURL: the selected range over the text, in the selection colours.
+                let off = prompt.len_utf8();
+                let x0 = self.caret_x(&display, a + off);
+                let x1 = self.caret_x(&display, b + off).min(avail);
+                let mut paint = Paint::default();
+                paint.set_color_rgba8(SELECTION_BG.0, SELECTION_BG.1, SELECTION_BG.2, 255);
+                if let Some(r) = Rect::from_xywh(pad + x0, 2.0 * scale, (x1 - x0).max(0.0), (h as f32 - 4.0 * scale).max(1.0)) {
+                    pm.fill_rect(r, &paint, tiny_skia::Transform::identity(), None);
+                    let selected = &display[a + off..b + off];
+                    self.text(&mut pm, selected, pad + x0, (avail - x0).max(0.0), rgb(SELECTION_FG));
+                }
+            }
             let caret = self.caret_x(&display, cursor + prompt.len_utf8());
             let mut paint = Paint::default();
             paint.set_color_rgba8(fg_rgb.0, fg_rgb.1, fg_rgb.2, 255);

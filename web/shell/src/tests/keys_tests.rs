@@ -175,7 +175,7 @@ fn keys_t09_colon_opens_the_command_line() {
     tap(&mut k, KeyInput::ch(':'), Instant::now());
     assert_eq!(k.vim_mode, VimMode::Command);
     let v = k.bar_view();
-    assert_eq!(v.line, Some((':', String::new(), 0)), "the line takes the bar");
+    assert_eq!(v.line, Some((':', String::new(), 0, None)), "the line takes the bar");
 }
 
 #[test]
@@ -612,6 +612,6 @@ fn keys_bar_view_shows_mode_url_message_or_the_line() {
     tap(&mut k, KeyInput::ch(':'), t);
     type_str(&mut k, "hel", t);
     let v = k.bar_view();
-    assert_eq!(v.line, Some((':', "hel".to_string(), 3)));
+    assert_eq!(v.line, Some((':', "hel".to_string(), 3, None)));
     assert_eq!(v.ghost, "p");
 }
