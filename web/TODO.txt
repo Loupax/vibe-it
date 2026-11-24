@@ -157,7 +157,8 @@ stop early on a hard failure.
       release, focus loss (C-FOCUSKEYS) and mode change. Must not change NORMAL: bindings that ignore repeat
       (action_ignores_repeat, T14/T55) stay as they are, and keys forwarded to the page keep the engine's repeat.
       KEYS.md rows, unit tests (fake clock), a live step holding Backspace in `:`.
-- [WIP] C-BELL [M] STEP 2 (spike DONE 2026-11-24, 8f9dc86,
+- [x] C-BELL [M] (DONE 2026-11-24, 0a2c6f2, #731: notify.rs shim always on, `notify` event, Chromium notifications BLOCKed +
+      prompts denied, NOTIFY_SITES=All, bar flash 150 ms/1 s, [N!], :ls `!`; worker notifications lost) STEP 2 (spike DONE 2026-11-24, 8f9dc86,
       #727, web/notes/C-BELL-SPIKE.md: CEF exposes only the permission prompt; Chrome-style runtime sends granted
       notifications straight to D-Bus with no tab. Step 2 per the spike's recommendation: notify_spike.rs -> notify.rs
       (renderer shim, always on), protocol `notify <id> <title> <body>` (+tag, origin; host caps length and rate);
@@ -211,7 +212,7 @@ stop early on a hard failure.
       it like `:new`: no `window.opener`, no popup blocking (a real click). Middle-click on anything not a link
       stays as it is (no paste, DECISIONS.md "No middle-click paste"; autoscroll off). KEYS.md rows, unit tests
       for the disposition rule, a c4_live step: middle-click a link -> a new current buffer at its URL.
-- [ ] C-AUTOFOCUS [M] (after C-BELL step 2: shares renderer injection and the shell key path) (user, 2026-11-24: "moving to INPUT mode when input elements get focus confuses me [...] I'm
+- [WIP] C-AUTOFOCUS [M] (user, 2026-11-24: "moving to INPUT mode when input elements get focus confuses me [...] I'm
       thinking of not changing modes on autofocus, but should make sure that once I hit i, the autofocused input
       gets focus"; "include gi too") Only focus the user caused switches to INPUT; the page's own focus
       (`autofocus`, a late `el.focus()`) leaves the mode alone. Amends DECISIONS.md "Focusing an editable switches

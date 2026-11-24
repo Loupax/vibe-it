@@ -584,3 +584,5 @@ Queue (user: no reprioritising): C-MIDCLICK (running) -> C-BELL step 2 -> C-AUTO
 Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain link clicks.
 
 ## 2026-11-24 C-WALLET investigated (#730, 9c63ced); decision put to the user
+
+## 2026-11-24 C-BELL merged (#731, 0a2c6f2); web reinstalled; C-AUTOFOCUS started (Opus). C-NOTIFLIST after it (shares keys.rs).
