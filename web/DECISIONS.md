@@ -2,6 +2,13 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-24 :new opens a buffer
+
+User: "we don't have an easy way to create a new buffer, add an action item for a :new command"; on the proposed
+behaviour: "exactly what I wanted". `:new [url]` (alias `:bufferNew`) opens a buffer and makes it current, the
+argument as `:go`'s; with no argument an about:blank buffer and the `:go ` prompt. The previous buffer becomes
+the alternate (Ctrl-^). Item C-NEWBUF.
+
 ## 2026-11-23 H.264: build CEF ourselves; :openExternal as the escape hatch
 
 User, after C-WEBEX (#718) showed Webex needs WebRTC H.264, which the prebuilt CEF lacks: "Let's do both.

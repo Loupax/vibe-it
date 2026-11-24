@@ -563,3 +563,5 @@ C6e (IME) started now that the machine-quiet measurement is over; web reinstalle
 ## 2026-11-24 C6e merged (#723, 71954fb)
 IME via text-input-v3, INPUT only, Wayland only. Tested with a scripted input method in the nest (no fcitx5 here).
 New: C6e-DESKTOP (user check), C6e-X11 (optional). web reinstalled.
+
+## 2026-11-24 C-NEWBUF (user) running; behaviour approved, recorded in web/DECISIONS.md
