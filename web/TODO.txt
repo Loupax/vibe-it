@@ -144,7 +144,9 @@ stop early on a hard failure.
       `:go`'s (same completion, scheme-less words, search engine). No argument: an about:blank buffer and the `:go `
       prompt opened so you type the address straight away. KEYS.md rows next to T77-T81, the buffers table, :help,
       unit tests, and c4_live gains a step.
-- [WIP] C-BARREPEAT [S] (user, 2026-11-24: "holding down a key doesn't repeat on the status bar. It's annoying when I
+- [x] C-BARREPEAT [S] (DONE 2026-11-24, c905a16, #726: smithay's winit backend drops OS repeats; the shell repeats
+      keys itself in COMMAND/SEARCH/PICK at wl_keyboard.repeat_info's rate/delay (X11: read once at start);
+      live: Backspace held in `/` erased at 600 ms + 25/s) (user, 2026-11-24: "holding down a key doesn't repeat on the status bar. It's annoying when I
       want to use backspace a lot of times.") Holding a key in the command line (`:`), the search line (`/`) and the
       picker's filter does nothing past the first press: Backspace above all, but also letters and the arrows.
       The shell owns these lines, so the page's (engine's) own key repeat does not help. First find where the

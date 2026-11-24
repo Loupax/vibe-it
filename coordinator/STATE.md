@@ -570,3 +570,5 @@ New: C6e-DESKTOP (user check), C6e-X11 (optional). web reinstalled.
 
 ## 2026-11-24 #725 merged (user's TODO PR: C-BARREPEAT, C-BELL, C-NOTIFLIST, C-MIDCLICK)
 Started C-BARREPEAT (Sonnet), C-MIDCLICK (Sonnet), C-BELL spike only (Opus, report before building). C-NOTIFLIST waits on C-BELL.
+
+## 2026-11-24 C-BARREPEAT merged (#726, c905a16); web reinstalled
