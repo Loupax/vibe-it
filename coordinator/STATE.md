@@ -638,3 +638,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-25 web reinstalled with #752 (20261125-143917-f42ea44d).
 
 ## 2026-11-25 C-PICKDEL-MAP merged (#753, a9ecd2c). No agents running; open web items are user decisions/manual checks or optional.
+
+## 2026-11-25 web reinstalled with #753 (20261125-144925-d03dfcad). Guide v6: web.map "p".
