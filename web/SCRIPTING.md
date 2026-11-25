@@ -59,7 +59,7 @@ split theirs). User commands are offered by the command-line completion with the
 
 ### `web.map(mode, keys, rhs)`
 
-Maps a key sequence in a mode. `mode`: `"n"` (NORMAL) only, for now. `rhs`: a string
+Maps a key sequence in a mode. `mode`: `"n"` (NORMAL), or `"p"` (the picker, below). `rhs`: a string
 starting with `:`, or a function (called with no arguments).
 
 A string `rhs` is one `:` line, as in a vim mapping (user, 2026-11-24: "both prefill a
@@ -84,6 +84,39 @@ mapping, the shell waits up to `MAP_TIMEOUT_MS` (config.rs, as vim's `timeoutlen
 next key; on a timeout or a key that matches nothing, the pending keys are handled as
 they would have been without the mapping. Other keys (`<A-...>`, `<Space>`, arrows, ...)
 come when a mapping needs them.
+
+#### Mode `"p"`: keys in a picker (2026-11-25, user; C-PICKDEL-MAP, not built yet)
+
+`web.map("p", "<C-x>", fn)` runs `fn(row)` on the picker's selected row (KEYS.md T167-T168). In a picker the
+letters type the filter, so a `"p"` mapping is exactly one Ctrl key, and its `rhs` is a function (a `:` line
+could not name the row); anything else is an error when the mapping is made. It comes before the picker's
+built-in keys, so mapping `<C-d>` replaces the built-in delete and its question (below). `row` is a plain
+object: `source` (`"history"`, `"bookmarks"`, `"buffers"`, `"popups"`, `"notifications"`), `label`, `detail`,
+and the one of `url` (history, bookmarks), `buffer` (buffers), `popup`, `notice` that applies. After `fn` and
+its `web.cmd` lines have run, the list is read again (a deleted row disappears). No row selected: `fn` is not
+called.
+
+```js
+// Ctrl-x deletes history rows without asking, and only history rows.
+web.map("p", "<C-x>", row => {
+  if (row.source === "history") web.cmd("historyDelete " + row.url);
+});
+```
+
+### `web.history`, `web.bookmarks`, `web.buffers` (2026-11-25, user; C-PICKDEL, not built yet)
+
+Each has one setting, `deleteConfirmation`, `true` by default: whether the picker's Ctrl-d asks
+`... ? (y/n)` before deleting a row of that source (KEYS.md T158-T166). Set it to `false` to delete at once:
+
+```js
+web.bookmarks.deleteConfirmation = false;
+```
+
+Only `true` or `false`; any other value is a script error and the setting keeps its value. `:source` puts all
+three back to `true` before it runs the files again. The setting covers the picker's built-in Ctrl-d only: the
+commands (`:historyDelete`, `:bookmarkDelete`, `:bufferKill`) never ask, typed or through `web.cmd`, and a
+`"p"` mapping does what its function does. These objects are where later settings of a source go, never `web`
+itself (user, 2026-11-25).
 
 ### Commands for scripts: `:echo` and `:source`
 

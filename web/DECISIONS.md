@@ -2,6 +2,28 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-25 Deleting from a picker (C-PICKDEL, C-PICKDEL-MAP)
+
+User: "I want to be able to delete items from a search result page ... in :ls ... delete buffers without
+going in the buffer itself. From historySearch ... history items and similarly from bookmarks." Asked whether
+it is built in or scriptable from init.js: both.
+
+- **Ctrl-d** in the picker deletes the selected row of `:historySearch`, `:bookmarkSearch`, `:bufferList`/`:ls`
+  (it was free: the filter line uses Ctrl-w and Ctrl-u). Other sources say there is nothing to delete.
+- **A question first** (user: "ask for confirmation"): `... ? (y/n)` in the bar; `y` deletes, any other key
+  cancels and does nothing else. Each source has a switch, `web.history.deleteConfirmation`,
+  `web.bookmarks.deleteConfirmation`, `web.buffers.deleteConfirmation` (user: "expose ... variables with default
+  true so we can switch it off"; buffers added by the user too). They are the first non-function values on
+  `web`: later settings of a source go on its object. They cover the picker's Ctrl-d only; the commands never
+  ask.
+- **`:historyDelete [url]`**, new: removes every visit of exactly that URL. A site root row in `:historySearch`
+  removes the root URL only, not the site's pages (`:forget-site` stays the tool for a whole site).
+- After a delete the list is read again with the same filter and the selection stays in place.
+- Killing the current buffer from `:ls` is allowed and does what `:bd` does.
+- **Scripts**: `web.map("p", "<C-x>", fn)`, `fn(row)` on the selected row, before the built-in picker keys, so a
+  profile can replace Ctrl-d or add its own keys. One Ctrl key only (letters type the filter), a function only.
+  Split into its own item (C-PICKDEL-MAP) after C-PICKDEL, so each item is small.
+
 ## 2026-11-24 Script heap limit and unhandled rejections (C-SCRIPT-MEM)
 
 - `SCRIPT_MEMORY_MAX` = 64 MiB through `Runtime::set_memory_limit`, no GC threshold change. A config script
