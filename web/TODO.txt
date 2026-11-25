@@ -510,7 +510,7 @@ stop early on a hard failure.
       visited root shows once with its own count (not the site total); order by own count then recency; Ctrl-d y
       on every row deletes something (no `not in the history`); `:go` ranking tests untouched and passing. Update
       c_pickdel_live.py if its 7 -> 5 row count assumed the made-up root.
-- [ ] [WIP] C-SCRIPT-BUFLIST [S] (user, 2026-11-25: "I'd like an easy way to navigate back to [Slack] ... I think
+- [x] C-SCRIPT-BUFLIST [S] (DONE 2026-11-25, acf3fac, #755: snapshot copied into the Registry before every JS call (Keys::script_sync); [] before ready) (user, 2026-11-25: "I'd like an easy way to navigate back to [Slack] ... I think
       it's better to have an internal command that ls uses then. maybe a simple list of just web.buffers?") One
       internal source for the buffer list, used by `:ls` and by scripts, so they never disagree.
       - buffers.rs: `pub fn infos(b: &Buffers) -> Vec<BufferInfo>` in `:ls` order: `number` (num), `url`, `title`,
@@ -532,7 +532,7 @@ stop early on a hard failure.
       seen by a list() in a LATER call, objects frozen, `rows()` output unchanged, `c_script_only_web_is_exposed`
       updated. Live: c_script_live or a new step: three start buffers, a mapping that finds one by URL and
       switches to it (log shows the switch).
-- [ ] C-CMDRESULT [S] (after C-SCRIPT-BUFLIST, same files; user, 2026-11-25: "I think it's better to know if the
+- [ ] [WIP] C-CMDRESULT [S] (after C-SCRIPT-BUFLIST, same files; user, 2026-11-25: "I think it's better to know if the
       command failed so we can handle this properly") `web.cmd(line)` returns a Promise that settles after that
       line has run, with `{ ok, message }`: `ok` false when the command reported an error (the bar's `web: ...`
       error messages, unknown command, usage, a script error from a user command it called), else true; `message`
