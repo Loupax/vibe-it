@@ -656,3 +656,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-25 C-SCRIPT-BUFLIST merged (#755, acf3fac). Started C-CMDRESULT (Sonnet).
 
 ## 2026-11-25 web reinstalled with #755 (20261125-175444-904bc8b3). Guide v7: web.buffers.list().
+
+## 2026-11-25 C-CMDRESULT merged (#756, a8f9e6e). No agents running.
