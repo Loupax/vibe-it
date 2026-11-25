@@ -310,23 +310,22 @@ stop early on a hard failure.
       `web.cmd("echo " + x)`; no `console` object (SCRIPTING.md: nothing exposed unasked). KEYS.md, help.html,
       SCRIPTING.md example, unit tests. Interacts with C-SCRIPT-ERRBAR: an echo from init.js at start must also
       survive the first page load (same fix: messages set before/at start, from scripts, stay until a key).
-- [ ] C-SCRIPT-MODULES [M] WAITING FOR USER (questions below) (user, 2026-11-25: "I don't like how the 'default'
+- [ ] C-SCRIPT-MODULES [M] (user, 2026-11-25: "I don't like how the 'default'
       profile init script gets inherited by the rest of the profiles, it makes it very easy to accidentally add
       conflicting functionality. Remove this, if the users want to reuse functionality they can create reusable
       ECMAScript modules") Two halves that must land together: dropping the inheritance alone removes the only
       way to share code today, because there is no module loader (C-SCRIPT: classic scripts, `import` is a
       syntax error, `import()` rejects; c_script_tests `c_script_only_web_is_exposed` asserts both).
       1. One init file per start: `--profile NAME` runs `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` ONLY;
-         without `--profile`, `$XDG_CONFIG_HOME/web/profiles/default/init.js` (answer a). A profile with no
-         init.js runs nothing.
+         no `--profile` is `--profile default` (answer a). A profile with no init.js runs nothing.
          `init_files` (script.rs) returns at most one file; `:source` re-runs that one (bar `sourced 1 file(s)` or
          0). The "global and profile share one context" sentence goes.
       2. ES modules: the init file is evaluated as a module (always strict, as C-SCRIPT prepared for) with
          rquickjs's `loader` feature (+ the small `relative-path` crate; report the binary size) and our own
          Resolver/Loader (not rquickjs's FileResolver/ScriptLoader, which add a search path and extension
          guessing). Specifiers: `./x.js`, `../x.js` relative to the importing file; a bare name
-         (`"common.js"`) relative to the profile's folder (answer c); absolute paths and the confinement per
-         answer b. No extension guessing. A module's name is its
+         (`"common.js"`) relative to the profile's folder (answer c); an absolute path; all confined
+         to `$XDG_CONFIG_HOME/web/` (answer b). No extension guessing. A module's name is its
          normalized path, so a file imported twice runs once per runtime; `:source` makes a new runtime, so
          edited modules are re-read. Static `import` and dynamic `import()` both work.
       Things to get right (found reading script.rs, rquickjs 0.14):
@@ -356,16 +355,29 @@ stop early on a hard failure.
       edited module, budget overrun inside an imported module. Live step: two profiles importing one
       `~/.config/web/lib/common.js` under a temporary XDG_CONFIG_HOME (never the user's).
       User answers (2026-11-25):
-      a. The no-`--profile` script gets its own folder, `$XDG_CONFIG_HOME/web/profiles/default/init.js`;
-         `web/init.js` is no longer read. (User: "otherwise we imply that other profiles are modules to be
-         imported. It should be possible, but we shouldn't imply this as standard behavior".) OPEN: does no
-         `--profile` also mean the state dir `.../profiles/default` (so `web` == `web --profile default`), or
-         does the state dir stay the base one?
-      b. OPEN, under discussion: the "user's own files" assumption does not hold once people `git clone` plugin
-         repos into a profile. Threat review in the session reply; to decide: confinement of imports.
+      a. `default` is not special in any way except as the default value of `--profile`: no `--profile` IS
+         `--profile default` (args.rs), so its script is `$XDG_CONFIG_HOME/web/profiles/default/init.js` (its own
+         folder: "otherwise we imply that other profiles are modules to be imported") and its state directory is
+         `<base>/profiles/default` like any profile's (`--state-dir` still exact; C-SINGLE and --forget-site
+         follow). `web/init.js` is no longer read. State left in the old base directory (cookies, history,
+         cmdhistory, engine profile) is NOT moved by web: say so in the PR with the `mv` the user can run.
+         USAGE, STASH.md and the args tests change with it.
+      b. Imports are confined to `$XDG_CONFIG_HOME/web/` (user: "I expect a single user to have multiple
+         profiles, so it makes sense to allow shared files between them"), checked on the REAL path (symlinks
+         resolved) so a symlink in a cloned repo cannot point out of it. `web/lib/` is the documented place for
+         modules shared by profiles (`import "../../lib/common.js"` from a profile's init.js, or the absolute
+         path). Only regular files (no FIFO, device, `/dev/zero`), `.js` only, under a size cap
+         (`SCRIPT_MODULE_MAX` in config.rs, e.g. 1 MiB): the read is Rust I/O, outside the script budget and
+         memory limit. A refused import is an error naming the rule and the path. SCRIPTING.md gets a
+         "Plugins are trusted code" note: a script can browse as the user (`:go` with its cookies, data out in
+         a URL), run `:forget-site`/`:bookmarkDelete`, remap NORMAL keys and redefine other scripts' commands
+         and mappings; every future read API (URL, buffers, history) becomes something a plugin can send out.
+         Tests: `../` past `web/`, an absolute path outside, a symlink pointing out, a FIFO or `/dev/zero`, an
+         oversized file, a non-`.js` file: all refused, nothing read; `lib/` reachable from two profiles.
       c. A bare specifier (`import "common.js"`) resolves against the profile's folder (its root); `./`, `../`
-         stay relative to the importing file.
-      d. No migration hint (user has already moved their profiles).
+         stay relative to the importing file. A `web.config.directory` value for scripts only if needed later,
+         not now.
+      d. No migration hint for scripts (user has already moved their profiles).
 - [x] C-DESKTOP-ENTRY [XS] (DONE 2026-11-24, 23489de, #745: StartupWMClass=web, no icon, no MimeType) (user, 2026-11-24: "why can't I run web from the gui launcher? it works from the
       terminal") Found: install.sh writes no .desktop file, and the Plasma session PATH (systemctl --user
       show-environment) has no ~/.local/bin, so neither the app menu/KRunner nor Alt+F2 `web` finds it. install.sh
