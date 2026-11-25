@@ -332,8 +332,11 @@ stop early on a hard failure.
       - `Module::declare(..).eval()` returns a promise; a top-level throw REJECTS it rather than throwing.
         Drive it to settled inside the same budgeted call (`Promise::finish`), report its rejection as the file's
         error, and make sure the host rejection tracker (C-SCRIPT-MEM) does not report the same error a second
-        time as `unhandled rejection`. There are no timers or I/O, so a top-level `await` can only stay pending
-        on a promise nothing resolves: treat that as finished, not an error (or ask).
+        time as `unhandled rejection`. There are no timers or I/O, so a top-level `await` still pending when the
+        start call ends waits on something only a later callback can resolve (`await new Promise(r =>
+        web.on("ready", r))`): treat the start as finished, not an error; the rest of the module runs when that
+        promise settles, under the budget and error reporting of the callback that settled it (coordinator,
+        2026-11-25).
       - Labels: the module name must be the real path (relative imports resolve against it), but the bar
         keeps `init.js:LINE: message` for the global file; errors inside an imported module show that
         module's path and line. An import that fails (missing file, bad specifier, syntax error in the module)
@@ -399,7 +402,8 @@ stop early on a hard failure.
          Tests: `../` past `web/`, an absolute path outside, a symlink pointing out, a FIFO or `/dev/zero`, an
          oversized file, a non-`.js` file: all refused, nothing read; `lib/` reachable from two profiles.
       c. A bare specifier (`import "common.js"`) resolves against the profile's folder (its root); `./`, `../`
-         stay relative to the importing file. A `web.config.directory` value for scripts only if needed later,
+         stay relative to the importing file. So a bare name inside a shared `lib/` module resolves against
+         whichever profile imported it: SCRIPTING.md tells `lib/` modules to import with `./` (coordinator). A `web.config.directory` value for scripts only if needed later,
          not now.
       d. No migration hint for scripts (user has already moved their profiles).
 - [x] C-DESKTOP-ENTRY [XS] (DONE 2026-11-24, 23489de, #745: StartupWMClass=web, no icon, no MimeType) (user, 2026-11-24: "why can't I run web from the gui launcher? it works from the
