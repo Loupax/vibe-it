@@ -628,3 +628,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-25 C-SCRIPT-MODULES merged (#750, b63f731): one init.js per profile (no --profile = default, state in <base>/profiles/default), ES modules confined to $XDG_CONFIG_HOME/web/. User migrates their own config/state (their choice). Started C-PICKDEL (Sonnet).
 
 ## 2026-11-25 web reinstalled with #750 (20261125-142002-eb36e298). Scripting guide artifact BYDUUbTC2cpKnjQXn5685J v4: per-profile layout + Modules section. Noticed: user moved their init.js to ~/.config/web/default/init.js, but web reads profiles/default/init.js (host.rs/script.rs); told the user, did not touch it.
+
+## 2026-11-25 C-PICKDEL merged (#751, 608bfdc). Filed C-PICKMSG (messages hidden by the filter line in PICK; running, Sonnet) and C-PICKROOT (USER DECISION: Ctrl-d on a made-up site-root row). C-PICKDEL-MAP after C-PICKMSG (same files).
