@@ -317,14 +317,16 @@ stop early on a hard failure.
       way to share code today, because there is no module loader (C-SCRIPT: classic scripts, `import` is a
       syntax error, `import()` rejects; c_script_tests `c_script_only_web_is_exposed` asserts both).
       1. One init file per start: `--profile NAME` runs `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` ONLY;
-         without `--profile`, `$XDG_CONFIG_HOME/web/init.js`. A profile with no init.js runs nothing.
+         without `--profile`, `$XDG_CONFIG_HOME/web/profiles/default/init.js` (answer a). A profile with no
+         init.js runs nothing.
          `init_files` (script.rs) returns at most one file; `:source` re-runs that one (bar `sourced 1 file(s)` or
          0). The "global and profile share one context" sentence goes.
       2. ES modules: the init file is evaluated as a module (always strict, as C-SCRIPT prepared for) with
          rquickjs's `loader` feature (+ the small `relative-path` crate; report the binary size) and our own
          Resolver/Loader (not rquickjs's FileResolver/ScriptLoader, which add a search path and extension
-         guessing). Specifiers: `./x.js`, `../x.js` relative to the importing file, or an absolute path;
-         a bare name (`"utils"`) is an error naming the rule. No extension guessing. A module's name is its
+         guessing). Specifiers: `./x.js`, `../x.js` relative to the importing file; a bare name
+         (`"common.js"`) relative to the profile's folder (answer c); absolute paths and the confinement per
+         answer b. No extension guessing. A module's name is its
          normalized path, so a file imported twice runs once per runtime; `:source` makes a new runtime, so
          edited modules are re-read. Static `import` and dynamic `import()` both work.
       Things to get right (found reading script.rs, rquickjs 0.14):
@@ -353,16 +355,17 @@ stop early on a hard failure.
       once (not also as unhandled rejection), top-level await of a resolved promise, `:source` picks up an
       edited module, budget overrun inside an imported module. Live step: two profiles importing one
       `~/.config/web/lib/common.js` under a temporary XDG_CONFIG_HOME (never the user's).
-      Questions for the user (answer before filing as ready):
-      a. Without `--profile`, keep running `web/init.js` (it becomes the "no profile" script, not inherited),
-         or move it to `profiles/default/init.js` and make no-`--profile` mean `--profile default` (one rule,
-         state dir would move too)?
-      b. May an import reach any path, or only files under `$XDG_CONFIG_HOME/web/`? (Proposed: any path;
-         they are the user's own files.)
-      c. Bare specifiers: an error (proposed), or resolve them against a shared dir such as
-         `$XDG_CONFIG_HOME/web/lib/` so `import "common.js"` works from every profile?
-      d. Migration: nothing (proposed, the only user is you), or a one-time log/bar hint when a profile starts
-         and `web/init.js` exists but is no longer run?
+      User answers (2026-11-25):
+      a. The no-`--profile` script gets its own folder, `$XDG_CONFIG_HOME/web/profiles/default/init.js`;
+         `web/init.js` is no longer read. (User: "otherwise we imply that other profiles are modules to be
+         imported. It should be possible, but we shouldn't imply this as standard behavior".) OPEN: does no
+         `--profile` also mean the state dir `.../profiles/default` (so `web` == `web --profile default`), or
+         does the state dir stay the base one?
+      b. OPEN, under discussion: the "user's own files" assumption does not hold once people `git clone` plugin
+         repos into a profile. Threat review in the session reply; to decide: confinement of imports.
+      c. A bare specifier (`import "common.js"`) resolves against the profile's folder (its root); `./`, `../`
+         stay relative to the importing file.
+      d. No migration hint (user has already moved their profiles).
 - [x] C-DESKTOP-ENTRY [XS] (DONE 2026-11-24, 23489de, #745: StartupWMClass=web, no icon, no MimeType) (user, 2026-11-24: "why can't I run web from the gui launcher? it works from the
       terminal") Found: install.sh writes no .desktop file, and the Plasma session PATH (systemctl --user
       show-environment) has no ~/.local/bin, so neither the app menu/KRunner nor Alt+F2 `web` finds it. install.sh
