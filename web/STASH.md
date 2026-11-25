@@ -1,6 +1,6 @@
 # stash: what web keeps on disk
 
-Carried over from `../scratchy/STASH.md` (2026-11-23, decision "Architecture C" in
+Carried over from `../archived/scratchy/STASH.md` (2026-11-23, decision "Architecture C" in
 DECISIONS.md). In scratchy, stash was the plain-file `localStorage` store plus the state
 directory, forget-site and history. In web the engine owns page storage and cookies, so
 what carries over is: the state directory, history (unchanged format), forget-site (now

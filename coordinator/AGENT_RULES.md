@@ -1,4 +1,4 @@
-# Rules for every scratchy agent. These OVERRIDE scratchy/AGENTS.md where they differ.
+# Rules for every agent. These OVERRIDE a project's AGENTS.md where they differ.
 
 Where you run: rules marked "user's machine" (nice/ionice, systemd-run memory cap, the perf lock, the
 RUSTY_V8_ARCHIVE cache, /home/loupax/src/wpt, nested-window tests with tools/nest.sh) apply on the user's
@@ -9,7 +9,7 @@ checkout is available, and say in the PR which local checks were skipped so the 
 1. Tool-call descriptions: start EVERY one with `[<ITEM>] ` (the user's agent panel shows it).
 2. Worktree + branch: you run in your own git worktree. First: `git fetch origin && git checkout -b scratchy/<item-lowercase>-<slug> origin/main`.
    No `git stash`. Scratch files go in a subdir of your scratchpad, never loose in /tmp.
-3. NEVER edit scratchy/TODO.txt or scratchy/TODO-DONE.txt (the coordinator owns them). Other docs per AGENTS.md (REGRESSIONS/PERF/NOTES
+3. NEVER edit any TODO.txt or TODO-DONE.txt (the coordinator owns them). Other docs per AGENTS.md (REGRESSIONS/PERF/NOTES
    as the item needs) are fine. NEVER add a PROMPTS.md entry (user, 2026-11-24: the files are frozen); the
    result goes in the PR body and the commit message.
 4. LOCAL RESOURCE PRIORITY (user's machine only):
@@ -95,23 +95,10 @@ at the end. Before your final reply, `ps -eo pid,cmd | grep <your worktree path>
   If you must poll, wrap it in `timeout`, run it in the foreground, and stop as soon as it returns.
 - Background shells only for long builds/test runs/measurements, and they must end by themselves (no daemons left behind).
 
-## New tests go in their own file (2026-11-22: DOM PRs kept colliding at the end of js_dom_tests.rs)
-Put your item's new tests in a NEW file `scratchy/src/tests/<item-lowercase>_tests.rs` plus one `mod <item>_tests;` line in
-`src/tests/mod.rs` (the merge script keeps both sides of mod lines). Only edit an existing test file to change a test that
-already lives there. This overrides AGENTS.md "matching area file" for new tests.
-
 ## No conflict markers, ever
 After any rebase, before you commit or push: `git diff origin/main --stat` and
-`git grep -nE '^(<<<<<<< |=======$|>>>>>>> )' -- scratchy coordinator` must print nothing. Two PRs (#560, #571)
+`git grep -nE '^(<<<<<<< |=======$|>>>>>>> )' -- . ':!archived'` must print nothing. Two PRs (#560, #571)
 landed `<<<<<<<`/`>>>>>>>` blocks in PROMPTS.md. merge_pr.sh now refuses a PR whose diff adds marker lines.
-
-## wire's HTTP cache (once W-CACHE1 lands)
-W-CACHE1 makes wire cache on disk by default in `~/.cache/wire`. Every wire an agent starts uses
-`--cache-dir /tmp/wire-cache-<your worktree name> --cache-size 256M` (user 2026-11-22: agents' caches in
-/tmp; /tmp is RAM, hence the size cap; wire prints one tmpfs warning line, expected), or `--no-cache`.
-Never the user's `~/.cache/wire`. The tools that start a wire (tools/incr-gate/run.sh, wl-flood, missing-api corpus/cost) take a `WIRE_ARGS`
-env var: set `WIRE_ARGS="--cache-dir /tmp/wire-cache-<worktree> --cache-size 256M"` (or `--no-cache`) for every run. Delete your cache dir by its explicit name when you finish. Perf
-comparisons use the same cache setting on both sides (say which).
 
 ## A denied command stays denied
 If the tool permission layer or the sandbox denies a command, do not rephrase, obfuscate or split it to
@@ -136,10 +123,6 @@ dwl any other way.
 If a CI check fails for a reason that looks unrelated to your change (a flaky test), do not re-run the job until
 it is green. Say in the PR and your reply which test failed and why you think it is unrelated; the coordinator files
 it. (2026-11-22, QCNV5 #624.)
-
-## WPT checkout
-Never use /home/loupax/src/wpt: it is a stale sparse checkout (no dom/, url/, html/canvas, ...) and gives thousands of
-bogus 404/CRASH results. Always make your own pinned checkout under your worktree with tools/wpt-checkout.sh.
 
 ## Memory cap: load generators too
 Every scratchy process runs under the systemd-run 6G memory cap, including extra copies you start only to load the

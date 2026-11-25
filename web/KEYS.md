@@ -1,9 +1,9 @@
 # Keys: input mode, normal mode, search
 
-Carried over from `../scratchy/KEYS.md` (2026-11-23, decision "Architecture C" in
+Carried over from `../archived/scratchy/KEYS.md` (2026-11-23, decision "Architecture C" in
 DECISIONS.md). The modes, rows, numbers and decisions are scratchy's, unchanged unless a
 note marked **web:** says otherwise. Item names in the decision log (QKEYS-D, QSEARCH-D,
-QCOMP-D, ...) refer to `../scratchy/TODO.txt`. "scratchy" below means the shell, `web-shell`.
+QCOMP-D, ...) refer to `../archived/scratchy/TODO.txt`. "scratchy" below means the shell, `web-shell`.
 
 **web: who sees the keys.** `web-shell` is the Wayland compositor the engine host's
 windows live in, so it receives every key and pointer event first and decides what the
