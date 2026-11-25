@@ -420,6 +420,7 @@ impl Keys {
         p.set_filter(&self.line.text);
         self.ghost = None;
         self.picker = Some(p);
+        self.pick_msg.clear();
         self.vim_mode = VimMode::Pick;
     }
 
@@ -492,6 +493,18 @@ impl Keys {
 
     /// A key in PICK (T59-T65).
     pub(crate) fn pick_key(&mut self, key: &KeyInput) {
+        // C-PICKMSG: a message this key press sets is shown beside the filter line until a key
+        // changes the filter or moves the selection; the bar's own message stays as it was.
+        let old = std::mem::take(&mut self.message);
+        self.pick_key_inner(key);
+        if self.message.is_empty() {
+            self.message = old;
+        } else {
+            self.pick_msg = self.message.clone();
+        }
+    }
+
+    fn pick_key_inner(&mut self, key: &KeyInput) {
         use smithay::input::keyboard::Keysym as K;
         let s = key.sym;
         let plain = !key.ctrl && !key.alt && !key.logo;
@@ -521,21 +534,25 @@ impl Keys {
             }
         } else if (plain && (s == K::Down || s == K::KP_Down)) || (key.ctrl && key.ch == Some('n')) {
             // T60.
+            self.pick_msg.clear();
             if let Some(p) = &mut self.picker {
                 p.move_by(1);
             }
         } else if (plain && (s == K::Up || s == K::KP_Up)) || (key.ctrl && key.ch == Some('p')) {
             // T61.
+            self.pick_msg.clear();
             if let Some(p) = &mut self.picker {
                 p.move_by(-1);
             }
         } else if plain && (s == K::Page_Down || s == K::KP_Page_Down) {
             // T61a: a screenful (the rows shown) down.
+            self.pick_msg.clear();
             if let Some(p) = &mut self.picker {
                 p.move_by(PICKER_MAX_ROWS as isize);
             }
         } else if plain && (s == K::Page_Up || s == K::KP_Page_Up) {
             // T61a.
+            self.pick_msg.clear();
             if let Some(p) = &mut self.picker {
                 p.move_by(-(PICKER_MAX_ROWS as isize));
             }
@@ -550,6 +567,7 @@ impl Keys {
             let before = self.line.text.clone();
             self.line_edit_key(key);
             if self.line.text != before {
+                self.pick_msg.clear();
                 let filter = self.line.text.clone();
                 if let Some(p) = &mut self.picker {
                     p.set_filter(&filter);

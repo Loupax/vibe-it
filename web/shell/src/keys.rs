@@ -643,6 +643,8 @@ pub struct Keys {
     pub cache: CompleteCache,
     /// The last message (KEYS.md "Status bar").
     pub message: String,
+    /// C-PICKMSG: the message set while PICK is open, drawn beside the filter line.
+    pub(crate) pick_msg: String,
     /// C-SCRIPT-ERRBAR: the text of a script's error or an `:echo` while it is still the message
     /// and no key was pressed since; a page load leaves such a message alone (`page_loaded`).
     pub(crate) sticky: String,
@@ -750,6 +752,7 @@ impl Keys {
             ghost: None,
             cache: CompleteCache::new(state_dir.clone()),
             message: String::new(),
+            pick_msg: String::new(),
             sticky: String::new(),
             script_files: Vec::new(),
             script_budget: Duration::from_millis(crate::config::SCRIPT_BUDGET_MS),
@@ -1907,7 +1910,12 @@ impl Keys {
                 n => format!("[{n}!] [{}] {}", self.buffers.current, self.url),
             },
             flash: self.bell.lit,
-            message: question.unwrap_or_else(|| self.message.clone()),
+            message: match question {
+                Some(q) => q,
+                // C-PICKMSG: PICK draws the filter line, so the message beside it is the one set in PICK.
+                None if self.vim_mode == VimMode::Pick => self.pick_msg.clone(),
+                None => self.message.clone(),
+            },
             ghost: match (&self.ghost, &line) {
                 (Some(g), Some(_)) => g.rest(&self.line.text),
                 _ => String::new(),

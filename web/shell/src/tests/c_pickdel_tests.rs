@@ -441,3 +441,85 @@ fn t165_the_only_buffer_is_replaced_by_about_blank_and_one_row_stays() {
     assert_eq!(k.url, "about:blank");
     assert!(k.pick_log().contains("of 1]"), "{}", k.pick_log());
 }
+
+// ---------- C-PICKMSG: the message shows beside the filter line ----------
+
+fn pick_bar(k: &Keys) -> (String, bool) {
+    let v = k.bar_view();
+    (v.message, v.line.is_some())
+}
+
+#[test]
+fn pickmsg_not_deleted_shows_beside_the_filter_and_goes_on_the_next_filter_key() {
+    let (_d, mut k) = history_keys("pickmsg-n");
+    k.message = "old bar message".into();
+    ctrl_d(&mut k);
+    press(&mut k, KeyInput::ch('n'));
+    assert_eq!(pick_bar(&k), ("not deleted".to_string(), true));
+    // A key that changes neither the filter nor the selection keeps it.
+    press(&mut k, KeyInput::sym(Keysym::Right));
+    assert_eq!(k.bar_view().message, "not deleted");
+    // The next filter key takes it away.
+    type_text(&mut k, "b");
+    assert_eq!(pick_bar(&k), (String::new(), true));
+}
+
+#[test]
+fn pickmsg_a_delete_message_shows_and_a_move_clears_it() {
+    let (_d, mut k) = history_keys("pickmsg-y");
+    ctrl_d(&mut k);
+    press(&mut k, KeyInput::ch('y'));
+    assert_eq!(k.vim_mode, VimMode::Pick);
+    assert_eq!(
+        pick_bar(&k),
+        ("history entry removed: https://b.test/ (2 visits)".to_string(), true)
+    );
+    press(&mut k, KeyInput::ch('n').ctrl());
+    assert_eq!(k.bar_view().message, "");
+}
+
+#[test]
+fn pickmsg_nothing_to_delete_shows_and_the_question_replaces_it() {
+    let (_d, mut k) = history_keys("pickmsg-other");
+    k.picker.as_mut().unwrap().name = "popups".into();
+    ctrl_d(&mut k);
+    assert_eq!(pick_bar(&k), ("web: nothing to delete in popups".to_string(), true));
+    k.picker.as_mut().unwrap().name = "history".into();
+    ctrl_d(&mut k);
+    let v = k.bar_view();
+    assert!(v.line.is_none());
+    assert_eq!(v.message, "delete history entry https://b.test/? (y/n)");
+}
+
+#[test]
+fn pickmsg_does_not_leak_into_the_next_picker() {
+    let (_d, mut k) = history_keys("pickmsg-leak");
+    ctrl_d(&mut k);
+    press(&mut k, KeyInput::ch('n'));
+    press(&mut k, KeyInput::sym(Keysym::Escape));
+    assert_eq!(k.vim_mode, VimMode::Normal);
+    run(&mut k, "historySearch");
+    assert_eq!(pick_bar(&k), (String::new(), true));
+}
+
+#[test]
+fn pickmsg_the_bar_paints_it_right_of_the_filter() {
+    let mut p = crate::statusbar::Painter::new();
+    if !p.has_fonts() {
+        return;
+    }
+    let mut v = BarView {
+        mode: "PICK".into(),
+        url: String::new(),
+        message: String::new(),
+        line: Some(('>', "ab".into(), 2, None)),
+        ghost: String::new(),
+        flash: false,
+    };
+    let plain = p.paint(&v, 600, 24).unwrap();
+    v.message = "not deleted".into();
+    let with = p.paint(&v, 600, 24).unwrap();
+    assert_ne!(plain.data(), with.data());
+    // The filter's own left part is the same.
+    assert_eq!(plain.data()[..60 * 4], with.data()[..60 * 4]);
+}
