@@ -31,6 +31,7 @@ use rquickjs::{Context, Ctx, Exception, Function, Module, Object, Persistent, Pr
 
 use crate::config::{SCRIPT_BUDGET_MS, SCRIPT_DEPTH_MAX, SCRIPT_MEMORY_MAX, SCRIPT_MODULE_MAX};
 use crate::keys::{parse_map_keys, parse_map_rhs, resolve_mapping, Effect, Keys, MapKey, MapLine, MapStep};
+use crate::picker::PickAction;
 
 /// One script to load: where it is, the name the bar gives it (`init.js`) and the config directory
 /// (`$XDG_CONFIG_HOME/web`) its imports are confined to.
@@ -212,6 +213,14 @@ pub enum MapRhs {
     Func(Persistent<Function<'static>>),
 }
 
+/// C-PICKDEL-MAP: the selected row as a "p" mapping's function gets it.
+pub struct PickRow {
+    pub source: String,
+    pub label: String,
+    pub detail: String,
+    pub action: PickAction,
+}
+
 /// One `web.map("n", keys, rhs)`: the keys as written (for the log) and parsed.
 struct Mapping {
     notation: String,
@@ -246,6 +255,8 @@ struct Registry {
     ready: Vec<Persistent<Function<'static>>>,
     /// NORMAL-mode mappings, in the order made (mapping the same keys again replaces in place).
     maps: Vec<Mapping>,
+    /// C-PICKDEL-MAP: PICK mappings (`web.map("p", "<C-x>", fn)`), same replace-in-place rule.
+    pick_maps: Vec<Mapping>,
 }
 
 /// The QuickJS runtime and its one context.
@@ -291,6 +302,7 @@ impl Drop for Scripts {
         r.commands.clear();
         r.ready.clear();
         r.maps.clear();
+        r.pick_maps.clear();
     }
 }
 
@@ -441,6 +453,33 @@ impl Scripts {
         self.call(&label, move |ctx| f.restore(ctx)?.call::<_, Value>(()).map(|_| ()))
     }
 
+    /// C-PICKDEL-MAP: the function of the "p" mapping for this press, with its keys as written.
+    pub fn pick_map(&self, key: &MapKey) -> Option<(String, Persistent<Function<'static>>)> {
+        let r = self.reg.borrow();
+        r.pick_maps.iter().find(|m| m.keys.as_slice() == [*key]).and_then(|m| match &m.rhs {
+            MapRhs::Func(f) => Some((m.notation.clone(), f.clone())),
+            MapRhs::Line(_) => None,
+        })
+    }
+
+    /// C-PICKDEL-MAP: calls a "p" mapping's function with the selected row as a plain object.
+    pub fn call_pick_map(&mut self, f: Persistent<Function<'static>>, row: PickRow) -> CallResult {
+        let label = self.fallback.clone();
+        self.call(&label, move |ctx| {
+            let o = Object::new(ctx.clone())?;
+            o.set("source", row.source)?;
+            o.set("label", row.label)?;
+            o.set("detail", row.detail)?;
+            match row.action {
+                PickAction::Open(u) => o.set("url", u)?,
+                PickAction::Buffer(n) => o.set("buffer", n)?,
+                PickAction::Popup(n) => o.set("popup", n)?,
+                PickAction::Notice(n) => o.set("notice", n as f64)?,
+            }
+            f.restore(ctx)?.call::<_, Value>((o,)).map(|_| ())
+        })
+    }
+
     /// The `ready` handlers in order (the event fires once: later calls give nothing).
     pub fn take_ready(&mut self) -> (Vec<String>, Vec<Persistent<Function<'static>>>) {
         if self.ready_fired {
@@ -557,13 +596,35 @@ impl Scripts {
 /// `web.map(mode, keys, rhs)`: checks everything at map time (an error throws, so it shows as
 /// `init.js:LINE: web.map: ...`) and stores the mapping, replacing one with the same keys.
 fn web_map<'js>(ctx: &Ctx<'js>, reg: &Rc<RefCell<Registry>>, mode: String, keys: String, rhs: Value<'js>) -> rquickjs::Result<()> {
-    if mode != "n" {
+    if mode != "n" && mode != "p" {
         return Err(Exception::throw_type(
             ctx,
-            &format!("web.map: unknown mode {mode:?} (known: \"n\")"),
+            &format!("web.map: unknown mode {mode:?} (known: \"n\", \"p\")"),
         ));
     }
     let parsed = parse_map_keys(&keys).map_err(|m| Exception::throw_type(ctx, &m))?;
+    if mode == "p" {
+        if parsed.len() != 1 || !parsed[0].ctrl {
+            return Err(Exception::throw_type(
+                ctx,
+                "web.map: a \"p\" mapping is one <C-x> key (letters type the filter)",
+            ));
+        }
+        let Some(f) = rhs.as_function() else {
+            return Err(Exception::throw_type(ctx, "web.map: a \"p\" mapping's rhs is a function"));
+        };
+        let mapping = Mapping {
+            notation: keys,
+            keys: parsed,
+            rhs: MapRhs::Func(Persistent::save(ctx, f.clone())),
+        };
+        let mut r = reg.borrow_mut();
+        match r.pick_maps.iter_mut().find(|m| m.keys == mapping.keys) {
+            Some(old) => *old = mapping,
+            None => r.pick_maps.push(mapping),
+        }
+        return Ok(());
+    }
     let rhs = if let Some(f) = rhs.as_function() {
         MapRhs::Func(Persistent::save(ctx, f.clone()))
     } else if let Some(s) = rhs.as_string() {

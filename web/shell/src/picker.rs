@@ -520,6 +520,10 @@ impl Keys {
             }
             return;
         }
+        if self.pick_mapped(key) {
+            // T167/T168: a script's "p" mapping, before every built-in key.
+            return;
+        }
         if key.ctrl && !key.alt && !key.logo && key.ch == Some('d') {
             // T158, T159, T162.
             self.pick_ctrl_d();
@@ -574,6 +578,35 @@ impl Keys {
                 }
             }
         }
+    }
+
+    /// T167/T168: a "p" mapping for this press: with a row selected its function runs on the row,
+    /// then its `web.cmd` lines, then the list is read again. No row: the key does nothing.
+    /// Returns whether the press was a mapped key.
+    fn pick_mapped(&mut self, key: &KeyInput) -> bool {
+        let Some(mk) = crate::keys::MapKey::from_input(key) else {
+            return false;
+        };
+        let Some((notation, f)) = self.scripts.as_ref().and_then(|s| s.pick_map(&mk)) else {
+            return false;
+        };
+        let Some(p) = &self.picker else { return true };
+        let Some(r) = p.selected_row() else { return true };
+        let row = crate::script::PickRow {
+            source: p.name.clone(),
+            label: r.label.clone(),
+            detail: r.detail.clone(),
+            action: r.action.clone(),
+        };
+        self.effects.push(Effect::Log(format!("pick-map {notation}")));
+        if let Some(s) = self.scripts.as_mut() {
+            let r = s.call_pick_map(f, row);
+            self.finish_script_call(r);
+        }
+        if self.vim_mode == VimMode::Pick {
+            self.refresh_picker();
+        }
+        true
     }
 
     /// T158/T159/T162: Ctrl-d on the selected row.

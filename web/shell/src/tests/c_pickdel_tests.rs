@@ -523,3 +523,208 @@ fn pickmsg_the_bar_paints_it_right_of_the_filter() {
     // The filter's own left part is the same.
     assert_eq!(plain.data()[..60 * 4], with.data()[..60 * 4]);
 }
+
+// ---------- C-PICKDEL-MAP: web.map("p", ...) (T167-T168) ----------
+
+fn ctrl(k: &mut Keys, c: char) {
+    press(k, KeyInput::ch(c).ctrl());
+}
+
+#[test]
+fn t167_a_mapped_key_deletes_the_selected_history_row_without_asking_and_the_list_refreshes() {
+    let d = Dir::new("t167-hist");
+    d.file("history", HISTORY);
+    let mut k = keys_in(&d);
+    with_script(
+        &mut k,
+        r#"web.map("p", "<C-x>", row => { if (row.source === "history") web.cmd("historyDelete " + row.url); });"#,
+    );
+    run(&mut k, "historySearch");
+    ctrl(&mut k, 'x');
+    assert_eq!(k.vim_mode, VimMode::Pick);
+    assert!(k.picker.as_ref().unwrap().confirm.is_none());
+    assert!(!d.read("history").contains("https://b.test/"), "{}", d.read("history"));
+    assert_eq!(k.picker.as_ref().unwrap().total(), 2);
+    // T169: the command's message shows beside the filter line.
+    assert_eq!(
+        pick_bar(&k),
+        ("history entry removed: https://b.test/ (2 visits)".to_string(), true)
+    );
+}
+
+#[test]
+fn t167_the_row_has_source_label_detail_and_the_one_field_that_applies() {
+    let d = Dir::new("t167-row");
+    d.file("history", HISTORY);
+    let mut k = keys_in(&d);
+    with_script(&mut k, r#"web.map("p", "<C-x>", row => web.cmd("echo " + JSON.stringify(row)));"#);
+    run(&mut k, "historySearch");
+    ctrl(&mut k, 'x');
+    assert!(
+        k.message.starts_with(r#"echo"#) || k.message.starts_with(r#"{"source":"history","label":"Site B","detail":"#),
+        "{}",
+        k.message
+    );
+    assert!(k.message.contains(r#""source":"history""#), "{}", k.message);
+    assert!(k.message.contains(r#""label":"Site B""#), "{}", k.message);
+    assert!(k.message.contains(r#""url":"https://b.test/""#), "{}", k.message);
+    assert!(!k.message.contains("buffer"));
+}
+
+#[test]
+fn t167_bookmarks_and_buffers_rows() {
+    let d = Dir::new("t167-bm");
+    d.file("bookmarks", "https://a.test/\tA\nhttps://b.test/\tB\n");
+    let mut k = keys_in(&d);
+    with_script(
+        &mut k,
+        r#"web.map("p", "<C-x>", row => { if (row.source === "bookmarks") web.cmd("bookmarkDelete " + row.url); });"#,
+    );
+    run(&mut k, "bookmarkSearch");
+    ctrl(&mut k, 'x');
+    assert_eq!(pick_bar(&k).0, "bookmark removed: https://b.test/");
+    assert_eq!(k.picker.as_ref().unwrap().total(), 1);
+
+    let mut k = two_buffers();
+    with_script(
+        &mut k,
+        r#"web.map("p", "<C-x>", row => { if (row.source === "buffers") web.cmd("bd " + row.buffer); });"#,
+    );
+    run(&mut k, "ls");
+    assert_eq!(k.vim_mode, VimMode::Pick);
+    let total = k.picker.as_ref().unwrap().total();
+    ctrl(&mut k, 'x');
+    assert_eq!(k.vim_mode, VimMode::Pick);
+    assert_eq!(k.picker.as_ref().unwrap().total(), total - 1);
+}
+
+#[test]
+fn t167_a_mapped_ctrl_d_replaces_the_built_in_one() {
+    let d = Dir::new("t167-cd");
+    d.file("history", HISTORY);
+    let mut k = keys_in(&d);
+    with_script(&mut k, r#"web.map("p", "<C-d>", row => web.cmd("echo mapped " + row.label));"#);
+    run(&mut k, "historySearch");
+    ctrl_d(&mut k);
+    assert!(k.picker.as_ref().unwrap().confirm.is_none());
+    assert_eq!(pick_bar(&k).0, "mapped Site B");
+    assert_eq!(d.read("history"), HISTORY);
+}
+
+#[test]
+fn t167_a_mapped_ctrl_n_replaces_the_move() {
+    let d = Dir::new("t167-cn");
+    d.file("history", HISTORY);
+    let mut k = keys_in(&d);
+    with_script(&mut k, r#"web.map("p", "<C-n>", row => web.cmd("echo at " + row.label));"#);
+    run(&mut k, "historySearch");
+    ctrl(&mut k, 'n');
+    assert_eq!(pick_bar(&k).0, "at Site B");
+    assert_eq!(k.picker.as_ref().unwrap().selected, 0);
+}
+
+#[test]
+fn t167_no_row_selected_does_nothing() {
+    let d = Dir::new("t167-norow");
+    d.file("history", HISTORY);
+    let mut k = keys_in(&d);
+    with_script(&mut k, r#"web.map("p", "<C-x>", row => web.cmd("echo called"));"#);
+    run(&mut k, "historySearch");
+    type_text(&mut k, "zzzzqqq");
+    assert_eq!(k.picker.as_ref().unwrap().match_count(), 0);
+    ctrl(&mut k, 'x');
+    assert_ne!(k.message, "called");
+    assert_eq!(k.vim_mode, VimMode::Pick);
+}
+
+#[test]
+fn t167_modes_are_separate() {
+    let d = Dir::new("t167-modes");
+    d.file("history", HISTORY);
+    let mut k = keys_in(&d);
+    with_script(
+        &mut k,
+        r#"web.map("p", "<C-x>", row => web.cmd("echo pick")); web.map("n", "<C-y>", () => web.cmd("echo normal"));"#,
+    );
+    ctrl(&mut k, 'x');
+    assert_ne!(k.message, "pick");
+    run(&mut k, "historySearch");
+    ctrl(&mut k, 'y');
+    assert_ne!(k.message, "normal");
+}
+
+#[test]
+fn t167_the_same_key_replaces_in_place_and_other_keys_still_type() {
+    let d = Dir::new("t167-repl");
+    d.file("history", HISTORY);
+    let mut k = keys_in(&d);
+    with_script(
+        &mut k,
+        r#"web.map("p", "<C-x>", () => web.cmd("echo one")); web.map("p", "<C-x>", () => web.cmd("echo two"));"#,
+    );
+    run(&mut k, "historySearch");
+    type_text(&mut k, "b");
+    assert_eq!(k.line.text, "b");
+    ctrl(&mut k, 'x');
+    assert_eq!(pick_bar(&k).0, "two");
+}
+
+#[test]
+fn t167_bad_p_mappings_are_refused() {
+    let one_key = r#"a "p" mapping is one <C-x> key (letters type the filter)"#;
+    let cases = [
+        (r#"web.map("p", "x", () => {})"#, one_key),
+        (r#"web.map("p", "<C-a><C-b>", () => {})"#, one_key),
+        (r#"web.map("p", "<C-d>", ":bd<CR>")"#, r#"a "p" mapping's rhs is a function"#),
+        (r#"web.map("q", "<C-d>", () => {})"#, r#"(known: "n", "p")"#),
+    ];
+    for (i, (src, want)) in cases.iter().enumerate() {
+        let d = Dir::new(&format!("t167-bad{i}"));
+        let mut k = keys_in(&d);
+        k.load_script_source("init.js", src, BUDGET);
+        assert!(k.message.contains(want), "{src}: {}", k.message);
+        for c in ['x', 'a', 'd'] {
+            assert!(
+                k.scripts
+                    .as_ref()
+                    .is_none_or(|s| s.pick_map(&MapKey { ch: c, ctrl: true }).is_none()),
+                "{src}"
+            );
+        }
+    }
+}
+
+#[test]
+fn t167_source_drops_p_mappings() {
+    let d = Dir::new("t167-source");
+    d.file("history", HISTORY);
+    let mut k = keys_in(&d);
+    with_script(&mut k, r#"web.map("p", "<C-x>", () => web.cmd("echo gone"));"#);
+    k.source();
+    run(&mut k, "historySearch");
+    ctrl(&mut k, 'x');
+    assert_ne!(k.message, "gone");
+}
+
+#[test]
+fn t168_a_script_error_shows_beside_the_filter_and_pick_stays() {
+    let d = Dir::new("t168-err");
+    d.file("history", HISTORY);
+    let mut k = keys_in(&d);
+    with_script(&mut k, r#"web.map("p", "<C-x>", row => { throw new Error("boom"); });"#);
+    run(&mut k, "historySearch");
+    ctrl(&mut k, 'x');
+    assert_eq!(k.vim_mode, VimMode::Pick);
+    assert!(pick_bar(&k).0.contains("boom"), "{}", k.message);
+}
+
+#[test]
+fn t168_deleting_the_last_row_closes_the_picker() {
+    let d = Dir::new("t168-last");
+    d.file("history", "1000\thttps://a.test/\tSite A\n");
+    let mut k = keys_in(&d);
+    with_script(&mut k, r#"web.map("p", "<C-x>", row => web.cmd("historyDelete " + row.url));"#);
+    run(&mut k, "historySearch");
+    ctrl(&mut k, 'x');
+    assert_eq!(k.vim_mode, VimMode::Normal);
+}

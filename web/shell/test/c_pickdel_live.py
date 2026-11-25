@@ -30,6 +30,12 @@ from c3_live import keys_for  # noqa: E402
 
 SHELL = live.SHELL
 WEB = live.WEB
+PROBE = os.path.join(WEB, "tools/notify-probe")
+# C-PICKDEL-MAP (T167-T168): "p" mappings from the profile's init.js (a temporary XDG_CONFIG_HOME).
+INIT_JS = """\
+web.map("p", "<C-x>", row => { if (row.source === "history") web.cmd("historyDelete " + row.url); });
+web.map("p", "<C-e>", row => web.cmd("echo " + JSON.stringify(row)));
+"""
 Fail = live.Fail
 PICK = re.compile(r"pick history \[(\d+)/(\d+) of (\d+)\] (\S*)( confirm)?")
 MSG = re.compile(r" msg: (.*)$")  # C-PICKMSG: the message drawn beside the filter line
@@ -42,15 +48,29 @@ def main():
     ap.add_argument("--host-bin", default=os.path.join(WEB, "host-cef/target/debug/web-host-cef"))
     ap.add_argument("--inject", required=True, help="the inject binary (build web/tools/inject)")
     a = ap.parse_args()
+    if not os.environ.get("C_PICKDEL_PRIVATE_BUS"):
+        env = dict(os.environ, C_PICKDEL_PRIVATE_BUS="1")
+        conf = os.path.join(PROBE, "private-bus.conf")
+        os.execvpe("dbus-run-session", ["dbus-run-session", f"--config-file={conf}", "--", sys.executable, "-I"] + sys.argv, env)
+    bus = os.environ.get("DBUS_SESSION_BUS_ADDRESS", "")
+    if not bus or re.search(r"/run/user/\d+/bus", bus):
+        print(f"refusing: not a private bus ({bus!r})", file=sys.stderr)
+        return 2
     out = os.path.abspath(a.out)
     os.makedirs(out, exist_ok=True)
     state = os.path.join(out, "state")
     shutil.rmtree(state, ignore_errors=True)
     os.makedirs(state, mode=0o700)
 
+    config = os.path.join(out, "config")
+    os.makedirs(os.path.join(config, "web", "profiles", "default"), exist_ok=True)
+    with open(os.path.join(config, "web", "profiles", "default", "init.js"), "w") as f:
+        f.write(INIT_JS)
+
     wl = subprocess.run([os.path.join(WEB, "tools/nest.sh")], check=True, capture_output=True, text=True).stdout.strip()
     nest_env = dict(os.environ, WAYLAND_DISPLAY=wl)
-    shell_env = dict(os.environ, WAYLAND_DISPLAY=wl)
+    shell_env = dict(os.environ, WAYLAND_DISPLAY=wl, XDG_CONFIG_HOME=config,
+                     XDG_STATE_HOME=os.path.join(out, "xdg-state"), XDG_DATA_HOME=os.path.join(out, "xdg-data"))
     shell_env.pop("WAYLAND_SOCKET", None)
     shell_env.pop("DISPLAY", None)
 
@@ -213,6 +233,47 @@ def main():
             return f"{url}: {len(want_gone)} line(s) gone from the file, the others kept; rows {state0['total']} -> {total}, selected [{sel}] {newurl}; message `{m[1]}`"
 
         step("T160/T163 Ctrl-d, y deletes the row and the file's lines, the list refreshes", y_deletes)
+
+        def p_map_row():
+            k = log.mark()
+            inject("hold:c", "key:e", "release", "wait:300")
+            log.wait(r"pick-map <C-e>", k, 6)
+            log.wait(r"\] bar: >\| pick history .* msg: .*\"source\":\"history\"", k, 6)
+            time.sleep(0.15)
+            line = last_bar(k)
+            if '"label":' not in line or '"detail":' not in line or '"url":' not in line:
+                raise Fail(f"row fields missing: {line}")
+            return "echo of the row beside the filter line: " + MSG.search(line)[1][:90]
+
+        step("T167 a mapped <C-e> gets the row (source, label, detail, url)", p_map_row)
+
+        def p_map_delete():
+            # Move to the gamma page row (a real line of its own), then Ctrl-x: deleted, no question.
+            for _ in range(state0["total"] + 1):
+                k = log.mark()
+                inject("hold:c", "key:n", "release", "wait:200")
+                time.sleep(0.2)
+                sel, n, total, url, asking = pick(last_bar(k))
+                if url.endswith("/x"):
+                    break
+            else:
+                raise Fail("no /x row")
+            before = history_lines()
+            k = log.mark()
+            inject("hold:c", "key:x", "release", "wait:400")
+            log.wait(r"pick-map <C-x>", k, 6)
+            log.wait(r"\] bar: >\| pick history \[\d+/\d+ of \d+\] \S* msg: history entry removed: https://gamma.invalid/x", k, 6)
+            time.sleep(0.2)
+            line = last_bar(k)
+            sel2, n2, total2, url2, asking2 = pick(line)
+            after = history_lines()
+            if asking2 or any("gamma.invalid/x" in l for l in after) or len(after) != len(before) - 1:
+                raise Fail(f"after Ctrl-x: asking={asking2}, file {after}")
+            if total2 >= total:
+                raise Fail(f"the list did not refresh: {total} -> {total2}")
+            return f"gamma.invalid/x deleted at once; rows {total} -> {total2}"
+
+        step("T167/T168 a mapped <C-x> deletes the row without asking and the list refreshes", p_map_delete)
 
         def esc():
             k = log.mark()
