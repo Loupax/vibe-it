@@ -21,8 +21,8 @@ Architecture C (DECISIONS.md, TODO.txt C1-C8):
   window of its own, the page only; it hides every page but the shown one), and is driven by the shell over a control socket
   (`PROTOCOL.md`).
 
-`web` succeeds [`scratchy`](../scratchy/), which is paused (see
-`../scratchy/DECISIONS.md`). scratchy's own engine is not carried over; its shell is.
+`web` succeeds [`scratchy`](../archived/scratchy/), which is paused (see
+`../archived/scratchy/DECISIONS.md`). scratchy's own engine is not carried over; its shell is.
 
 - `KEYS.md`: modes, bindings, completion (from scratchy).
 - `SCRIPTING.md`: `init.js`, global and per profile (`--profile`): user commands, key mappings, start buffers.

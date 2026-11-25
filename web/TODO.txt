@@ -13,7 +13,7 @@ No browser extension, no automation protocol (CDP, BiDi).
 
 Order (user, 2026-11-23): Blink first, to have something working as soon as possible;
 a lighter engine (web-host-webkit, E1) only after C8. C1 can run before any compositor
-code (inside the nested dwl from ../scratchy/tools/nest.sh). Each step ends with a check, so the plan can
+code (inside the nested dwl from ../archived/scratchy/tools/nest.sh). Each step ends with a check, so the plan can
 stop early on a hard failure.
 
 - [x] C1 web-host-cef (DONE 2026-11-23, 9b16bbe, #668: web/host-cef/, protocol v0 in web/PROTOCOL.md; check

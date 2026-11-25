@@ -1,0 +1,399 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  # QWPT11: only PR runs are superseded. Pushes to main get their own group per commit and are never cancelled, so
+  # every merge's WPT gate result is seen (back-to-back merges used to cancel each other's main run).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Path filter (user 2026-11-23): run only the jobs for crates the change touches. scratchy's tests and the WPT
+  # shards run wire, so a wire change runs them too; wire2/ runs only the wire2 job (W2-1); web/shell/ runs only the
+  # web/shell job (C2); a .github/ change runs everything; the rest of web/ (host-cef needs a ~380 MB CEF download),
+  # coordinator/ and root docs run nothing but this job. Base: the PR's merge base, or the
+  # previous main commit on a push (an unknown base, e.g. a new branch or a force push, runs everything). Skipped jobs show as "skipped" checks;
+  # coordinator/merge_pr.sh accepts those and requires this job to have succeeded.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      crates: ${{ steps.f.outputs.crates }}
+      scratchy: ${{ steps.f.outputs.scratchy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: f
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -u
+          base=""
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then base=$(git merge-base "$PR_BASE" HEAD 2>/dev/null || true)
+          elif ! echo "$PUSH_BEFORE" | grep -qE '^0+$' && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then base=$PUSH_BEFORE; fi
+          if [ -z "$base" ]; then files=ALL; else files=$(git diff --name-only "$base" HEAD); fi
+          echo "base=${base:-none}"; echo "$files"
+          all=n; echo "$files" | grep -qE '^(ALL$|\.github/)' && all=y
+          has() { [ $all = y ] || echo "$files" | grep -qE "$1"; }
+          sc=false; has '^(scratchy|wire)/' && sc=true
+          crates=()
+          [ $sc = true ] && crates+=('"scratchy"')
+          has '^wire/' && crates+=('"wire"')
+          has '^snag/' && crates+=('"snag"')
+          has '^wire2/' && crates+=('"wire2"')
+          has '^web/shell/' && crates+=('"web/shell"')
+          list="[$(IFS=,; echo "${crates[*]-}")]"
+          echo "crates=$list" | tee -a "$GITHUB_OUTPUT"
+          echo "scratchy=$sc" | tee -a "$GITHUB_OUTPUT"
+  # QV8-5: the default build is V8 + media. The scratchy leg downloads the V8 static library at
+  # build time; the archive is cached with actions/cache (keyed on the v8 crate version) and
+  # pinned by sha256 (the v8 build script refuses any other archive).
+  test:
+    name: ${{ matrix.crate }}
+    needs: changes
+    if: needs.changes.outputs.crates != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: ${{ fromJSON(needs.changes.outputs.crates) }}
+    env:
+      V8_VERSION: "152.2.0"
+      V8_ARCHIVE_NAME: librusty_v8_release_x86_64-unknown-linux-gnu.a.gz
+      RUSTY_V8_ARCHIVE_SHA256: b6683e9afcb77fbd8cb2c3acf45d34d52029ab216b332522c95179c12f0fed3c
+    defaults:
+      run:
+        working-directory: ${{ matrix.crate }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: System packages
+        if: matrix.crate == 'scratchy'
+        # Headless runner. Dev packages for winit/softbuffer/arboard (X11 and
+        # Wayland client libs, xkbcommon), fontconfig/freetype, clang and
+        # pkg-config for C builds. The ONE pinned font set is
+        # fonts-liberation (see scratchy/tools/README).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libfontconfig1-dev libfreetype-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
+            fonts-liberation weston
+      - name: System packages (web/shell)
+        if: matrix.crate == 'web/shell'
+        # smithay links libxkbcommon; Wayland, X11 and EGL libraries are loaded at run time.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxkbcommon-dev
+      - name: Rust toolchain (pinned, the clippy count depends on the version)
+        run: |
+          rustup toolchain install 1.96.1 --profile minimal --component clippy --component rustfmt
+          rustup default 1.96.1
+          rustc --version
+          cargo clippy --version
+      - name: V8 archive cache
+        if: matrix.crate == 'scratchy'
+        id: v8cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/v8-archive
+          key: v8-archive-${{ env.V8_VERSION }}-${{ env.RUSTY_V8_ARCHIVE_SHA256 }}
+      - name: V8 archive (download on cache miss, verify the pin always)
+        if: matrix.crate == 'scratchy'
+        run: |
+          d="$RUNNER_TEMP/v8-archive"
+          mkdir -p "$d"
+          f="$d/$V8_ARCHIVE_NAME"
+          if [ ! -f "$f" ]; then
+            curl -fsSL --retry 5 -o "$f" \
+              "https://github.com/denoland/rusty_v8/releases/download/v${V8_VERSION}/${V8_ARCHIVE_NAME}"
+          fi
+          echo "$RUSTY_V8_ARCHIVE_SHA256  $f" | sha256sum -c -
+          echo "RUSTY_V8_ARCHIVE=$f" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: |
+            ${{ matrix.crate }}
+            wire
+      - name: Format (web/shell)
+        if: matrix.crate == 'web/shell'
+        run: cargo fmt --check
+      - name: Build
+        run: cargo build --release --locked --all-targets
+      - name: Build wire for the WPT testharness runner (QWPT5)
+        if: matrix.crate == 'scratchy'
+        run: cargo build --release --locked --manifest-path ../wire/Cargo.toml
+      - name: Headless Wayland compositor for the App-level tests (QFLK8)
+        if: matrix.crate == 'scratchy'
+        # weston --backend=headless on a private socket; the following test steps see WAYLAND_DISPLAY and
+        # XDG_RUNTIME_DIR through GITHUB_ENV, and SCRATCHY_REQUIRE_DISPLAY=1 makes a missing display fail
+        # the tests instead of skipping them (QFLK7). The compositor is killed by PID in the last step.
+        run: |
+          xdg="$RUNNER_TEMP/xdg"
+          rm -rf "$xdg"; mkdir -p "$xdg"; chmod 700 "$xdg"
+          XDG_RUNTIME_DIR="$xdg" weston --backend=headless --socket=wl-scratchy-ci --width=1280 --height=800 \
+            --idle-time=0 > "$RUNNER_TEMP/weston.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/weston.pid"
+          for _ in $(seq 1 100); do
+            [ -S "$xdg/wl-scratchy-ci" ] && break
+            kill -0 "$(cat "$RUNNER_TEMP/weston.pid")" 2>/dev/null || break
+            sleep 0.1
+          done
+          if [ ! -S "$xdg/wl-scratchy-ci" ]; then
+            echo "weston did not create its socket within 10 s"; cat "$RUNNER_TEMP/weston.log"; exit 1
+          fi
+          {
+            echo "XDG_RUNTIME_DIR=$xdg"
+            echo "WAYLAND_DISPLAY=wl-scratchy-ci"
+            echo "SCRATCHY_REQUIRE_DISPLAY=1"
+          } >> "$GITHUB_ENV"
+      - name: Test (scratchy, only the Liberation fonts visible)
+        if: matrix.crate == 'scratchy'
+        run: |
+          export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
+          fc-match sans-serif
+          fc-match monospace
+          # QINC1m: the incremental engine is the only path (the engine-off step is gone).
+          cargo test --release --locked -- --nocapture 2>&1 | tee "$RUNNER_TEMP/test.log"
+          test "${PIPESTATUS[0]}" -eq 0
+          echo "QFLK7-RAN lines: $(grep -c '^QFLK7-RAN' "$RUNNER_TEMP/test.log"), SKIP: $(grep -c '^QFLK7-SKIP' "$RUNNER_TEMP/test.log" || true)"
+      - name: Test
+        if: matrix.crate != 'scratchy'
+        run: cargo test --release --locked
+      - name: Clippy, no warnings (wire2, web/shell)
+        if: matrix.crate == 'wire2' || matrix.crate == 'web/shell'
+        run: cargo clippy --release --locked --all-targets -- -D warnings
+      - name: Clippy warning count vs baseline (default config, V8 + media)
+        if: matrix.crate == 'scratchy'
+        run: |
+          out="$(tools/clippy-count.sh)"
+          echo "$out"
+          total="$(echo "$out" | awk '/^TOTAL/ {print $2}')"
+          base="$(tr -d '[:space:]' < tools/clippy-baseline.txt)"
+          echo "clippy total=$total baseline=$base"
+          test -n "$total" && [ "$total" -le "$base" ]
+      - name: Stop the headless compositor (QFLK8)
+        if: always() && matrix.crate == 'scratchy'
+        run: |
+          pid="$(cat "$RUNNER_TEMP/weston.pid" 2>/dev/null || true)"
+          if [ -n "$pid" ] && ps -o comm= -p "$pid" | grep -q weston; then kill "$pid" || true; fi
+
+  # QCISPLIT: the WPT gates (reftests + testharness, both blocking) run in their own jobs, in parallel with the
+  # scratchy test/clippy job instead of after it. They build only the release binaries they need (scratchy and wire,
+  # no test profiles).
+  # QCISPLIT2: the testharness gate is sharded by area into five parallel jobs (a per-file child process costs
+  # ~0.18 s and 5608 files run 4 at a time; no single file dominates, 11 files take >= 2 s). Shard = a `--area` list
+  # (or, for `rest`, the `--except` of every other shard's lists), so a new area always lands in a shard and is gated
+  # (new html/canvas/* areas in `canvas-other`, anything else in `rest`). Summed file time per shard is ~200 s.
+  # areas.txt stays ONE committed file: a shard rewrites only its own areas' rows (the others keep the committed rows),
+  # so the "CI result differs from the committed areas.txt" check is per shard. The reftest gate runs once, in `rest`.
+  # All shards share one rust-cache entry (shared-key; `rest` saves it), so a shard's build is an incremental one.
+  # QWPT8: the `wptserve` shard runs the fetch/* and xhr areas against WPT's Python server (wptserve, DECISIONS Q2): the
+  # "Start wptserve" step runs tools/wptserve.sh (python3 of the runner image, WPT's bundled libraries, no pip, HTTP on
+  # 127.0.0.1 only) which also starts its own wire with `--map-host '*.web-platform.test=127.0.0.1'`; the runner is called
+  # with `--server wptserve` and starts neither (it runs under the QNET1 seccomp filter, so it cannot open TCP). The
+  # server and wire are stopped by PID in an always() step. The other shards never run those areas (a mount run skips them).
+  # Check names: changes, scratchy, snag, wire, wire2, scratchy-wpt-dom, scratchy-wpt-html, scratchy-wpt-canvas-element,
+  # scratchy-wpt-canvas-other, scratchy-wpt-wptserve, scratchy-wpt-rest; the path filter (`changes`) skips the ones
+  # a change does not touch.
+  wpt:
+    name: scratchy-wpt-${{ matrix.shard }}
+    needs: changes
+    if: needs.changes.outputs.scratchy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: dom
+            select: --area 'dom/*'
+          - shard: html
+            select: --area 'html/dom,html/editing,html/semantics/*,html/webappapis,custom-elements'
+          - shard: canvas-element
+            select: --area 'html/canvas/element'
+          - shard: canvas-other
+            select: --area 'html/canvas/*' --except 'html/canvas/element'
+          - shard: wptserve
+            wptserve: true
+            select: --area 'fetch/*,xhr' --server wptserve
+          - shard: rest
+            reftests: true
+            select: --except 'dom/*,html/dom,html/editing,html/semantics/*,html/webappapis,custom-elements,html/canvas/*,fetch/*,xhr'
+    env:
+      V8_VERSION: "152.2.0"
+      V8_ARCHIVE_NAME: librusty_v8_release_x86_64-unknown-linux-gnu.a.gz
+      RUSTY_V8_ARCHIVE_SHA256: b6683e9afcb77fbd8cb2c3acf45d34d52029ab216b332522c95179c12f0fed3c
+    defaults:
+      run:
+        working-directory: scratchy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: System packages
+        # Headless runner. Dev packages for winit/softbuffer/arboard (X11 and
+        # Wayland client libs, xkbcommon), fontconfig/freetype, clang and
+        # pkg-config for C builds. The ONE pinned font set is
+        # fonts-liberation (see scratchy/tools/README).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libfontconfig1-dev libfreetype-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
+            fonts-liberation weston
+      - name: Rust toolchain (pinned, the clippy count depends on the version)
+        run: |
+          rustup toolchain install 1.96.1 --profile minimal --component clippy
+          rustup default 1.96.1
+          rustc --version
+          cargo clippy --version
+      - name: V8 archive cache
+        id: v8cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/v8-archive
+          key: v8-archive-${{ env.V8_VERSION }}-${{ env.RUSTY_V8_ARCHIVE_SHA256 }}
+      - name: V8 archive (download on cache miss, verify the pin always)
+        run: |
+          d="$RUNNER_TEMP/v8-archive"
+          mkdir -p "$d"
+          f="$d/$V8_ARCHIVE_NAME"
+          if [ ! -f "$f" ]; then
+            curl -fsSL --retry 5 -o "$f" \
+              "https://github.com/denoland/rusty_v8/releases/download/v${V8_VERSION}/${V8_ARCHIVE_NAME}"
+          fi
+          echo "$RUSTY_V8_ARCHIVE_SHA256  $f" | sha256sum -c -
+          echo "RUSTY_V8_ARCHIVE=$f" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: scratchy-wpt
+          save-if: ${{ matrix.shard == 'rest' }}
+          workspaces: |
+            scratchy
+            wire
+      - name: Build scratchy and wire (release binaries only)
+        run: |
+          cargo build --release --locked
+          cargo build --release --locked --manifest-path ../wire/Cargo.toml
+      - name: Headless Wayland compositor for the App-level tests (QFLK8)
+        if: matrix.reftests
+        # weston --backend=headless on a private socket; the following test steps see WAYLAND_DISPLAY and
+        # XDG_RUNTIME_DIR through GITHUB_ENV, and SCRATCHY_REQUIRE_DISPLAY=1 makes a missing display fail
+        # the tests instead of skipping them (QFLK7). The compositor is killed by PID in the last step.
+        run: |
+          xdg="$RUNNER_TEMP/xdg"
+          rm -rf "$xdg"; mkdir -p "$xdg"; chmod 700 "$xdg"
+          XDG_RUNTIME_DIR="$xdg" weston --backend=headless --socket=wl-scratchy-ci --width=1280 --height=800 \
+            --idle-time=0 > "$RUNNER_TEMP/weston.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/weston.pid"
+          for _ in $(seq 1 100); do
+            [ -S "$xdg/wl-scratchy-ci" ] && break
+            kill -0 "$(cat "$RUNNER_TEMP/weston.pid")" 2>/dev/null || break
+            sleep 0.1
+          done
+          if [ ! -S "$xdg/wl-scratchy-ci" ]; then
+            echo "weston did not create its socket within 10 s"; cat "$RUNNER_TEMP/weston.log"; exit 1
+          fi
+          {
+            echo "XDG_RUNTIME_DIR=$xdg"
+            echo "WAYLAND_DISPLAY=wl-scratchy-ci"
+            echo "SCRATCHY_REQUIRE_DISPLAY=1"
+          } >> "$GITHUB_ENV"
+      - name: WPT checkout cache (QWPT2)
+        id: wptcache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/wpt
+          key: wpt-${{ hashFiles('scratchy/tools/wpt-pin.txt', 'scratchy/tools/wpt-dirs.txt') }}
+      - name: WPT checkout (sparse, pinned; verifies the pin always)
+        run: tools/wpt-checkout.sh "$RUNNER_TEMP/wpt"
+      - name: WPT reftests vs wpt-expected.txt (CI fonts verified to match, QWPT2)
+        if: matrix.reftests
+        run: |
+          export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
+          start=$(date +%s)
+          rc=0
+          target/release/scratchy --wpt "$RUNNER_TEMP/wpt" > "$RUNNER_TEMP/wpt.log" 2>&1 || rc=$?
+          tail -3 "$RUNNER_TEMP/wpt.log"
+          {
+            echo "### WPT reftests (pin $(cat tools/wpt-pin.txt)), exit $rc, $(( $(date +%s) - start )) s"
+            echo '```'
+            grep -v '^FAIL ' "$RUNNER_TEMP/wpt.log" | head -150 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+      - name: Start wptserve and its wire (QWPT8)
+        if: matrix.wptserve
+        run: |
+          python3 --version
+          tools/wptserve.sh start "$RUNNER_TEMP/wpt" --wire ../wire/target/release/wire
+      - name: WPT testharness vs wpt-th/expected (QWPT5; blocks on regressions, Q3; shard ${{ matrix.shard }}, QCISPLIT2)
+        # Own wire on its own socket (the runner starts it), no display needed (headless children). --no-scope: no
+        # systemd user bus on the runner, the 6G cgroup cap is for the user's machine. The areas table and its diff
+        # against origin/main's committed wpt-th/areas.txt go to the step summary.
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+          SHARD_SELECT: ${{ matrix.select }}
+        run: |
+          export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
+          # PR: the delta is against main's tip. Push to main: main's tip IS this commit, so the delta is against the
+          # previous main commit (github.event.before; an unfetchable base, e.g. a first push, gives an empty base table).
+          base_ref=main
+          if [ "$GITHUB_EVENT_NAME" = push ]; then base_ref="$PUSH_BEFORE"; fi
+          rm -f .git/FETCH_HEAD
+          git fetch -q --depth 1 origin "$base_ref" || true
+          git show FETCH_HEAD:scratchy/wpt-th/areas.txt 2>/dev/null > "$RUNNER_TEMP/areas-main.txt" || : > "$RUNNER_TEMP/areas-main.txt"
+          cp wpt-th/areas.txt "$RUNNER_TEMP/areas-committed.txt"
+          start=$(date +%s)
+          rc=0
+          # SHARD_SELECT is `--area '<list>'` or `--except '<list>'`: word-split on purpose, the quotes are literal
+          # characters of the arguments only if eval-ed, so eval it.
+          eval "target/release/scratchy --wpt-th \"$RUNNER_TEMP/wpt\" --jobs 4 --no-scope --wire ../wire/target/release/wire $SHARD_SELECT" \
+            > "$RUNNER_TEMP/wpt-th.log" 2>&1 || rc=$?
+          secs=$(( $(date +%s) - start ))
+          tail -30 "$RUNNER_TEMP/wpt-th.log"
+          grep -E "(ran [0-9]+ files|summed file time|took >= 2 s|SLOW|AREA-TIME)" "$RUNNER_TEMP/wpt-th.log" || true
+          grep -E "^(REGRESSION|UNRECORDED|CHANGED) " "$RUNNER_TEMP/wpt-th.log" | head -60 || true
+          {
+            echo "### WPT testharness, shard ${{ matrix.shard }} (pin $(cat tools/wpt-pin.txt)), exit $rc, $secs s"
+            echo
+            echo "Shard selection: \`$SHARD_SELECT\` (rows of the other shards' areas below are the committed ones)."
+            echo
+            echo "Areas table, deltas vs $base_ref's committed wpt-th/areas.txt (origin/main on PRs, the previous main commit on pushes):"
+            echo
+            tools/wpt-areas-diff.py wpt-th/areas.txt "$RUNNER_TEMP/areas-main.txt"
+            echo
+            if ! diff -q wpt-th/areas.txt "$RUNNER_TEMP/areas-committed.txt" > /dev/null; then
+              echo "CI result differs from the areas.txt committed in this PR:"
+              echo '```'
+              diff "$RUNNER_TEMP/areas-committed.txt" wpt-th/areas.txt || true
+              echo '```'
+            fi
+            echo "Gate lines (REGRESSION / UNRECORDED / CHANGED / NEWLY-PASSING):"
+            echo '```'
+            grep -E '(REGRESSION|UNRECORDED|CHANGED|NEWLY-PASSING) ' "$RUNNER_TEMP/wpt-th.log" | head -150 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+      - name: Stop wptserve and its wire (QWPT8)
+        if: always() && matrix.wptserve
+        run: |
+          tools/wptserve.sh --stop "$RUNNER_TEMP/wpt" || true
+          tail -20 "$RUNNER_TEMP/wpt/.wptserve/log" || true
+      - name: Stop the headless compositor (QFLK8)
+        if: always() && matrix.reftests
+        run: |
+          pid="$(cat "$RUNNER_TEMP/weston.pid" 2>/dev/null || true)"
+          if [ -n "$pid" ] && ps -o comm= -p "$pid" | grep -q weston; then kill "$pid" || true; fi

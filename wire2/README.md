@@ -50,5 +50,5 @@ a few seconds in release; decrypted tests use the test-only pass-decrypt filter 
 `--test-resolve`, see NOTES.md); measurements: `cargo test --release --test w2_1_perf` / `w2_2_perf` /
 `w2_f_perf` `-- --ignored --nocapture --test-threads 1`.
 
-wire2 is separate from [`wire`](../wire/) (wire 1), which stays the HTTP
+wire2 is separate from [`wire`](../archived/wire/) (wire 1), which stays the HTTP
 client that scratchy and the web/ spike use.
