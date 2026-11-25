@@ -493,7 +493,7 @@ stop early on a hard failure.
       say where the message shows. Tests: the bar view in PICK carries the message after T159/T160/T161/T162, and it
       goes on the next filter key. Live: extend test/c_pickdel_live.py to read the message from the log after `n`
       and after `y`.
-- [ ] [WIP] C-HISTREAL [XS] (user, 2026-11-25: "history search should only show real history rows"; replaces
+- [x] C-HISTREAL [XS] (DONE 2026-11-25, c1c562b, #754: completion::rank_pages = rank_history without the root pass; :go unchanged) (user, 2026-11-25: "history search should only show real history rows"; replaces
       C-PICKROOT, found in #751) `:historySearch` reuses the `:go` ranking (`completion::rank_history`, STASH.md
       "Ranking"), which adds a made-up site-root row per host (`scheme://host/`, ranked by visits to the whole site)
       even when that URL was never visited; Ctrl-d y on one says `web: not in the history: https://host/`.

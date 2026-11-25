@@ -644,3 +644,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-25 User: :historySearch should show only real history rows (made-up site roots are a :go ranking feature). C-PICKROOT replaced by C-HISTREAL; started (Sonnet).
 
 ## 2026-11-25 User: navigate back to a start buffer (Slack) from config. Filed C-SCRIPT-BUFLIST (web.buffers.list(), one internal source with :ls; started, Sonnet) and C-CMDRESULT (web.cmd returns Promise<{ok,message}>; after BUFLIST, same files).
+
+## 2026-11-25 C-HISTREAL merged (#754, c1c562b).
