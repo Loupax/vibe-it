@@ -418,6 +418,95 @@ stop early on a hard failure.
       .desktop). `desktop-file-validate` clean if installed. Where logs go when launched from the menu (journal)
       noted in the README. Never touch the user's real ~/.local in tests: test with --prefix and XDG_DATA_HOME
       under a scratch dir.
+- [ ] C-PICKDEL [M] (user, 2026-11-25; DECISIONS.md "Deleting from a picker"; KEYS.md T158-T166; SCRIPTING.md
+      "web.history, web.bookmarks, web.buffers") Ctrl-d in the picker deletes the selected row from `:historySearch`,
+      `:bookmarkSearch` and `:bufferList`/`:ls`, after a y/n question that each source's script switch can turn off.
+      Do the steps in order; each one has its own tests, so commit after each if you like. Read first: picker.rs
+      (whole file), keys.rs `bar_view`, buffers.rs `buffer_kill`/`buffer_list`/`rows`, bookmarks.rs `delete`/`rows`,
+      history.rs `trim`, script.rs `install_web`/`Registry`/`Scripts`, KEYS.md "Picker", SCRIPTING.md.
+      1. `:historyDelete [url]` (KEYS T164). history.rs: `pub fn delete(dir: &Path, url: &str) -> io::Result<usize>`
+         removes every line whose second tab-separated field equals `url` exactly (a site root row removes only its
+         own URL's lines, not the site's pages) and returns how many it removed. Same lock + temp file + rename as
+         `trim` (copy that code; factor a helper only if it stays small). No file: Ok(0). In keys.rs
+         `dispatch_command`: `("historyDelete", [])` uses the current page's URL (as `bookmarkDelete` does, keys.rs
+         ~1784), `[url]` that URL, anything else `web: usage: :historyDelete [url]`. Messages: `history entry
+         removed: <url> (<n> visits)`, `web: not in the history: <url>`, `web: history delete failed: <err>`, no
+         state dir `web: no state directory: history is off`. Add `"historyDelete"` to `COMMAND_NAMES` (keep it
+         sorted). The ghost needs nothing: `open_line` builds a fresh `CompleteCache` every time.
+      2. Picker refresh. `Picker::replace_rows(&mut self, rows: Vec<Row>, filter: &str)`: re-rank with the filter,
+         keep `selected` at the same position clamped to the new last match (so after deleting the last row the
+         one above it is selected), then fix `top` with `scroll_top`. `Keys::refresh_picker(&mut self)`: reload the
+         open picker's rows by its `name` ("history": `history_source`; "bookmarks": `bookmarks::rows(&bookmarks::
+         load(..))`; "buffers": `buffers::rows(&self.buffers)`; any other name: do nothing); call `replace_rows`
+         with `self.line.text`; if no rows are left at all, `close_line()` and keep the message the delete set (T163).
+      3. Script switches (SCRIPTING.md "web.history, web.bookmarks, web.buffers"). In script.rs `Registry` add
+         `confirm: DeleteConfirm { history: bool, bookmarks: bool, buffers: bool }` whose `Default` is all `true`
+         (write the `impl Default` by hand: derive gives false). In `install_web`, before `web` is frozen, add three
+         objects `web.history`, `web.bookmarks`, `web.buffers`, each with one accessor property `deleteConfirmation`
+         defined with JS's own `Object.defineProperty(obj, "deleteConfirmation", {get, set, enumerable: true})`:
+         fetch `defineProperty` from the global `Object` exactly as `install_web` already fetches `freeze`, and make
+         `get`/`set` with `Function::new` closures over the `Registry` (do NOT use rquickjs `Accessor`/`Object::prop`:
+         they need the crate's `properties` feature, which is off). The getter returns the Registry value; the setter
+         takes a `Value` and throws `TypeError("web.history.deleteConfirmation must be true or false")` (with that
+         object's name) unless `as_bool()` is Some. Then `Object.freeze` each object as `web` is (a frozen
+         accessor's setter still runs). Public
+         `Scripts::delete_confirmation(&self, source: &str) -> bool` ("history"/"bookmarks"/"buffers"; anything else
+         true). In keys.rs a helper: `self.scripts.as_ref().map_or(true, |s| s.delete_confirmation(name))`. `:source`
+         needs nothing: it builds a new `Scripts`, so the switches go back to true.
+      4. Ctrl-d in `pick_key` (T158-T162, T165). New state on `Picker`: `pub confirm: Option<Row>` (the row being asked
+         about). At the very top of `pick_key`, if `confirm` is Some: a plain `y` (no Ctrl/Alt/Super; `key.ch ==
+         Some('y')` or `Some('Y')`) runs the delete for that row; ANY other key press (Esc included) sets the message
+         `not deleted` and is otherwise ignored (not typed into the filter, does not close the picker); either way
+         `confirm` becomes None; return. Then a new branch before the filter-editing branch: `key.ctrl && key.ch ==
+         Some('d')` with a selected row: source "history"/"bookmarks"/"buffers" and the switch true -> set
+         `confirm`, nothing else; switch false -> run the delete now. Other sources: message `web: nothing to delete
+         in <name>`. No match: nothing. The delete (`Keys::pick_delete(row)`): history `historyDelete <url>`,
+         bookmarks `bookmarkDelete <url>` (url from `PickAction::Open`), buffers `bufferKill <n>` (from
+         `PickAction::Buffer`) — call the Rust functions (`self.history_delete(url)`, `self.bookmark_delete(url)`,
+         `self.buffer_kill(&[&n.to_string()])`), not the command line, then `refresh_picker()`. Check that
+         `buffer_kill` of the current buffer while PICK is open leaves `vim_mode == Pick` (it calls `switch_to`; if
+         that closes the line, save and restore the picker around it and say so in DECISIONS.md).
+         The question, in `bar_view`: while `confirm` is Some, `line` is None (no `>` prompt) and `message` is
+         `delete history entry <url>? (y/n)` / `delete bookmark <url>? (y/n)` / `kill buffer <n> <label>? (y/n)`.
+         Elide nothing yourself; the bar already elides.
+      5. KEYS.md T65 now excludes Ctrl-d (edit it); T158-T166 are written already. help.html: in the picker's
+         paragraph, one sentence on Ctrl-d. STASH.md "History": a line saying `:historyDelete` and the picker's
+         Ctrl-d rewrite the file (temp + rename, under the same lock as the trim). `pick_log` unchanged except a
+         ` confirm` suffix while asking (the live check reads it).
+      Tests: src/tests/c_pickdel_tests.rs (add `mod c_pickdel_tests;` to src/tests/mod.rs), one per KEYS row, named
+      after it (`t158_ctrl_d_asks`, ...), using a temp state dir with seeded `history`/`bookmarks` files (see
+      c_pick_tests.rs and c_bookmarks_tests.rs for how they seed): history delete removes every line of the URL and
+      keeps others byte for byte; the selection stays at the same position and clamps on the last row; the last
+      row deleted closes the picker (T163); `n`, Esc, a letter each cancel and are not typed; each switch set false
+      in a script (`load_script_source`) deletes without asking; a non-boolean assignment is an error
+      `init.js:1: web.bookmarks.deleteConfirmation must be true or false`; `:source` puts the switches back to true;
+      `:ls` Ctrl-d y on the current buffer and on another one. `cargo test` and `cargo clippy` clean.
+      Live: extend test/c_pick_live.py (or a new c_pickdel_live.py beside it, same style) with a step: seeded
+      history, `:historySearch`, Ctrl-d, `y`, the row is gone in the log's `pick` line and from the history file.
+      Report the KEYS rows built and anything decided along the way.
+- [ ] C-PICKDEL-MAP [S] (after C-PICKDEL; user, 2026-11-25; KEYS.md T167-T168; SCRIPTING.md "web.map" mode "p") Picker
+      mappings for scripts: `web.map("p", "<C-x>", fn)` calls `fn(row)` on the selected row. Read first: script.rs
+      `web_map`, `call_map`, keys.rs `run_mapping`, `finish_script_call`, picker.rs `pick_key`.
+      - `web_map`: accept mode "p" besides "n" (the unknown-mode error lists both). A "p" mapping's keys must parse
+        (`parse_map_keys`) to exactly ONE key that has Ctrl, else TypeError `web.map: a "p" mapping is one <C-x>
+        key (letters type the filter)`; its rhs must be a function, else TypeError `web.map: a "p" mapping's rhs is
+        a function`. Store them in a separate `Registry.pick_maps: Vec<Mapping>` (same replace-in-place rule as
+        `maps`); clear it in `Drop` with the others. No pending sequences in PICK: one key, one lookup.
+      - `Scripts::pick_map(&self, key: &MapKey) -> Option<(String, Persistent<Function>)>` and
+        `Scripts::call_pick_map(&mut self, f, row: PickRow) -> CallResult`, like `call_map` but passing one
+        argument: a plain object `{source, label, detail}` plus `url` (PickAction::Open), `buffer` (Buffer),
+        `popup` (Popup) or `notice` (Notice, as a number) — only the one that applies. Build it inside the `call`
+        closure with `Object::new`.
+      - `pick_key`: after the `confirm` check, before every built-in key (Ctrl-n/p and Ctrl-d included): if the press
+        matches a "p" mapping and a row is selected, call it, `finish_script_call(r)` (runs its `web.cmd` lines in
+        order), then, if still in PICK, `refresh_picker()`. No row selected: the key does nothing. The shell asks
+        nothing itself: a script that wants a question can open one with web.cmd. Log `pick-map <keys>`.
+      - Check, with tests, that `web.cmd("historyDelete " + row.url)`, `"bookmarkDelete ..."` and `"bd " +
+        row.buffer` run while PICK is open and the list refreshes; that a mapped `<C-d>` replaces the built-in one
+        (no question); that `web.map("p", "x", f)`, `web.map("p", "<C-a><C-b>", f)` and `web.map("p", "<C-d>",
+        ":bd<CR>")` are refused; that `:source` drops "p" mappings.
+      Tests in src/tests/c_pickdel_tests.rs (T167-T168). SCRIPTING.md is written already; update it only if the
+      implementation forced a change (say so in the report).
 - [x] C-NOTIFLIST [S] (DONE 2026-11-24, c921dcd, #733: newest first, `N!` unread, Enter shows/reads the buffer; a closed
       buffer's page reopens as :new; in memory, NOTIFY_LIST_MAX 100; KEYS T112-T114) (after C-BELL; user, 2026-11-24: "see if it's possible to have a :notifications interface to
       navigate and see notifications using keyboard only") `:notifications` opens the picker (C-PICK, T58-T68)
