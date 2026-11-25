@@ -648,3 +648,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-25 C-HISTREAL merged (#754, c1c562b).
 
 ## 2026-11-25 web reinstalled with #754 (20261125-174638-ff35afa2).
+
+## 2026-11-25 User: I bypassed the flow (filed and started C-HISTREAL and C-SCRIPT-BUFLIST without their go). C-SCRIPT-BUFLIST finishes (user: let it finish). Rule from now: items from chat are filed and wait for the user's go. C-CMDRESULT marked WAITING FOR USER GO.

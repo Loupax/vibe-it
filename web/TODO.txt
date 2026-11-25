@@ -532,7 +532,7 @@ stop early on a hard failure.
       seen by a list() in a LATER call, objects frozen, `rows()` output unchanged, `c_script_only_web_is_exposed`
       updated. Live: c_script_live or a new step: three start buffers, a mapping that finds one by URL and
       switches to it (log shows the switch).
-- [ ] C-CMDRESULT [S] (after C-SCRIPT-BUFLIST, same files; user, 2026-11-25: "I think it's better to know if the
+- [ ] C-CMDRESULT [S] WAITING FOR USER GO (spec not yet approved) (after C-SCRIPT-BUFLIST, same files; user, 2026-11-25: "I think it's better to know if the
       command failed so we can handle this properly") `web.cmd(line)` returns a Promise that settles after that
       line has run, with `{ ok, message }`: `ok` false when the command reported an error (the bar's `web: ...`
       error messages, unknown command, usage, a script error from a user command it called), else true; `message`
