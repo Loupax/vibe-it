@@ -634,3 +634,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-25 web reinstalled with #751 (20261125-143116-a9e0cf8c). Guide v5: web.history/bookmarks/buffers.deleteConfirmation.
 
 ## 2026-11-25 C-PICKMSG merged (#752, 844f582). Started C-PICKDEL-MAP (Sonnet).
+
+## 2026-11-25 web reinstalled with #752 (20261125-143917-f42ea44d).
