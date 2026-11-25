@@ -281,11 +281,12 @@ fn c_script_only_web_is_exposed() {
     assert!(k.message.starts_with("init.js:6: "), "{}", k.message);
     let k = shell(r#"web.on("load", () => {});"#);
     assert!(k.message.contains("web.on: unknown event"), "{}", k.message);
-    // No module loader: a static import is a syntax error in a classic script, a dynamic one rejects
-    // (promise jobs run under the budget right after the call).
-    let k = shell("import x from \"x\";\n");
-    assert!(k.message.starts_with("init.js:1: "), "{}", k.message);
-    let mut k = shell(r#"import("x").then(() => web.cmd("go /loaded"), () => web.cmd("go /rejected"));"#);
+    // C-SCRIPT-MODULES: the file is a module, so `import` parses; with no file behind the text there is
+    // nothing to import from, so a static import is the file's error and a dynamic one rejects (promise
+    // jobs run under the budget right after the call). Imports that work: c_script_modules_tests.rs.
+    let k = shell("import x from \"./x.js\";\n");
+    assert!(k.message.starts_with("init.js: import \"./x.js\": "), "{}", k.message);
+    let mut k = shell(r#"import("./x.js").then(() => web.cmd("go /loaded"), () => web.cmd("go /rejected"));"#);
     k.effects.clear();
     k.script_ready();
     assert_eq!(
@@ -319,43 +320,45 @@ fn c_script_missing_file_is_not_an_error_and_paths() {
     k.load_scripts(&[ScriptFile {
         path: "/nonexistent/c-script/init.js".into(),
         label: "init.js".into(),
+        root: "/nonexistent/c-script".into(),
     }]);
     assert!(k.scripts.is_none(), "no runtime without a file");
     assert_eq!(k.message, "");
     k.script_ready();
     let env =
         |pairs: &'static [(&'static str, &'static str)]| move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| v.to_string());
-    let f = init_files(&env(&[("XDG_CONFIG_HOME", "/x"), ("HOME", "/h")]), None);
+    // C-SCRIPT-MODULES: one file, the profile's own; `default` (no --profile) is a profile like any other.
+    let f = init_files(&env(&[("XDG_CONFIG_HOME", "/x"), ("HOME", "/h")]), "default");
     assert_eq!(
         f,
         vec![ScriptFile {
-            path: "/x/web/init.js".into(),
-            label: "init.js".into()
+            path: "/x/web/profiles/default/init.js".into(),
+            label: "init.js".into(),
+            root: "/x/web".into(),
         }]
     );
-    let f = init_files(&env(&[("XDG_CONFIG_HOME", ""), ("HOME", "/h")]), None);
-    assert_eq!(f[0].path, std::path::PathBuf::from("/h/.config/web/init.js"));
-    let f = init_files(&env(&[("XDG_CONFIG_HOME", "rel"), ("HOME", "/h")]), None);
+    let f = init_files(&env(&[("XDG_CONFIG_HOME", ""), ("HOME", "/h")]), "default");
+    assert_eq!(f[0].path, std::path::PathBuf::from("/h/.config/web/profiles/default/init.js"));
+    let f = init_files(&env(&[("XDG_CONFIG_HOME", "rel"), ("HOME", "/h")]), "default");
     assert_eq!(
         f[0].path,
-        std::path::PathBuf::from("/h/.config/web/init.js"),
+        std::path::PathBuf::from("/h/.config/web/profiles/default/init.js"),
         "a relative XDG_CONFIG_HOME is ignored"
     );
-    assert!(init_files(&env(&[]), None).is_empty());
+    assert!(init_files(&env(&[]), "default").is_empty());
 }
 
 #[test]
-fn c_profile_init_files_second() {
+fn c_script_modules_init_files_is_the_profile_alone() {
     let env =
         |pairs: &'static [(&'static str, &'static str)]| move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| v.to_string());
-    let f = init_files(&env(&[("XDG_CONFIG_HOME", "/x"), ("HOME", "/h")]), Some("work"));
-    assert_eq!(f.len(), 2);
-    assert_eq!(f[0].path, std::path::PathBuf::from("/x/web/init.js"));
-    assert_eq!(f[0].label, "init.js");
-    assert_eq!(f[1].path, std::path::PathBuf::from("/x/web/profiles/work/init.js"));
-    assert_eq!(f[1].label, "/x/web/profiles/work/init.js", "errors name the profile script's path");
-    let f = init_files(&env(&[("HOME", "/h")]), Some("p"));
-    assert_eq!(f[1].path, std::path::PathBuf::from("/h/.config/web/profiles/p/init.js"));
+    let f = init_files(&env(&[("XDG_CONFIG_HOME", "/x"), ("HOME", "/h")]), "work");
+    assert_eq!(f.len(), 1, "no global init.js before the profile's: {f:?}");
+    assert_eq!(f[0].path, std::path::PathBuf::from("/x/web/profiles/work/init.js"));
+    assert_eq!(f[0].label, "init.js", "the bar names it init.js, as every profile's");
+    assert_eq!(f[0].root, std::path::PathBuf::from("/x/web"));
+    let f = init_files(&env(&[("HOME", "/h")]), "p");
+    assert_eq!(f[0].path, std::path::PathBuf::from("/h/.config/web/profiles/p/init.js"));
 }
 
 #[test]

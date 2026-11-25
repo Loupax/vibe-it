@@ -66,14 +66,14 @@ def main():
     shutil.rmtree(state, ignore_errors=True)
     os.makedirs(state, mode=0o700)
     config = os.path.join(out, "config")
-    os.makedirs(os.path.join(config, "web"), exist_ok=True)
+    os.makedirs(os.path.join(config, "web", "profiles", "default"), exist_ok=True)  # C-SCRIPT-MODULES: no --profile is default
 
     page_log = open(os.path.join(out, "pages.log"), "w", buffering=1)
     srv = live.Server(("127.0.0.1", 0), functools.partial(live.Pages, directory=os.path.join(HERE, "pages"), log=page_log))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     hostport = f"127.0.0.1:{srv.server_address[1]}"
     start = f"http://{hostport}/pick.html"
-    with open(os.path.join(config, "web", "init.js"), "w") as f:
+    with open(os.path.join(config, "web", "profiles", "default", "init.js"), "w") as f:
         f.write(INIT_JS.replace("HOSTPORT", hostport))
 
     wl = subprocess.run([os.path.join(WEB, "tools/nest.sh")], check=True, capture_output=True, text=True).stdout.strip()

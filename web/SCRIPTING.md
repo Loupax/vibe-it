@@ -12,28 +12,89 @@ addition to the API below is a user decision, recorded here with its date.
 
 QuickJS (the `rquickjs` crate), embedded in web-shell. Nothing runs in the engine host: the
 shell owns input and the command line, and a script never shares a process with a page.
-The runtime has no QuickJS `std`/`os` modules and no module loader: no files, no network,
-no timers, no `import`. Each file is evaluated as one classic script, in strict mode (user, 2026-11-24: so that
-user modules, ES modules and always strict, can come later without breaking a script); the
-global and the profile script share one context, so the profile script sees what the global
-one defined.
+The runtime has no QuickJS `std`/`os` modules: no network, no timers, no file access beyond
+the module imports below. The profile's `init.js` is evaluated as an ES module, so it is always
+strict (C-SCRIPT-MODULES, 2026-11-25; C-SCRIPT ran it as a strict classic script so that this could
+come without breaking a script) and can `import` other modules (below, "Modules").
 
 ## Files and profiles
 
 | file | runs |
 |---|---|
-| `$XDG_CONFIG_HOME/web/init.js` (default `~/.config/web/init.js`) | always, first |
-| `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` | with `--profile NAME`, after the global one |
+| `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` (default `~/.config/web/profiles/NAME/init.js`) | with `--profile NAME`; nothing else runs |
+| `$XDG_CONFIG_HOME/web/profiles/default/init.js` | without `--profile` (it is `--profile default`) |
+
+One file per start (user, 2026-11-25: "I don't like how the 'default' profile init script gets inherited by
+the rest of the profiles, it makes it very easy to accidentally add conflicting functionality"). There is no
+global script: code that several profiles share goes in a module they both import (below).
 
 - `web --profile NAME` picks the profile. `NAME` is `[A-Za-z0-9_-]+`. Its state directory
   defaults to `$XDG_STATE_HOME/web/profiles/NAME/` (its own cookies, history, engine
-  profile); `--state-dir` still overrides it. Without `--profile`: the global script only,
-  and the state directory as today (STASH.md).
-- A missing file is not an error. A profile with no `init.js` runs on the global script.
+  profile); `--state-dir` still overrides it.
+- `default` is special only as the value of `--profile` when it is not given: `web` and
+  `web --profile default` are the same thing, with `profiles/default/init.js` and the state directory
+  `$XDG_STATE_HOME/web/profiles/default/` like any profile (STASH.md). `$XDG_CONFIG_HOME/web/init.js` is
+  not read any more.
+- A missing file is not an error. A profile with no `init.js` runs nothing.
 - `web --profile NAME URL` hands the URL to the running instance of *that* profile
   (C-SINGLE finds it through the state directory, so this follows from the line above).
 - No session restore (user, 2026-11-24): a profile's `ready` handler opens the buffers it
   wants every time; nothing remembers what was open last time.
+
+## Modules (C-SCRIPT-MODULES, 2026-11-25, user)
+
+`init.js` imports other files with `import` (static) or `import()` (dynamic, a promise), as in any ES
+module. Shared code goes in `$XDG_CONFIG_HOME/web/lib/`, the documented place for modules that
+several profiles use:
+
+```
+~/.config/web/
+  lib/common.js             export function startBuffers(urls) { ... }
+  profiles/default/init.js  import { startBuffers } from "../../lib/common.js";
+  profiles/work/init.js     import { startBuffers } from "../../lib/common.js";
+```
+
+```js
+// ~/.config/web/lib/common.js
+import { tag } from "./tag.js";          // a lib module imports its neighbours with ./
+export function startBuffers(urls) {
+  web.on("ready", () => urls.forEach(u => web.cmd("new " + u)));
+}
+```
+
+- **Specifiers.** `./x.js` and `../x.js` are relative to the importing file. A bare name
+  (`"common.js"`, `"sub/x.js"`) is relative to the profile's folder (`profiles/NAME/`), also inside a
+  `lib/` module, which is why `lib/` modules import each other with `./`. An absolute path is used as
+  written. The name is taken as it is: no extension is added, no search path, no `index.js`.
+- **Confined to `$XDG_CONFIG_HOME/web/`** (user: "I expect a single user to have multiple profiles, so it
+  makes sense to allow shared files between them"). The check is made on the real path, with symlinks
+  resolved, so a symlink inside (in a cloned config repo, say) cannot point out of it.
+- **Regular `.js` files only**, of at most `SCRIPT_MODULE_MAX` (config.rs, 1 MiB): no FIFO, device,
+  folder, `.json` or other file. Reading a file is Rust I/O, outside the time budget and the memory
+  limit, hence the size cap (it holds for `init.js` too).
+- A refused import names the rule and the path, and nothing is read:
+  `init.js: import "../../../x.js": outside /home/u/.config/web/: /home/u/x.js`. Other refusals:
+  `no such file`, `not a .js file`, `not a regular file`, `larger than SCRIPT_MODULE_MAX`.
+- A module is known by its real path, so a file imported twice (by two modules, or as `./x.js` and by
+  its absolute path) runs once. `:source` makes a new runtime, so edited modules are read again.
+- The whole import graph is loaded and evaluated in the one call that runs `init.js`: it all counts
+  against `SCRIPT_BUDGET_MS`, and module code against `SCRIPT_MEMORY_MAX`.
+- A top-level `await` works. One still waiting when nothing is left to run (it waits for a callback, as
+  `await new Promise(r => web.on("ready", r))`) does not fail the start; the rest of the module runs
+  when that callback settles it, and an error from it is reported as the file's error.
+- **Module scope.** A module is not a classic script: top-level `var` and `function` declarations do
+  not become globals (`globalThis.x` is undefined) and top-level `this` is `undefined`. This only
+  matters for a script written as a classic one; use `export`/`import`, or `globalThis.x = ...` on
+  purpose.
+
+### Plugins are trusted code (C-SCRIPT-MODULES, 2026-11-25)
+
+A module you import runs with everything `init.js` can do; import only code you would put in your
+`init.js` yourself. Through `web.cmd` a script can browse as you (`:go` a URL with your cookies, and
+put data in that URL), run `:forget-site` and `:bookmarkDelete`, remap NORMAL keys and redefine other
+scripts' commands and mappings. Every read API added later (the current URL, the buffers, the history)
+becomes something a plugin can send out the same way. The confinement to `$XDG_CONFIG_HOME/web/`
+stops a script from reading arbitrary files through `import`; it does not make a module safe.
 
 ## API (2026-11-24, user)
 
@@ -131,10 +192,11 @@ web.command("Where", () => web.cmd("echo profile " + "work" + ", " + 2 + " buffe
 web.on("ready", () => web.cmd("echo init.js ran"));
 ```
 
-`:source` runs the scripts again, as at start but clean (user, 2026-11-24): every user command,
-mapping and `ready` handler is dropped with the old QuickJS context, a new context runs the same
-files again (the global one, then the profile's: the profile is the one the shell started with) and
-the bar says `sourced N file(s)`. `ready` handlers are registered again but not fired, so the start
+`:source` runs the script again, as at start but clean (user, 2026-11-24): every user command,
+mapping and `ready` handler is dropped with the old QuickJS runtime, a new one runs the profile's
+`init.js` again (the profile is the one the shell started with; C-SCRIPT-MODULES: that file only, and
+every module it imports is read again) and the bar says `sourced 1 file(s)` (`sourced 0 file(s)` when
+the profile has no `init.js`). `ready` handlers are registered again but not fired, so the start
 buffers are not opened a second time; `web.cmd` lines at the top level of a file, which at start wait
 for `ready`, run at once (the host is connected). Errors show as at start and what ran before the
 error stays. `:source` is a command for the user: `web.cmd("source")` (a user command, a mapping
@@ -154,8 +216,13 @@ buffer exists (the URL argument's, as today). This is where default buffers are 
 
 - A script that fails (syntax error, uncaught exception) stops at that point; what it set
   up before the error stays. web starts anyway. The status bar shows
-  `init.js:LINE: message` (with the profile's path for the profile script); the full
+  `init.js:LINE: message` (every profile's `init.js` is called `init.js` there); the full
   error goes to the log.
+- An error inside an imported module shows that module's real path and line
+  (`/home/u/.config/web/lib/common.js:3: message`). An import that fails (no such file, a refused
+  specifier, a syntax error in the module) is the init file's error with the module's path in the
+  message (`init.js: import "./x.js": no such file: /home/u/.config/web/profiles/work/x.js`); nothing
+  of `init.js` runs then, as with a syntax error in it.
 - An error in a mapped function, a user command or the `ready` handler shows in the
   status bar the same way.
 - **Sticky messages** (C-SCRIPT-ERRBAR): a script's error, and the text of an `:echo`, stay in the bar

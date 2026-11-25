@@ -2,6 +2,38 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-25 One init.js per profile; reuse through ES modules (C-SCRIPT-MODULES)
+
+Amends 2026-11-24 "User scripts". User: "I don't like how the 'default' profile init script gets inherited
+by the rest of the profiles, it makes it very easy to accidentally add conflicting functionality. Remove
+this, if the users want to reuse functionality they can create reusable ECMAScript modules". Spec:
+SCRIPTING.md "Files and profiles", "Modules".
+
+- **One init file per start.** `--profile NAME` runs `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` and
+  nothing else; there is no global script (`web/init.js` is no longer read).
+- **`default` is only `--profile`'s default value.** No `--profile` is `--profile default`: its script is
+  `profiles/default/init.js` (its own folder: "otherwise we imply that other profiles are modules to be
+  imported") and its state directory `<base>/profiles/default` like any profile's (`--state-dir` is still
+  exact; C-SINGLE and `--forget-site` follow). State left in the old base directory is not moved by web;
+  the user moves it (STASH.md).
+- **Reuse through ES modules.** `init.js` is evaluated as a module (always strict, as C-SCRIPT prepared for)
+  and imports through our own resolver and loader on rquickjs's `loader` feature, not its
+  FileResolver/ScriptLoader (they add a search path and extension guessing). `./`, `../` are relative to
+  the importing file; a bare name to the profile's folder; an absolute path as written; no extension
+  guessing. A module is named by its real path, so it runs once per runtime; `:source` makes a new
+  runtime, so edited modules are read again.
+- **Imports are confined to `$XDG_CONFIG_HOME/web/`** (user: "I expect a single user to have multiple
+  profiles, so it makes sense to allow shared files between them"), checked on the real path (a symlink
+  in a cloned repo cannot point out). `web/lib/` is the documented place for shared modules. Only regular
+  `.js` files up to `SCRIPT_MODULE_MAX` (1 MiB): the read is Rust I/O, outside the script's time budget and
+  memory limit. A refused import is an error naming the rule and the path; nothing is read.
+- **Threat review.** A plugin is trusted code (SCRIPTING.md "Plugins are trusted code"): through
+  `web.cmd` it can browse as the user (`:go` with the user's cookies, data out in a URL), run
+  `:forget-site`/`:bookmarkDelete`, remap NORMAL keys and redefine other scripts' commands and mappings;
+  every future read API (URL, buffers, history) becomes something a plugin can send out. The confinement
+  only keeps `import` from becoming a way to read files outside the config directory (no FIFO, no
+  device, nothing past `web/`).
+
 ## 2026-11-25 Deleting from a picker (C-PICKDEL, C-PICKDEL-MAP)
 
 User: "I want to be able to delete items from a search result page ... in :ls ... delete buffers without
@@ -166,7 +198,8 @@ testing, then `:echo`. The rest are the implementer's choices, not asked:
 User: "I want to be able to expose configuration similar to how nvim does it. I'm thinking using
 javascript"; "Setting hotkeys to :commands, Defining :commands, Attaching functions to hotkeys. That way I
 can set my default buffers for example. I think we should have one init script file per profile, and maybe a
-global." Spec: SCRIPTING.md.
+global." Spec: SCRIPTING.md. (The global script is gone since 2026-11-25 "One init.js per profile; reuse
+through ES modules".)
 
 - **Scripts set up a profile, not the app.** This narrows "no runtime config file" (KEYS.md "Configuration",
   2026-11-20) rather than reversing it: config.rs stays where web's own defaults and knobs live, edited and
@@ -178,7 +211,8 @@ global." Spec: SCRIPTING.md.
 - **The smallest API, and nothing exposed until the user asks for it:** `web.cmd`, `web.command`,
   `web.map`, `web.on("ready")`. Scripts act only through `:commands`. Getters (current URL, buffers, mode)
   and `unmap` were proposed and left out until needed. What `ready` passes is decided as it gets used.
-- **`--profile NAME`**: the profile's script and its own state directory. Without it, the global script only.
+- **`--profile NAME`**: the profile's script and its own state directory. Without it, the global script only
+  (superseded 2026-11-25 "One init.js per profile; reuse through ES modules": without it, `--profile default`).
   Built as C-PROFILE: the state directory is the base plus `/profiles/NAME`. `WEB_STATE_DIR` stays a
   base (so with `--profile` it gives `$WEB_STATE_DIR/profiles/NAME`; used as an exact path it would put
   every profile in one directory and one lock). Only `--state-dir` names the exact directory and beats

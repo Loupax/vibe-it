@@ -68,8 +68,8 @@ def main():
     out = os.path.abspath(a.out)
     os.makedirs(out, exist_ok=True)
     config = os.path.join(out, "config")
-    os.makedirs(os.path.join(config, "web"), exist_ok=True)
-    init_path = os.path.join(config, "web", "init.js")
+    os.makedirs(os.path.join(config, "web", "profiles", "default"), exist_ok=True)  # C-SCRIPT-MODULES: no --profile is default
+    init_path = os.path.join(config, "web", "profiles", "default", "init.js")
 
     page_log = open(os.path.join(out, "pages.log"), "w", buffering=1)
     srv = live.Server(("127.0.0.1", 0), functools.partial(live.Pages, directory=os.path.join(HERE, "pages"), log=page_log))

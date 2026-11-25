@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""C-PROFILE live check (SCRIPTING.md "Files and profiles", STASH.md "State directory"), in the headless
+"""C-PROFILE and C-SCRIPT-MODULES live check (SCRIPTING.md "Files and profiles", "Modules", STASH.md "State
+directory"), in the headless
 nested dwl (web/tools/nest.sh), never on the user's display, with a TEMPORARY XDG_CONFIG_HOME and
 XDG_STATE_HOME under --out (never the user's), local 127.0.0.1 pages only, on a PRIVATE D-Bus session bus
 (web/tools/notify-probe/private-bus.conf):
 
     web/shell/test/c_profile_live.py --out .qwork/c-profile --host-bin web/host-cef/target/release/web-host-cef
 
-Steps: two profiles (alpha, beta) side by side, each with its own init.js whose `ready` handler opens a
-distinct page, plus a global init.js that opens a third; both shells run at once on their own state
-directory (`$XDG_STATE_HOME/web/profiles/NAME`, mode 0700); the global script ran first in each;
-`web --profile alpha URL` is handed to alpha's instance and not beta's; `web --profile beta --forget-site`
-acts on beta (alpha's log stays silent); a bad name is a usage error (exit 2 from `fail`, nothing started).
+Steps: two profiles (alpha, beta) side by side, each with its own init.js that imports ONE shared module,
+`$XDG_CONFIG_HOME/web/lib/common.js` (alpha as `../../lib/common.js`, beta by its absolute path; the module
+imports its neighbour `./pages.js`); its `ready` handler opens the shared page, then the profile's own. The
+`default` profile's init.js (it would open a third page) is NOT run for alpha or beta (C-SCRIPT-MODULES: one
+init file per start). Both shells run at once on their own state directory (`$XDG_STATE_HOME/web/profiles/NAME`,
+mode 0700); `web --profile alpha URL` is handed to alpha's instance and not beta's; `web --profile beta
+--forget-site` acts on beta (alpha's log stays silent); a bad name is a usage error (exit 2 from `fail`,
+nothing started); last, `web` with no --profile is `--profile default`: it runs profiles/default/init.js and
+its state is `$XDG_STATE_HOME/web/profiles/default`, nothing directly under `$XDG_STATE_HOME/web`.
 No keyboard injection is needed. Exit 0 when every step passed."""
 
 import argparse
@@ -59,7 +64,7 @@ def main():
 
     pages = os.path.join(out, "pages")
     os.makedirs(pages, exist_ok=True)
-    for n in ("global", "alpha", "beta", "alpha-url", "beta-url"):
+    for n in ("default", "shared", "alpha", "beta", "alpha-url", "beta-url"):
         with open(os.path.join(pages, f"{n}.html"), "w") as f:
             f.write(f"<title>page-{n}</title><p>{n}</p>")
     page_log = open(os.path.join(out, "pages.log"), "w", buffering=1)
@@ -72,9 +77,17 @@ def main():
         with open(path, "w") as f:
             f.write(text)
 
-    write(os.path.join(config_home, "web", "init.js"), f'web.on("ready", () => web.cmd("new {base}/global.html"));\n')
-    for p in ("alpha", "beta"):
-        write(os.path.join(config_home, "web", "profiles", p, "init.js"), f'web.on("ready", () => web.cmd("new {base}/{p}.html"));\n')
+    web_dir = os.path.join(config_home, "web")
+    write(os.path.join(web_dir, "profiles", "default", "init.js"), f'web.on("ready", () => web.cmd("new {base}/default.html"));\n')
+    write(os.path.join(web_dir, "lib", "pages.js"), f'export const base = "{base}";\n')
+    write(os.path.join(web_dir, "lib", "common.js"),
+          'import { base } from "./pages.js";\n'
+          'export function start(name) {\n'
+          '  web.on("ready", () => { web.cmd("new " + base + "/shared.html"); web.cmd("new " + base + "/" + name + ".html"); });\n'
+          '}\n')
+    common = os.path.join(web_dir, "lib", "common.js")
+    write(os.path.join(web_dir, "profiles", "alpha", "init.js"), 'import { start } from "../../lib/common.js";\nstart("alpha");\n')
+    write(os.path.join(web_dir, "profiles", "beta", "init.js"), f'import {{ start }} from "{common}";\nstart("beta");\n')
 
     wl = subprocess.run([os.path.join(WEB, "tools/nest.sh")], check=True, capture_output=True, text=True).stdout.strip()
     env = dict(os.environ, WAYLAND_DISPLAY=wl, XDG_STATE_HOME=state_home, XDG_CONFIG_HOME=config_home)
@@ -98,21 +111,22 @@ def main():
 
     ok = False
     try:
-        # 1: both run at once, each loaded its own script after the global one
+        # 1: both run at once, each its own init.js only, both through the one shared lib/common.js
         for p, (proc, log) in shells.items():
-            log.wait(r'"url":"' + re.escape(base) + r'/global\.html"', timeout=90)
+            log.wait(r'"url":"' + re.escape(base) + r'/shared\.html"', timeout=90)
             log.wait(r'"url":"' + re.escape(base) + rf'/{p}\.html"', timeout=30)
             log.wait(r"buffer 3 of 3 is current", timeout=30)
             other = "beta" if p == "alpha" else "alpha"
             if any(f"/{other}.html" in l and '"url"' in l for l in log.lines):
                 raise Fail(f"{p} opened {other}'s page")
-            gi = next(i for i, l in enumerate(log.lines) if "/global.html" in l and '"url"' in l)
-            pi = next(i for i, l in enumerate(log.lines) if f"/{p}.html" in l and '"url"' in l)
-            if gi > pi:
-                raise Fail(f"{p}: the profile script ran before the global one")
+            if any("/default.html" in l for l in log.lines):
+                raise Fail(f"{p} ran the default profile's init.js")
+            if any("script error" in l for l in log.lines):
+                raise Fail(f"{p}: a script error")
         if any(proc.poll() is not None for proc, _ in shells.values()):
             raise Fail("a shell exited")
-        print("  ok   alpha and beta run side by side; global then profile page in each, no cross-opening", flush=True)
+        print("  ok   alpha and beta run side by side, both import lib/common.js (relative and absolute), "
+              "shared then own page; no cross-opening, the default profile's init.js not run", flush=True)
 
         # 2: state directories
         for p in ("alpha", "beta"):
@@ -159,6 +173,25 @@ def main():
         if r.returncode == 0 or "--profile" not in r.stderr or sorted(os.listdir(os.path.join(state_home, "web", "profiles"))) != sorted(before):
             raise Fail("bad profile name was accepted")
         print("  ok   --profile ../x: refused with a usage message, no directory made", flush=True)
+
+        # 6: no --profile is --profile default (its own init.js, its own state directory)
+        unit = f"web-c-profile-live-{os.getpid()}-default"
+        units.append(unit)
+        cmd = ["systemd-run", "--user", "--scope", "-q", f"--unit={unit}", "-p", "MemoryMax=6G", "-p", "MemorySwapMax=0",
+               "bash", "-c", 'ulimit -c 0; exec "$@"', "web", a.web, "--host-bin", a.host_bin]
+        proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        shells["default"] = (proc, live.Log(proc, os.path.join(out, "web-default.log")))
+        log = shells["default"][1]
+        log.wait(r'"url":"' + re.escape(base) + r'/default\.html"', timeout=90)
+        if any("/shared.html" in l for l in log.lines):
+            raise Fail("the default profile ran another profile's script")
+        d = os.path.join(state_home, "web", "profiles", "default")
+        if not os.path.isdir(os.path.join(d, "engines", "cef")):
+            raise Fail(f"no engine profile under {d}")
+        top = sorted(os.listdir(os.path.join(state_home, "web")))
+        if top != ["profiles"]:
+            raise Fail(f"$XDG_STATE_HOME/web holds {top}, not only profiles/")
+        print("  ok   web (no --profile) ran profiles/default/init.js, state in profiles/default; the base holds only profiles/", flush=True)
         ok = True
     finally:
         for u in units:

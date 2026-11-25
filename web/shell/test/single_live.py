@@ -86,7 +86,10 @@ def main():
     hostname = socket.gethostname()
 
     wl = subprocess.run([os.path.join(WEB, "tools/nest.sh")], check=True, capture_output=True, text=True).stdout.strip()
-    nest_env = dict(os.environ, WAYLAND_DISPLAY=wl)
+    # C-SCRIPT-MODULES: an empty config of its own, so no profile init.js of the user's runs here.
+    config = os.path.join(out, "config")
+    os.makedirs(config, exist_ok=True)
+    nest_env = dict(os.environ, WAYLAND_DISPLAY=wl, XDG_CONFIG_HOME=config)
     shell_env = dict(nest_env)
     shell_env.pop("DISPLAY", None)
     shell_env.pop("WAYLAND_SOCKET", None)
