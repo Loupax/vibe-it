@@ -342,10 +342,34 @@ stop early on a hard failure.
         Only matters for scripts written for the classic form; say so in SCRIPTING.md.
       - The budget covers module loading and evaluation of everything imported (one call), so a large
         import graph counts against SCRIPT_BUDGET_MS; the memory limit covers module code too.
-      Docs: SCRIPTING.md ("Engine" no-loader paragraph, "Files and profiles" table and bullets, ":source"),
-      a DECISIONS.md entry amending 2026-11-24 "User scripts" (global + per-profile -> one file per start, reuse
-      via modules), args.rs USAGE (`--profile` line says "after the global init.js"), shell/README.md line on
-      QuickJS ("no module loader"), Cargo.toml comment, script.rs module docs, help.html if it mentions it.
+      Docs and artifacts (user, 2026-11-25: every place that describes the old behaviour is updated in the same
+      PR; grep `init.js`, `--profile`, `profiles/`, `global`, `module loader` over web/ and check each hit):
+      - web/SCRIPTING.md: "Engine" (no-loader paragraph, "one context, the profile sees the global"), "Files and
+        profiles" (table, bullets, "a profile with no init.js runs on the global script"), ":source" ("the global
+        one, then the profile's"), a new "Modules" section (specifiers, bare = profile folder, confinement to
+        `web/`, `lib/`, regular `.js` files, size cap, module scope vs classic script) and "Plugins are trusted
+        code" (answer b), examples updated to `profiles/default/init.js`.
+      - web/DECISIONS.md: a new dated entry amending 2026-11-24 "User scripts" (one init file per start, `default`
+        is only `--profile`'s default value, reuse via ES modules, imports confined to the config dir, the
+        threat review); the old entry's "plus a global one" / "Without it, the global script only" lines get a
+        pointer to it.
+      - web/KEYS.md: line ~351 ("global and per profile"), T117 (start: which file, module, strict), T151
+        (`:source`: "global, then the profile's"), T156 (no init.js), and any row naming `~/.config/web/init.js`.
+      - web/shell/src/help.html (the in-app `:help` page): `~/.config/web/init.js` in the mappings paragraph and
+        the `:Name` row -> `~/.config/web/profiles/default/init.js` (or "your profile's init.js"); the `:source`
+        row ("and the profile's", "sourced N file(s)").
+      - web/STASH.md: "Without `--profile`: as above, unchanged" -> state dir is `<base>/profiles/default`; the
+        tree drawing; a note that state in the old base dir is not moved (the `mv` to do it).
+      - web/README.md: the SCRIPTING.md line ("global and per profile"); the uninstall `rm -rf` line still right.
+      - web/shell/README.md: the QuickJS line ("no module loader", "runs `$XDG_CONFIG_HOME/web/init.js`").
+      - web/shell/src/args.rs USAGE (`--profile NAME ... after the global init.js`; say the default is `default`)
+        and the args tests; web/shell/Cargo.toml rquickjs comment; script.rs and main.rs comments.
+      - Live tests web/shell/test/c_script_live.py, c_script_map_live.py, c_source_live.py, c_profile_live.py,
+        single_live.py: they write `web/init.js` or rely on the global + profile chain; move them to
+        `profiles/<name>/init.js` and add the two-profiles-share-`lib/` step there.
+      - Not edited by the agent: TODO.txt entries already done (C-SCRIPT, C-PROFILE, C-SOURCE keep their history)
+        and coordinator/report/progress.html (the coordinator adds its own row at merge, including the state
+        `mv` the user must run).
       Tests: init_files (profile alone, global alone), `source_reruns_global_then_profile_with_the_same_profile`
       rewritten (profile only, global not run), `c_script_only_web_is_exposed` import assertions inverted;
       new: static + dynamic import relative to the init file, `../` from a nested module, shared module imported
