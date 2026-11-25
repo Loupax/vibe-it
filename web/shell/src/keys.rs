@@ -1077,6 +1077,8 @@ impl Keys {
     fn run_mapping(&mut self, index: usize) {
         let Some(s) = self.scripts.as_mut() else { return };
         let Some((keys, rhs)) = s.map_rhs(index) else { return };
+        self.script_sync();
+        let Some(s) = self.scripts.as_mut() else { return };
         match rhs {
             crate::script::MapRhs::Line(MapLine { text, run: true }) => {
                 self.effects.push(Effect::Log(format!("map {keys}: :{text}")));

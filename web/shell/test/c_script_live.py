@@ -36,6 +36,10 @@ web.command("Open", (args) => web.cmd("new " + args[0]));
 web.command("Boom", () => {
   throw new Error("boom from a user command");
 });
+web.map("n", "gb", () => {
+  const b = web.buffers.list().find(b => b.url.endsWith("/second.html"));
+  web.cmd(b ? "b " + b.number : "echo no second.html");
+});
 web.on("ready", () => {
   web.cmd("new http://HOSTPORT/second.html");
   web.cmd(":new http://HOSTPORT/c2.html");
@@ -155,6 +159,16 @@ def main():
             return "the ghost offers Open after :Op"
 
         step("T116 completion offers the user command", t116)
+
+        def buflist():
+            # C-SCRIPT-BUFLIST: buffer 4 is current; `gb` finds the buffer showing second.html by URL.
+            k = log.mark()
+            inject(*keys_for("gb"), "wait:300")
+            log.wait(r"script: :b 2", k, 10)
+            log.wait(r"buffer 2 of 4 is current", k, 15)
+            return "web.buffers.list() found second.html (buffer 2) and :b 2 switched to it"
+
+        step("C-SCRIPT-BUFLIST a mapping finds a buffer by URL and switches", buflist)
     finally:
         subprocess.run(["systemctl", "--user", "stop", f"{unit}.scope"], capture_output=True)
         try:

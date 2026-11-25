@@ -93,7 +93,9 @@ A module you import runs with everything `init.js` can do; import only code you 
 `init.js` yourself. Through `web.cmd` a script can browse as you (`:go` a URL with your cookies, and
 put data in that URL), run `:forget-site` and `:bookmarkDelete`, remap NORMAL keys and redefine other
 scripts' commands and mappings. Every read API added later (the current URL, the buffers, the history)
-becomes something a plugin can send out the same way. The confinement to `$XDG_CONFIG_HOME/web/`
+becomes something a plugin can send out the same way. (2026-11-25, C-SCRIPT-BUFLIST: `web.buffers.list()` is the
+first read API; the URL, title and description of every open buffer can now leave through `web.cmd`, for
+instance in `:go` with the data in the URL.) The confinement to `$XDG_CONFIG_HOME/web/`
 stops a script from reading arbitrary files through `import`; it does not make a module safe.
 
 ## API (2026-11-24, user)
@@ -167,7 +169,7 @@ web.map("p", "<C-x>", row => {
 
 ### `web.history`, `web.bookmarks`, `web.buffers` (2026-11-25, user; C-PICKDEL)
 
-Each has one setting, `deleteConfirmation`, `true` by default: whether the picker's Ctrl-d asks
+Each has a setting, `deleteConfirmation`, `true` by default: whether the picker's Ctrl-d asks
 `... ? (y/n)` before deleting a row of that source (KEYS.md T158-T166). Set it to `false` to delete at once:
 
 ```js
@@ -179,6 +181,35 @@ three back to `true` before it runs the files again. The setting covers the pick
 commands (`:historyDelete`, `:bookmarkDelete`, `:bufferKill`) never ask, typed or through `web.cmd`, and a
 `"p"` mapping does what its function does. These objects are where later settings of a source go, never `web`
 itself (user, 2026-11-25).
+
+### `web.buffers.list()` (2026-11-25, user; C-SCRIPT-BUFLIST)
+
+The open buffers, in `:ls` order (by number), as a new array of plain objects:
+
+| field | |
+|---|---|
+| `number` | the shell's number (`:b N`) |
+| `url`, `title`, `description` | strings (`description` is `:bufferDescribe`'s, `""` when none) |
+| `current` | the buffer shown |
+| `alternate` | the buffer Ctrl-^ goes to |
+| `loading`, `crashed` | booleans |
+| `unread` | how many notifications came while it was not shown |
+
+It is a function, not a property: it reads the buffers at the moment of the call, and what it returned is
+a snapshot that does not change afterwards. The objects are frozen, so a script changes a buffer through
+`web.cmd` only. `:ls` is built from the same list, so the two never disagree. Before `ready` (the file's
+top level) there are no buffers yet and it returns `[]`; `ready` handlers, commands and mappings see them.
+
+`web.cmd` runs its lines after the current call returns, so a buffer a call opens with `web.cmd("new ...")`
+is not in a `list()` made later in that same call; the next call sees it.
+
+```js
+// gs: go to the Slack buffer, or open it.
+web.map("n", "gs", () => {
+  const b = web.buffers.list().find(b => b.url.startsWith("https://app.slack.com/"));
+  web.cmd(b ? "b " + b.number : "new https://app.slack.com");
+});
+```
 
 ### Commands for scripts: `:echo` and `:source`
 

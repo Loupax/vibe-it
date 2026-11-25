@@ -240,31 +240,66 @@ impl Buffers {
 /// title first).
 /// Matched on the title, hostname and description ("keep it minimal": no page content).
 pub fn rows(b: &Buffers) -> Vec<Row> {
-    b.list
-        .iter()
-        .map(|x| {
-            let mark = if x.num == b.current {
+    infos(b)
+        .into_iter()
+        .zip(&b.list)
+        .map(|(i, x)| {
+            let mark = if i.current {
                 "%"
-            } else if b.alternate == Some(x.num) {
+            } else if i.alternate {
                 "#"
             } else {
                 ""
             };
-            let bang = if x.unread.is_empty() { "" } else { "!" };
+            let bang = if i.unread > 0 { "!" } else { "" };
             let host = x.host();
             let latest = x.unread.last().map(|n| n.title.as_str()).unwrap_or("");
-            let detail = [latest, host.as_str(), x.description.as_str()]
+            let detail = [latest, host.as_str(), i.description.as_str()]
                 .iter()
                 .filter(|f| !f.is_empty())
                 .copied()
                 .collect::<Vec<_>>()
                 .join("  ");
             Row {
-                label: format!("{}{mark}{bang} {}", x.num, x.name()),
+                label: format!("{}{mark}{bang} {}", i.number, x.name()),
                 detail,
-                fields: vec![x.title.clone(), host, x.description.clone()],
-                action: PickAction::Buffer(x.num),
+                fields: vec![i.title, host, i.description],
+                action: PickAction::Buffer(i.number),
             }
+        })
+        .collect()
+}
+
+/// C-SCRIPT-BUFLIST: one buffer as `:ls` and `web.buffers.list()` both see it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BufferInfo {
+    pub number: u32,
+    pub url: String,
+    pub title: String,
+    pub description: String,
+    pub current: bool,
+    pub alternate: bool,
+    pub loading: bool,
+    pub crashed: bool,
+    /// Notifications that came while it was not shown.
+    pub unread: usize,
+}
+
+/// Every buffer in `:ls` order (number order). The current buffer's URL and title are in `Keys`
+/// until `save_current`: call that first when they must be fresh.
+pub fn infos(b: &Buffers) -> Vec<BufferInfo> {
+    b.list
+        .iter()
+        .map(|x| BufferInfo {
+            number: x.num,
+            url: x.url.clone(),
+            title: x.title.clone(),
+            description: x.description.clone(),
+            current: x.num == b.current,
+            alternate: b.alternate == Some(x.num) && x.num != b.current,
+            loading: x.loading,
+            crashed: x.crashed,
+            unread: x.unread.len(),
         })
         .collect()
 }

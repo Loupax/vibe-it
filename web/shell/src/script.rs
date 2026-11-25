@@ -29,6 +29,7 @@ use rquickjs::loader::{ImportAttributes, Loader, Resolver};
 use rquickjs::promise::PromiseState;
 use rquickjs::{Context, Ctx, Exception, Function, Module, Object, Persistent, Promise, Runtime, Value};
 
+use crate::buffers::BufferInfo;
 use crate::config::{SCRIPT_BUDGET_MS, SCRIPT_DEPTH_MAX, SCRIPT_MEMORY_MAX, SCRIPT_MODULE_MAX};
 use crate::keys::{parse_map_keys, parse_map_rhs, resolve_mapping, Effect, Keys, MapKey, MapLine, MapStep};
 use crate::picker::PickAction;
@@ -257,6 +258,9 @@ struct Registry {
     maps: Vec<Mapping>,
     /// C-PICKDEL-MAP: PICK mappings (`web.map("p", "<C-x>", fn)`), same replace-in-place rule.
     pick_maps: Vec<Mapping>,
+    /// C-SCRIPT-BUFLIST: the buffers as of the start of the current call (`Keys::script_sync`);
+    /// what `web.buffers.list()` returns. Empty until `ready`.
+    buffers: Vec<BufferInfo>,
 }
 
 /// The QuickJS runtime and its one context.
@@ -429,6 +433,11 @@ impl Scripts {
             "buffers" => c.buffers,
             _ => true,
         }
+    }
+
+    /// C-SCRIPT-BUFLIST: the snapshot the next call's `web.buffers.list()` reads.
+    pub fn set_buffers(&mut self, infos: Vec<BufferInfo>) {
+        self.reg.borrow_mut().buffers = infos;
     }
 
     /// C-SCRIPT-MAP: whether any NORMAL mapping exists (with none, keys go straight to the bindings).
@@ -733,6 +742,31 @@ fn install_web<'js>(ctx: &Ctx<'js>, reg: &Rc<RefCell<Registry>>) -> rquickjs::Re
         desc.set("set", set)?;
         desc.set("enumerable", true)?;
         define.call::<_, Value>((obj.clone(), "deleteConfirmation", desc))?;
+        if name == "buffers" {
+            // C-SCRIPT-BUFLIST: a function, so it is clearly read when called. Fresh frozen objects.
+            let r = reg.clone();
+            let list = Function::new(ctx.clone(), move |ctx: Ctx<'js>| -> rquickjs::Result<rquickjs::Array<'js>> {
+                let infos = r.borrow().buffers.clone();
+                let freeze: Function = ctx.globals().get::<_, Object>("Object")?.get("freeze")?;
+                let arr = rquickjs::Array::new(ctx.clone())?;
+                for (i, b) in infos.into_iter().enumerate() {
+                    let o = Object::new(ctx.clone())?;
+                    o.set("number", b.number)?;
+                    o.set("url", b.url)?;
+                    o.set("title", b.title)?;
+                    o.set("description", b.description)?;
+                    o.set("current", b.current)?;
+                    o.set("alternate", b.alternate)?;
+                    o.set("loading", b.loading)?;
+                    o.set("crashed", b.crashed)?;
+                    o.set("unread", b.unread as u32)?;
+                    freeze.call::<_, Value>((o.clone(),))?;
+                    arr.set(i, o)?;
+                }
+                Ok(arr)
+            })?;
+            obj.set("list", list)?;
+        }
         freeze.call::<_, Value>((obj.clone(),))?;
         web.set(name, obj)?;
     }
@@ -896,6 +930,7 @@ impl Keys {
             }
         }
         let start = Instant::now();
+        self.script_sync();
         let Some(s) = self.scripts.as_mut() else { return false };
         let r = s.eval_module(name, label, source);
         s.held.extend(r.lines);
@@ -957,6 +992,7 @@ impl Keys {
         }
         self.run_script_lines(held);
         for f in handlers {
+            self.script_sync();
             let Some(s) = self.scripts.as_mut() else { return };
             let r = s.call_ready(f);
             self.finish_script_call(r);
@@ -988,6 +1024,8 @@ impl Keys {
             return true;
         }
         s.depth += 1;
+        self.script_sync();
+        let Some(s) = self.scripts.as_mut() else { return true };
         let r = s.call_command(name, args);
         self.finish_script_call(r);
         if let Some(s) = self.scripts.as_mut() {
@@ -997,6 +1035,19 @@ impl Keys {
             }
         }
         true
+    }
+
+    /// C-SCRIPT-BUFLIST: before every call into JS, the snapshot `web.buffers.list()` reads: the live
+    /// buffers (the current one saved first, so its URL and title are fresh). Empty until `ready`.
+    pub(crate) fn script_sync(&mut self) {
+        if !self.scripts.as_ref().is_some_and(|s| s.ready_fired) {
+            return;
+        }
+        self.save_current();
+        let infos = crate::buffers::infos(&self.buffers);
+        if let Some(s) = self.scripts.as_mut() {
+            s.set_buffers(infos);
+        }
     }
 
     /// After a call into JS: its error, then the lines it queued.

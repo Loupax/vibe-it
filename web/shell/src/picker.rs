@@ -594,6 +594,7 @@ impl Keys {
             action: r.action.clone(),
         };
         self.effects.push(Effect::Log(format!("pick-map {notation}")));
+        self.script_sync();
         if let Some(s) = self.scripts.as_mut() {
             let r = s.call_pick_map(f, row);
             self.finish_script_call(r);
