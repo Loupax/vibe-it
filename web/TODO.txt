@@ -310,7 +310,7 @@ stop early on a hard failure.
       `web.cmd("echo " + x)`; no `console` object (SCRIPTING.md: nothing exposed unasked). KEYS.md, help.html,
       SCRIPTING.md example, unit tests. Interacts with C-SCRIPT-ERRBAR: an echo from init.js at start must also
       survive the first page load (same fix: messages set before/at start, from scripts, stay until a key).
-- [ ] [WIP] C-SCRIPT-MODULES [M] (user, 2026-11-25: "I don't like how the 'default'
+- [x] C-SCRIPT-MODULES [M] (DONE 2026-11-25, b63f731, #750: bar labels every profile file init.js; init.js gets the regular-file/size checks but is not confined; +5.5 KB binary; T117/T151/T156) (user, 2026-11-25: "I don't like how the 'default'
       profile init script gets inherited by the rest of the profiles, it makes it very easy to accidentally add
       conflicting functionality. Remove this, if the users want to reuse functionality they can create reusable
       ECMAScript modules") Two halves that must land together: dropping the inheritance alone removes the only
@@ -418,7 +418,7 @@ stop early on a hard failure.
       .desktop). `desktop-file-validate` clean if installed. Where logs go when launched from the menu (journal)
       noted in the README. Never touch the user's real ~/.local in tests: test with --prefix and XDG_DATA_HOME
       under a scratch dir.
-- [ ] C-PICKDEL [M] (user, 2026-11-25; DECISIONS.md "Deleting from a picker"; KEYS.md T158-T166; SCRIPTING.md
+- [ ] [WIP] C-PICKDEL [M] (user, 2026-11-25; DECISIONS.md "Deleting from a picker"; KEYS.md T158-T166; SCRIPTING.md
       "web.history, web.bookmarks, web.buffers") Ctrl-d in the picker deletes the selected row from `:historySearch`,
       `:bookmarkSearch` and `:bufferList`/`:ls`, after a y/n question that each source's script switch can turn off.
       Do the steps in order; each one has its own tests, so commit after each if you like. Read first: picker.rs
