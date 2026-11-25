@@ -636,3 +636,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-25 C-PICKMSG merged (#752, 844f582). Started C-PICKDEL-MAP (Sonnet).
 
 ## 2026-11-25 web reinstalled with #752 (20261125-143917-f42ea44d).
+
+## 2026-11-25 C-PICKDEL-MAP merged (#753, a9ecd2c). No agents running; open web items are user decisions/manual checks or optional.

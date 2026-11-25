@@ -498,7 +498,7 @@ stop early on a hard failure.
       no visits of its own: :forget-site removes the site` instead; (b) Ctrl-d on a made-up root removes all its
       pages' lines (after a question naming the count); (c) Ctrl-d on a made-up root says nothing to delete and
       does not ask. Coordinator suggests (a).
-- [ ] [WIP] C-PICKDEL-MAP [S] (after C-PICKDEL; user, 2026-11-25; KEYS.md T167-T168; SCRIPTING.md "web.map" mode "p") Picker
+- [x] C-PICKDEL-MAP [S] (DONE 2026-11-25, a9ecd2c, #753: T167-T168; messages and script errors show beside the filter as T169) (after C-PICKDEL; user, 2026-11-25; KEYS.md T167-T168; SCRIPTING.md "web.map" mode "p") Picker
       mappings for scripts: `web.map("p", "<C-x>", fn)` calls `fn(row)` on the selected row. Read first: script.rs
       `web_map`, `call_map`, keys.rs `run_mapping`, `finish_script_call`, picker.rs `pick_key`.
       - `web_map`: accept mode "p" besides "n" (the unknown-mode error lists both). A "p" mapping's keys must parse
