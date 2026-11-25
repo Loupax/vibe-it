@@ -654,3 +654,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-25 User: "that's ok, I didn't realize you updated the todo". Filing+starting from chat is fine; the fix is to say clearly when TODO.txt is updated. C-CMDRESULT back to normal (starts after C-SCRIPT-BUFLIST).
 
 ## 2026-11-25 C-SCRIPT-BUFLIST merged (#755, acf3fac). Started C-CMDRESULT (Sonnet).
+
+## 2026-11-25 web reinstalled with #755 (20261125-175444-904bc8b3). Guide v7: web.buffers.list().
