@@ -108,6 +108,29 @@ Runs `line` as if typed after `:` and Enter (a leading `:` is dropped). It is th
 a script acts on the browser: whatever a `:command` can do, a script can do, and nothing
 more. Errors show in the status bar as the command's would.
 
+**Return value (2026-11-25, user; C-CMDRESULT).** It returns a Promise that settles, after the line has run,
+with `{ ok, message }`: `ok` is `false` when the command reported an error (an unknown command, its usage,
+`:b` matching no buffer or several, a URL it refused, a user command that threw, ...), else `true`;
+`message` is the text the command gave the bar (`""` when it gave none). The promise never rejects: a
+failed command is a result, not an exception, so a script that ignores it behaves as before and no
+unhandled rejection comes from it.
+
+```js
+// gs: go to the Slack buffer; open one when there is none.
+web.map("n", "gs", async () => {
+  const r = await web.cmd("b app.slack.com");
+  if (!r.ok) web.cmd("new https://app.slack.com");
+});
+```
+
+The line still runs after the current call returns, in order with the others. Once it has run, the promise
+is settled in a call of its own (same time budget and error report as any call); an `await` that continues
+there queues its own lines after the ones already queued. A top-level `await web.cmd(...)` in a file waits
+for `ready` like the line itself. `:source` drops a promise still pending, silently. At most
+`SCRIPT_CHAIN_MAX` (config.rs, 1000) lines run from one call, awaited continuations included, so an endless
+`await` loop ends with an error in the bar. `message` is read as the bar had it when the line finished; the
+errors a nested line (one a user command queued) had are that line's, not the command's.
+
 (C-SCRIPT, 2026-11-24, forced by the implementation:) the line runs right after the current call
 into the script returns, in order with the others it queued; a line naming a user command runs
 that one's function there, so the order is as if each line had run at once. At the top level of

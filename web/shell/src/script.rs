@@ -30,7 +30,7 @@ use rquickjs::promise::PromiseState;
 use rquickjs::{Context, Ctx, Exception, Function, Module, Object, Persistent, Promise, Runtime, Value};
 
 use crate::buffers::BufferInfo;
-use crate::config::{SCRIPT_BUDGET_MS, SCRIPT_DEPTH_MAX, SCRIPT_MEMORY_MAX, SCRIPT_MODULE_MAX};
+use crate::config::{SCRIPT_BUDGET_MS, SCRIPT_CHAIN_MAX, SCRIPT_DEPTH_MAX, SCRIPT_MEMORY_MAX, SCRIPT_MODULE_MAX};
 use crate::keys::{parse_map_keys, parse_map_rhs, resolve_mapping, Effect, Keys, MapKey, MapLine, MapStep};
 use crate::picker::PickAction;
 
@@ -198,10 +198,22 @@ pub struct ScriptError {
     pub full: String,
 }
 
+/// C-CMDRESULT: one `web.cmd` line and the function that settles its promise (SCRIPTING.md `web.cmd`).
+pub struct ScriptLine {
+    pub line: String,
+    pub resolve: Option<Persistent<Function<'static>>>,
+}
+
+impl std::fmt::Debug for ScriptLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ScriptLine({:?})", self.line)
+    }
+}
+
 /// What one call into JS left behind: the `web.cmd` lines it queued, in order, and its error.
 #[derive(Debug, Default)]
 pub struct CallResult {
-    pub lines: Vec<String>,
+    pub lines: Vec<ScriptLine>,
     pub error: Option<ScriptError>,
 }
 
@@ -251,7 +263,7 @@ impl Default for DeleteConfirm {
 struct Registry {
     /// C-PICKDEL: `web.history/bookmarks/buffers.deleteConfirmation`.
     confirm: DeleteConfirm,
-    queue: Vec<String>,
+    queue: Vec<ScriptLine>,
     commands: BTreeMap<String, Persistent<Function<'static>>>,
     ready: Vec<Persistent<Function<'static>>>,
     /// NORMAL-mode mappings, in the order made (mapping the same keys again replaces in place).
@@ -289,7 +301,7 @@ pub struct Scripts {
     files: usize,
     /// `web.cmd` lines queued by the file itself (and its modules): run when `ready` fires (before the
     /// handlers), since before that there is no host to send commands to.
-    held: Vec<String>,
+    held: Vec<ScriptLine>,
     ready_fired: bool,
     /// User commands nested through `web.cmd` right now, and whether the chain hit the limit.
     depth: usize,
@@ -303,6 +315,10 @@ impl Drop for Scripts {
         // Persistent values must go before the runtime does.
         self.module_promise.borrow_mut().take();
         let mut r = self.reg.borrow_mut();
+        // Lines still waiting for `ready` hold promise resolvers: they go with the runtime (`:source`
+        // drops a pending promise without a word).
+        self.held.clear();
+        r.queue.clear();
         r.commands.clear();
         r.ready.clear();
         r.maps.clear();
@@ -489,8 +505,21 @@ impl Scripts {
         })
     }
 
+    /// C-CMDRESULT: settles a `web.cmd` promise with `{ ok, message }` in a budgeted call of its own
+    /// (its `await` continuation and the promise jobs run here, under the same budget and error report
+    /// as any call); the lines that continuation queued come back in the result.
+    pub fn settle(&mut self, resolve: Persistent<Function<'static>>, ok: bool, message: String) -> CallResult {
+        let label = self.fallback.clone();
+        self.call(&label, move |ctx| {
+            let o = Object::new(ctx.clone())?;
+            o.set("ok", ok)?;
+            o.set("message", message)?;
+            resolve.restore(ctx)?.call::<_, Value>((o,)).map(|_| ())
+        })
+    }
+
     /// The `ready` handlers in order (the event fires once: later calls give nothing).
-    pub fn take_ready(&mut self) -> (Vec<String>, Vec<Persistent<Function<'static>>>) {
+    pub fn take_ready(&mut self) -> (Vec<ScriptLine>, Vec<Persistent<Function<'static>>>) {
         if self.ready_fired {
             return (Vec::new(), Vec::new());
         }
@@ -664,10 +693,14 @@ fn install_web<'js>(ctx: &Ctx<'js>, reg: &Rc<RefCell<Registry>>) -> rquickjs::Re
     let r = reg.clone();
     web.set(
         "cmd",
-        Function::new(ctx.clone(), move |line: String| {
+        Function::new(ctx.clone(), move |ctx: Ctx<'js>, line: String| -> rquickjs::Result<Promise<'js>> {
             let line = line.trim();
             let line = line.strip_prefix(':').unwrap_or(line).to_string();
-            r.borrow_mut().queue.push(line);
+            // C-CMDRESULT: settled with `{ ok, message }` after the line ran; never rejected.
+            let (promise, resolve, _reject) = ctx.promise()?;
+            let resolve = Some(Persistent::save(&ctx, resolve));
+            r.borrow_mut().queue.push(ScriptLine { line, resolve });
+            Ok(promise)
         })?,
     )?;
     let r = reg.clone();
@@ -1059,20 +1092,66 @@ impl Keys {
     }
 
     /// `web.cmd`'s lines, each as typed after `:` (a chain past the depth limit drops the rest).
-    fn run_script_lines(&mut self, lines: Vec<String>) {
+    ///
+    /// C-CMDRESULT: after each line its promise is settled with `{ ok, message }` (`ok` is false when
+    /// the command called `fail` or a script error came out of it; `message` is the text it gave the
+    /// bar, "" when none). The settle is a call into JS of its own; the lines an `await` continuation
+    /// queues there join the end of this list, as a promise reaction would run after what is queued.
+    fn run_script_lines(&mut self, lines: Vec<ScriptLine>) {
+        if self.script_lines == 0 {
+            self.script_chain = 0;
+        }
         self.script_lines += 1;
-        for line in lines {
+        let mut work: std::collections::VecDeque<ScriptLine> = lines.into();
+        while let Some(ScriptLine { line, resolve }) = work.pop_front() {
             if self.scripts.as_ref().is_some_and(|s| s.overflow) {
                 break;
             }
+            self.script_chain += 1;
+            if self.script_chain > SCRIPT_CHAIN_MAX {
+                if let Some(s) = self.scripts.as_mut() {
+                    s.overflow = true;
+                }
+                self.script_error(ScriptError {
+                    bar: format!("web.cmd: more than {SCRIPT_CHAIN_MAX} lines in one chain; stopped"),
+                    full: format!(
+                        "web.cmd: the chain of lines run from one call passed SCRIPT_CHAIN_MAX ({SCRIPT_CHAIN_MAX}); it was stopped"
+                    ),
+                });
+                break;
+            }
             self.effects.push(Effect::Log(format!("script: :{line}")));
+            let before = std::mem::take(&mut self.message);
+            let outer_failed = std::mem::replace(&mut self.cmd_failed, false);
             self.run_command_line(&line);
+            let failed = std::mem::replace(&mut self.cmd_failed, outer_failed);
+            let message = self.message.clone();
+            if message.is_empty() {
+                self.message = before;
+            }
+            let Some(resolve) = resolve else { continue };
+            self.script_sync();
+            let Some(s) = self.scripts.as_mut() else { continue };
+            let r = s.settle(resolve, !failed, message);
+            if let Some(e) = r.error {
+                // An error in the continuation is not the finished line's failure.
+                let f = self.cmd_failed;
+                self.script_error(e);
+                self.cmd_failed = f;
+            }
+            work.extend(r.lines);
         }
         self.script_lines -= 1;
+        if self.script_lines == 0 {
+            if let Some(s) = self.scripts.as_mut() {
+                s.overflow = false;
+            }
+        }
     }
 
     /// A script's error: the bar (kept until the user's next key, `page_loaded`) and the log.
     fn script_error(&mut self, e: ScriptError) {
+        self.cmd_failed = true;
         self.effects.push(Effect::Log(format!("script error: {}", e.full)));
         self.sticky = e.bar.clone();
         self.message = e.bar;

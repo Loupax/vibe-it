@@ -2,6 +2,36 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-25 `web.cmd` returns a promise with the command's result (C-CMDRESULT)
+
+User: "I think it's better to know if the command failed so we can handle this properly."
+
+- **`web.cmd(line)` returns a Promise** settled, after the line has run, with `{ ok, message }`. It never
+  rejects: a failed command is a value, so a script that ignores the promise stays silent and every existing
+  script is unchanged.
+- **Errors are signalled explicitly, not parsed.** Commands used to report an error only as a `web: ...`
+  string put in the bar. Now every error path goes through `Keys::fail(message)`, which sets the bar text and
+  marks the running command failed (`Keys.cmd_failed`); a script error (a user command that threw, a depth or
+  chain stop) marks it too. `ok` is the opposite of that mark; nothing looks at a `web: ` prefix. A command
+  that gives the bar no text leaves the bar as it was, and its `message` is `""`.
+- **What counts as an error** (conservative: only what already showed a `web: ...` text or a script
+  error): unknown command, usage, `no buffer ...`, no alternate buffer, `:b` matching none or several, a bad
+  URL for `:go`/`:new`/`:openExternal`, no blocked popup, the bookmark/history commands that report `web: ...`
+  (not bookmarked, not in the history, no state directory), `:let` failures, a picker with nothing to show
+  (`web: the history is empty`), `:source` from a script. A command that only shows an ordinary message
+  (`buffer 3 killed`, `Copied to clipboard`, `sourced 1 file(s)`) is ok.
+- **A line a user command queues is its own line**: `Inner` calling `web.cmd("nope")` fails that line, not
+  `Inner` (whose own result is `ok` unless it threw).
+- **Order.** Lines still run after the current call returns, in the order queued. After each line its
+  promise is settled in a budgeted call of its own; lines an `await` continuation queues there go to the end
+  of the lines already queued, as a promise reaction would. `SCRIPT_DEPTH_MAX` (user commands nested through
+  `web.cmd`) is unchanged.
+- **New limit, `SCRIPT_CHAIN_MAX` = 1000**: lines run from one outermost list, continuations included. Without
+  it `while (true) await web.cmd("...")` would never return to the shell (it ran no budgeted loop before).
+  Past it the chain stops with an error in the bar, as the depth limit does.
+- `:source` drops a promise that is still pending (a top-level `await web.cmd(...)` waiting for `ready`)
+  with the old runtime, without an error.
+
 ## 2026-11-25 `web.buffers.list()` (C-SCRIPT-BUFLIST)
 
 User: "I'd like an easy way to navigate back to [Slack] ... I think it's better to have an internal command

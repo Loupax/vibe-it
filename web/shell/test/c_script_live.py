@@ -40,6 +40,11 @@ web.map("n", "gb", () => {
   const b = web.buffers.list().find(b => b.url.endsWith("/second.html"));
   web.cmd(b ? "b " + b.number : "echo no second.html");
 });
+web.map("n", "gq", async () => {
+  const bad = await web.cmd("b no-such-buffer-xyz");
+  const good = await web.cmd("b 2");
+  web.cmd("echo cmdresult " + bad.ok + " " + good.ok);
+});
 web.on("ready", () => {
   web.cmd("new http://HOSTPORT/second.html");
   web.cmd(":new http://HOSTPORT/c2.html");
@@ -169,6 +174,15 @@ def main():
             return "web.buffers.list() found second.html (buffer 2) and :b 2 switched to it"
 
         step("C-SCRIPT-BUFLIST a mapping finds a buffer by URL and switches", buflist)
+
+        def cmdresult():
+            # C-CMDRESULT: `await web.cmd(...)` gets ok=false for a failing line and ok=true for a good one.
+            k = log.mark()
+            inject(*keys_for("gq"), "wait:300")
+            log.wait(r"\] bar: NORMAL \| .*cmdresult false true", k, 10)
+            return "await web.cmd: ok false for :b no-such-buffer-xyz, true for :b 2"
+
+        step("C-CMDRESULT await web.cmd reports ok", cmdresult)
     finally:
         subprocess.run(["systemctl", "--user", "stop", f"{unit}.scope"], capture_output=True)
         try:

@@ -366,6 +366,9 @@ pub const SCRIPT_BUDGET_MS: u64 = 100;
 /// `web.cmd` calls may nest through user commands this deep (`:A` running `:B` running ...); deeper,
 /// the chain stops with an error.
 pub const SCRIPT_DEPTH_MAX: usize = 16;
+/// C-CMDRESULT: the lines one outermost `web.cmd` list runs, awaited continuations included; past it the chain
+/// stops with an error (an `await web.cmd` loop that never ends would otherwise freeze the shell).
+pub const SCRIPT_CHAIN_MAX: usize = 1000;
 /// C-SCRIPT-MEM: the script runtime's heap limit (QuickJS `set_memory_limit`). A script that allocates past it
 /// gets QuickJS's out-of-memory error (status bar, log) and web keeps running. 64 MiB: a config script holds
 /// kilobytes (a 100k-entry array is ~2 MiB), so this is ~30x any real use, and a runaway loop is stopped at
