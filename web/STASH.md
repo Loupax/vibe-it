@@ -160,6 +160,7 @@ The first reader is `:go` completion (KEYS.md "Completion", QCOMP-D). Settings
   with no frecency formula. Trim: write a temp file + rename, under an exclusive flock on
   `DIR/.history.lock` (appenders do not lock: an append that lands between the read
   and the rename is lost, which is acceptable for history).
+- **Deleting** (C-PICKDEL): `:historyDelete [url]` and the picker's Ctrl-d remove every line whose URL is exactly that one and rewrite the file the same way as the trim (temp file + rename, under the same flock on `DIR/.history.lock`).
 - **Hand edits** are fine; lines that do not parse are skipped by the built-in reader.
 
 ### Ranking (the built-in `:go` source, user 2026-11-20)

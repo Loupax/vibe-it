@@ -164,7 +164,7 @@ web.map("p", "<C-x>", row => {
 });
 ```
 
-### `web.history`, `web.bookmarks`, `web.buffers` (2026-11-25, user; C-PICKDEL, not built yet)
+### `web.history`, `web.bookmarks`, `web.buffers` (2026-11-25, user; C-PICKDEL)
 
 Each has one setting, `deleteConfirmation`, `true` by default: whether the picker's Ctrl-d asks
 `... ? (y/n)` before deleting a row of that source (KEYS.md T158-T166). Set it to `false` to delete at once:

@@ -387,6 +387,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "go",
     "help",
     "historyBack",
+    "historyDelete",
     "historyFront",
     "historySearch",
     "let",
@@ -1788,6 +1789,12 @@ impl Keys {
             ("bookmarkDelete", [url]) => self.bookmark_delete(url),
             ("bookmarkDelete", _) => self.message = "web: usage: :bookmarkDelete [url]".to_string(),
             ("bookmarkSearch", rest) => self.bookmark_search(&rest.join(" ")),
+            ("historyDelete", []) => {
+                let url = self.url.clone();
+                self.history_delete(&url)
+            }
+            ("historyDelete", [url]) => self.history_delete(url),
+            ("historyDelete", _) => self.message = "web: usage: :historyDelete [url]".to_string(),
             ("historyBack", []) => send(self, Command::Back),
             ("historyFront", []) => send(self, Command::Forward),
             // C-PICK: the picker over the history; an argument is the filter already typed.
@@ -1878,6 +1885,18 @@ impl Keys {
             VimMode::Pick => Some('>'),
             VimMode::Normal => None,
         };
+        // C-PICKDEL: while the picker asks, the question takes the filter line's place.
+        let asking = self.picker.as_ref().and_then(|p| p.confirm.as_ref().map(|r| (p.name.as_str(), r)));
+        let question = asking.map(|(name, row)| match (name, &row.action) {
+            ("history", crate::picker::PickAction::Open(u)) => format!("delete history entry {u}? (y/n)"),
+            ("bookmarks", crate::picker::PickAction::Open(u)) => format!("delete bookmark {u}? (y/n)"),
+            (_, crate::picker::PickAction::Buffer(n)) => {
+                let label = row.label.split_once(' ').map_or(row.label.as_str(), |(_, l)| l);
+                format!("kill buffer {n} {label}? (y/n)")
+            }
+            _ => String::new(),
+        });
+        let prompt = if question.is_some() { None } else { prompt };
         let line = prompt.map(|p| (p, self.line.text.clone(), self.line.cursor, self.line.sel));
         BarView {
             mode: mode_name(self.key_mode).to_string(),
@@ -1888,7 +1907,7 @@ impl Keys {
                 n => format!("[{n}!] [{}] {}", self.buffers.current, self.url),
             },
             flash: self.bell.lit,
-            message: self.message.clone(),
+            message: question.unwrap_or_else(|| self.message.clone()),
             ghost: match (&self.ghost, &line) {
                 (Some(g), Some(_)) => g.rest(&self.line.text),
                 _ => String::new(),

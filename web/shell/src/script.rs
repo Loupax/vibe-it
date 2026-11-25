@@ -219,9 +219,28 @@ struct Mapping {
     rhs: MapRhs,
 }
 
+/// C-PICKDEL: whether Ctrl-d in each picker asks before deleting (default: yes).
+struct DeleteConfirm {
+    history: bool,
+    bookmarks: bool,
+    buffers: bool,
+}
+
+impl Default for DeleteConfirm {
+    fn default() -> Self {
+        DeleteConfirm {
+            history: true,
+            bookmarks: true,
+            buffers: true,
+        }
+    }
+}
+
 /// What the scripts registered (shared with the `web` functions; borrowed only for a push or a lookup).
 #[derive(Default)]
 struct Registry {
+    /// C-PICKDEL: `web.history/bookmarks/buffers.deleteConfirmation`.
+    confirm: DeleteConfirm,
     queue: Vec<String>,
     commands: BTreeMap<String, Persistent<Function<'static>>>,
     ready: Vec<Persistent<Function<'static>>>,
@@ -386,6 +405,18 @@ impl Scripts {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let label = self.fallback.clone();
         self.call(&label, move |ctx| f.restore(ctx)?.call::<_, Value>((args,)).map(|_| ()))
+    }
+
+    /// C-PICKDEL: whether Ctrl-d in picker `source` asks first (anything but history, bookmarks,
+    /// buffers: true).
+    pub fn delete_confirmation(&self, source: &str) -> bool {
+        let c = &self.reg.borrow().confirm;
+        match source {
+            "history" => c.history,
+            "bookmarks" => c.bookmarks,
+            "buffers" => c.buffers,
+            _ => true,
+        }
     }
 
     /// C-SCRIPT-MAP: whether any NORMAL mapping exists (with none, keys go straight to the bindings).
@@ -606,8 +637,45 @@ fn install_web<'js>(ctx: &Ctx<'js>, reg: &Rc<RefCell<Registry>>) -> rquickjs::Re
             Ok(())
         })?,
     )?;
-    // Nothing else: `web` itself is frozen so a script cannot mistake an addition for an API.
+    // C-PICKDEL: `web.history`, `web.bookmarks`, `web.buffers`, each with the accessor `deleteConfirmation`.
+    let define: Function = ctx.globals().get::<_, Object>("Object")?.get("defineProperty")?;
     let freeze: Function = ctx.globals().get::<_, Object>("Object")?.get("freeze")?;
+    for name in ["history", "bookmarks", "buffers"] {
+        let obj = Object::new(ctx.clone())?;
+        let r = reg.clone();
+        let get = Function::new(ctx.clone(), move || {
+            let c = &r.borrow().confirm;
+            match name {
+                "history" => c.history,
+                "bookmarks" => c.bookmarks,
+                _ => c.buffers,
+            }
+        })?;
+        let r = reg.clone();
+        let set = Function::new(ctx.clone(), move |ctx: Ctx<'js>, v: Value<'js>| {
+            let Some(b) = v.as_bool() else {
+                return Err(Exception::throw_type(
+                    &ctx,
+                    &format!("web.{name}.deleteConfirmation must be true or false"),
+                ));
+            };
+            let c = &mut r.borrow_mut().confirm;
+            match name {
+                "history" => c.history = b,
+                "bookmarks" => c.bookmarks = b,
+                _ => c.buffers = b,
+            }
+            Ok(())
+        })?;
+        let desc = Object::new(ctx.clone())?;
+        desc.set("get", get)?;
+        desc.set("set", set)?;
+        desc.set("enumerable", true)?;
+        define.call::<_, Value>((obj.clone(), "deleteConfirmation", desc))?;
+        freeze.call::<_, Value>((obj.clone(),))?;
+        web.set(name, obj)?;
+    }
+    // Nothing else: `web` itself is frozen so a script cannot mistake an addition for an API.
     freeze.call::<_, Value>((web.clone(),))?;
     ctx.globals().set("web", web)?;
     Ok(())

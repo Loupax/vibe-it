@@ -24,6 +24,7 @@ mod c_newbuf_tests;
 mod c_normalmods_tests;
 mod c_notiflist_tests;
 mod c_pick_tests;
+mod c_pickdel_tests;
 mod c_popups_tests;
 mod c_repeat_tests;
 mod c_script_map_tests;

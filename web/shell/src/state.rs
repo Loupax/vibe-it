@@ -180,7 +180,7 @@ impl State {
                 let sel = sel.map(|(a, b)| format!(" [selected {a}..{b}]")).unwrap_or_default();
                 format!("{p}{text}|{}{}{sel}", v.ghost, self.keys.pick_log())
             }
-            None => format!("{} | {}", v.mode, v.message),
+            None => format!("{} | {}{}", v.mode, v.message, self.keys.pick_log()),
         };
         // C4: the URL part (with the buffer number) on a line of its own, when it changes.
         let full = format!("{desc}\n{}", v.url);
