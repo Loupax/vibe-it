@@ -1,8 +1,8 @@
 #!/bin/bash
 # Wait for the newest main CI run; push local tracking commits and reinstall ONLY if it succeeded.
-# usage: ci_then_push.sh [--install <crate dir>|none]   (default: scratchy; e.g. --install wire, --install wire2, --install web, --install none)
+# usage: ci_then_push.sh [--install <crate dir>|none]   (default: none since A-ARCHIVE1; e.g. --install wire2, --install web)
 # `--install web` runs web/install.sh (shell + host + CEF runtime into ~/.local), not cargo install.
-INSTALL=scratchy
+INSTALL=none
 [ "$1" = --install ] && INSTALL=$2
 cd "$(dirname "$0")/.." || exit 2
 id=$(gh run list --branch main --limit 1 --json databaseId -q '.[0].databaseId')
