@@ -310,6 +310,59 @@ stop early on a hard failure.
       `web.cmd("echo " + x)`; no `console` object (SCRIPTING.md: nothing exposed unasked). KEYS.md, help.html,
       SCRIPTING.md example, unit tests. Interacts with C-SCRIPT-ERRBAR: an echo from init.js at start must also
       survive the first page load (same fix: messages set before/at start, from scripts, stay until a key).
+- [ ] C-SCRIPT-MODULES [M] WAITING FOR USER (questions below) (user, 2026-11-25: "I don't like how the 'default'
+      profile init script gets inherited by the rest of the profiles, it makes it very easy to accidentally add
+      conflicting functionality. Remove this, if the users want to reuse functionality they can create reusable
+      ECMAScript modules") Two halves that must land together: dropping the inheritance alone removes the only
+      way to share code today, because there is no module loader (C-SCRIPT: classic scripts, `import` is a
+      syntax error, `import()` rejects; c_script_tests `c_script_only_web_is_exposed` asserts both).
+      1. One init file per start: `--profile NAME` runs `$XDG_CONFIG_HOME/web/profiles/NAME/init.js` ONLY;
+         without `--profile`, `$XDG_CONFIG_HOME/web/init.js`. A profile with no init.js runs nothing.
+         `init_files` (script.rs) returns at most one file; `:source` re-runs that one (bar `sourced 1 file(s)` or
+         0). The "global and profile share one context" sentence goes.
+      2. ES modules: the init file is evaluated as a module (always strict, as C-SCRIPT prepared for) with
+         rquickjs's `loader` feature (+ the small `relative-path` crate; report the binary size) and our own
+         Resolver/Loader (not rquickjs's FileResolver/ScriptLoader, which add a search path and extension
+         guessing). Specifiers: `./x.js`, `../x.js` relative to the importing file, or an absolute path;
+         a bare name (`"utils"`) is an error naming the rule. No extension guessing. A module's name is its
+         normalized path, so a file imported twice runs once per runtime; `:source` makes a new runtime, so
+         edited modules are re-read. Static `import` and dynamic `import()` both work.
+      Things to get right (found reading script.rs, rquickjs 0.14):
+      - `Module::declare(..).eval()` returns a promise; a top-level throw REJECTS it rather than throwing.
+        Drive it to settled inside the same budgeted call (`Promise::finish`), report its rejection as the file's
+        error, and make sure the host rejection tracker (C-SCRIPT-MEM) does not report the same error a second
+        time as `unhandled rejection`. There are no timers or I/O, so a top-level `await` can only stay pending
+        on a promise nothing resolves: treat that as finished, not an error (or ask).
+      - Labels: the module name must be the real path (relative imports resolve against it), but the bar
+        keeps `init.js:LINE: message` for the global file; errors inside an imported module show that
+        module's path and line. An import that fails (missing file, bad specifier, syntax error in the module)
+        shows as the init file's error with the module path in the message.
+      - Module scope: top-level `var`/`function` no longer become globals and top-level `this` is undefined.
+        Only matters for scripts written for the classic form; say so in SCRIPTING.md.
+      - The budget covers module loading and evaluation of everything imported (one call), so a large
+        import graph counts against SCRIPT_BUDGET_MS; the memory limit covers module code too.
+      Docs: SCRIPTING.md ("Engine" no-loader paragraph, "Files and profiles" table and bullets, ":source"),
+      a DECISIONS.md entry amending 2026-11-24 "User scripts" (global + per-profile -> one file per start, reuse
+      via modules), args.rs USAGE (`--profile` line says "after the global init.js"), shell/README.md line on
+      QuickJS ("no module loader"), Cargo.toml comment, script.rs module docs, help.html if it mentions it.
+      Tests: init_files (profile alone, global alone), `source_reruns_global_then_profile_with_the_same_profile`
+      rewritten (profile only, global not run), `c_script_only_web_is_exposed` import assertions inverted;
+      new: static + dynamic import relative to the init file, `../` from a nested module, shared module imported
+      by two profiles, a module imported twice runs once, bare specifier error, missing module error with its
+      path, a throw inside an imported module (bar names the module's path:line), a top-level throw reported
+      once (not also as unhandled rejection), top-level await of a resolved promise, `:source` picks up an
+      edited module, budget overrun inside an imported module. Live step: two profiles importing one
+      `~/.config/web/lib/common.js` under a temporary XDG_CONFIG_HOME (never the user's).
+      Questions for the user (answer before filing as ready):
+      a. Without `--profile`, keep running `web/init.js` (it becomes the "no profile" script, not inherited),
+         or move it to `profiles/default/init.js` and make no-`--profile` mean `--profile default` (one rule,
+         state dir would move too)?
+      b. May an import reach any path, or only files under `$XDG_CONFIG_HOME/web/`? (Proposed: any path;
+         they are the user's own files.)
+      c. Bare specifiers: an error (proposed), or resolve them against a shared dir such as
+         `$XDG_CONFIG_HOME/web/lib/` so `import "common.js"` works from every profile?
+      d. Migration: nothing (proposed, the only user is you), or a one-time log/bar hint when a profile starts
+         and `web/init.js` exists but is no longer run?
 - [x] C-DESKTOP-ENTRY [XS] (DONE 2026-11-24, 23489de, #745: StartupWMClass=web, no icon, no MimeType) (user, 2026-11-24: "why can't I run web from the gui launcher? it works from the
       terminal") Found: install.sh writes no .desktop file, and the Plasma session PATH (systemctl --user
       show-environment) has no ~/.local/bin, so neither the app menu/KRunner nor Alt+F2 `web` finds it. install.sh
