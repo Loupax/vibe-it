@@ -658,3 +658,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-25 web reinstalled with #755 (20261125-175444-904bc8b3). Guide v7: web.buffers.list().
 
 ## 2026-11-25 C-CMDRESULT merged (#756, a8f9e6e). No agents running.
+
+## 2026-11-25 web reinstalled with #756 (20261125-180413-e03d7fc5). Guide v8: web.cmd result.
