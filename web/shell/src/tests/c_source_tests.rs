@@ -459,3 +459,22 @@ fn source_resets_the_runtime_state_the_old_chain_left() {
     type_line(&mut k, "A");
     assert_eq!(k.message, "again");
 }
+
+// ---- C-CMDRESULT: `:source` while a web.cmd promise is pending ----
+
+#[test]
+fn c_cmdresult_source_while_a_promise_is_pending_drops_it_quietly() {
+    let cfg = Config::new("cmdresult");
+    cfg.default_init(r#"await web.cmd("echo never"); web.cmd("echo after-never");"#);
+    // Not ready: the line and its promise wait for `ready`.
+    let mut k = Keys::new(None, String::new(), None);
+    k.load_scripts_with(&cfg.files(None), BUDGET);
+    assert_eq!(k.message, "");
+    cfg.default_init(r#"web.cmd("echo second");"#);
+    type_line(&mut k, "source");
+    assert_eq!(k.message, "sourced 1 file(s)", "no error for the dropped promise");
+    assert_eq!(k.buffers.tab_created(1, None), TabCreated::Buffer(1));
+    k.script_ready();
+    assert_eq!(k.message, "second", "only the new file's line ran");
+    assert!(!logs(&k).iter().any(|l| l.contains("never")), "{:?}", logs(&k));
+}

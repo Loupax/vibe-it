@@ -429,9 +429,9 @@ impl Keys {
                 Ok(url) => {
                     self.open_buffer(&url);
                 }
-                Err(m) => self.message = m,
+                Err(m) => self.fail(m),
             },
-            _ => self.message = NEW_USAGE.to_string(),
+            _ => self.fail(NEW_USAGE.to_string()),
         }
     }
 
@@ -447,15 +447,15 @@ impl Keys {
         if let Ok(n) = text.parse::<u32>() {
             match self.buffers.get(n) {
                 Some(_) => self.switch_to(n),
-                None => self.message = format!("web: no buffer {n}"),
+                None => self.fail(format!("web: no buffer {n}")),
             }
             return;
         }
         self.save_current();
         match self.buffers.matching(&text)[..] {
             [n] => self.switch_to(n),
-            [] => self.message = format!("web: no buffer matches {text}"),
-            _ => self.message = format!("web: more than one buffer matches {text} (:bufferList)"),
+            [] => self.fail(format!("web: no buffer matches {text}")),
+            _ => self.fail(format!("web: more than one buffer matches {text} (:bufferList)")),
         }
     }
 
@@ -469,7 +469,7 @@ impl Keys {
     pub fn buffer_alternate(&mut self) {
         match self.buffers.alternate.filter(|a| self.buffers.get(*a).is_some()) {
             Some(a) => self.switch_to(a),
-            None => self.message = "web: no alternate buffer".to_string(),
+            None => self.fail("web: no alternate buffer".to_string()),
         }
     }
 
@@ -481,16 +481,16 @@ impl Keys {
             [n] => match n.parse::<u32>() {
                 Ok(n) if self.buffers.get(n).is_some() => n,
                 Ok(n) => {
-                    self.message = format!("web: no buffer {n}");
+                    self.fail(format!("web: no buffer {n}"));
                     return;
                 }
                 Err(_) => {
-                    self.message = KILL_USAGE.to_string();
+                    self.fail(KILL_USAGE.to_string());
                     return;
                 }
             },
             _ => {
-                self.message = KILL_USAGE.to_string();
+                self.fail(KILL_USAGE.to_string());
                 return;
             }
         };

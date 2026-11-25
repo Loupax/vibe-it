@@ -96,7 +96,7 @@ impl Keys {
     /// to open it.
     fn open_blocked(&mut self, n: Option<u32>) {
         let Some(tab) = self.buffers.current_tab() else {
-            self.message = NONE_BLOCKED.to_string();
+            self.fail(NONE_BLOCKED.to_string());
             return;
         };
         let list = &mut self.buffers.current_mut().blocked;
@@ -105,7 +105,7 @@ impl Keys {
             Some(n) => list.iter().position(|b| b.popup == n),
         };
         let Some(i) = i else {
-            self.message = NONE_BLOCKED.to_string();
+            self.fail(NONE_BLOCKED.to_string());
             return;
         };
         let b = list.remove(i);
@@ -116,7 +116,7 @@ impl Keys {
     /// `:popupOpen` (T97): the current buffer's latest blocked popup.
     pub fn popup_open(&mut self, args: &[&str]) {
         if !args.is_empty() {
-            self.message = "web: usage: :popupOpen".to_string();
+            self.fail("web: usage: :popupOpen".to_string());
             return;
         }
         self.open_blocked(None);

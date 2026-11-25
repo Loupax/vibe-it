@@ -653,6 +653,10 @@ pub struct Keys {
     pub(crate) script_budget: Duration,
     /// `web.cmd` lines being run right now (`:source` is refused from them).
     pub(crate) script_lines: usize,
+    /// C-CMDRESULT: the command running now reported an error (`fail`, a script's error).
+    pub(crate) cmd_failed: bool,
+    /// C-CMDRESULT: lines run so far from the outermost `web.cmd` list (SCRIPT_CHAIN_MAX).
+    pub(crate) script_chain: usize,
     /// The page's URL as the host reported it (register `%`).
     pub url: String,
     /// The page's title as the host reported it ("" when none yet; `:bookmarkAdd` stores it).
@@ -757,6 +761,8 @@ impl Keys {
             script_files: Vec::new(),
             script_budget: Duration::from_millis(crate::config::SCRIPT_BUDGET_MS),
             script_lines: 0,
+            cmd_failed: false,
+            script_chain: 0,
             url: String::new(),
             title: String::new(),
             help_url,
@@ -1642,7 +1648,7 @@ impl Keys {
     /// not recorded, so it never becomes the last line itself.
     pub fn repeat_line(&mut self) {
         let Some(line) = self.last_command_line().map(str::to_string) else {
-            self.message = "web: no previous command line".to_string();
+            self.fail("web: no previous command line".to_string());
             return;
         };
         self.repeated = true;
@@ -1652,7 +1658,7 @@ impl Keys {
     /// `@@` and `:@@` (C-REPEAT, vim's E748 before any `@:`): repeats the last `@:`.
     pub fn repeat_repeat(&mut self) {
         if !self.repeated {
-            self.message = "web: no previously used register".to_string();
+            self.fail("web: no previously used register".to_string());
             return;
         }
         self.repeat_line();
@@ -1738,8 +1744,16 @@ impl Keys {
     fn open_external(&mut self, url: &str) {
         match crate::external::check_url(url) {
             Ok(url) => self.effects.push(Effect::OpenExternal(url)),
-            Err(m) => self.message = m,
+            Err(m) => self.fail(m),
         }
+    }
+
+    /// C-CMDRESULT: a command's error. The text goes to the bar as any message does, and the
+    /// command is marked failed, which is what `web.cmd`'s promise reports as `ok: false`. Every
+    /// error a command sets goes through here (never a message parsed for a `web: ` prefix).
+    pub(crate) fn fail(&mut self, message: String) {
+        self.cmd_failed = true;
+        self.message = message;
     }
 
     /// Splits a submitted line into its name and arguments and runs it.
@@ -1749,7 +1763,14 @@ impl Keys {
         let args: Vec<&str> = parts.collect();
         if name == "let" {
             let raw = input.trim_start().strip_prefix(name).unwrap_or("");
-            self.message = crate::registers::let_message(raw, &self.url, self.clipboard.as_deref_mut());
+            let m = crate::registers::let_message(raw, &self.url, self.clipboard.as_deref_mut());
+            // Every message of `:let` that is not `COPIED` is an error (they all start with `web: `
+            // or are LET_USAGE); the check is against the one success text, not a prefix.
+            if m == crate::registers::COPIED {
+                self.message = m;
+            } else {
+                self.fail(m);
+            }
             return;
         }
         // C-ECHO: the rest of the line, verbatim (not split on whitespace).
@@ -1769,9 +1790,9 @@ impl Keys {
         match (name, args) {
             ("go", [word]) => match self.go_target(word) {
                 Ok(url) => send(self, Command::Open { url }),
-                Err(m) => self.message = m,
+                Err(m) => self.fail(m),
             },
-            ("go", _) => self.message = "web: usage: :go <url>".to_string(),
+            ("go", _) => self.fail("web: usage: :go <url>".to_string()),
             // C-NEWBUF (KEYS.md T103-T104): a new buffer; the argument is `:go`'s.
             ("new", rest) | ("bufferNew", rest) => self.buffer_new(rest),
             // C-EXTERNAL (KEYS.md "Opening a page in another browser").
@@ -1781,25 +1802,25 @@ impl Keys {
             }
             ("openExternal", [word]) => match go_url(word, &self.url) {
                 Ok(url) => self.open_external(&url),
-                Err(m) => self.message = m,
+                Err(m) => self.fail(m),
             },
-            ("openExternal", _) => self.message = "web: usage: :openExternal [url]".to_string(),
+            ("openExternal", _) => self.fail("web: usage: :openExternal [url]".to_string()),
             // C-BOOKMARKS (KEYS.md "Bookmarks").
             ("bookmarkAdd", []) => self.bookmark_add(),
-            ("bookmarkAdd", _) => self.message = "web: usage: :bookmarkAdd".to_string(),
+            ("bookmarkAdd", _) => self.fail("web: usage: :bookmarkAdd".to_string()),
             ("bookmarkDelete", []) => {
                 let url = self.url.clone();
                 self.bookmark_delete(&url)
             }
             ("bookmarkDelete", [url]) => self.bookmark_delete(url),
-            ("bookmarkDelete", _) => self.message = "web: usage: :bookmarkDelete [url]".to_string(),
+            ("bookmarkDelete", _) => self.fail("web: usage: :bookmarkDelete [url]".to_string()),
             ("bookmarkSearch", rest) => self.bookmark_search(&rest.join(" ")),
             ("historyDelete", []) => {
                 let url = self.url.clone();
                 self.history_delete(&url)
             }
             ("historyDelete", [url]) => self.history_delete(url),
-            ("historyDelete", _) => self.message = "web: usage: :historyDelete [url]".to_string(),
+            ("historyDelete", _) => self.fail("web: usage: :historyDelete [url]".to_string()),
             ("historyBack", []) => send(self, Command::Back),
             ("historyFront", []) => send(self, Command::Forward),
             // C-PICK: the picker over the history; an argument is the filter already typed.
@@ -1810,12 +1831,12 @@ impl Keys {
             ("forget-site", rest) if rest.len() <= 1 => {
                 let site = rest.first().map(|s| s.to_string()).unwrap_or_else(|| self.url.clone());
                 if site.is_empty() || (rest.is_empty() && !site.starts_with("http")) {
-                    self.message = "web: :forget-site: no http(s) page to forget; give a site".to_string();
+                    self.fail("web: :forget-site: no http(s) page to forget; give a site".to_string());
                 } else {
                     send(self, Command::ForgetSite { site })
                 }
             }
-            ("forget-site", _) => self.message = "web: usage: :forget-site [site or URL]".to_string(),
+            ("forget-site", _) => self.fail("web: usage: :forget-site [site or URL]".to_string()),
             ("help", []) => {
                 let url = self.help_url.clone();
                 send(self, Command::Open { url })
@@ -1835,13 +1856,13 @@ impl Keys {
             // C-REPEAT: vim's `:@:` and `:@@`.
             ("@:", []) => self.repeat_line(),
             ("@@", []) => self.repeat_repeat(),
-            ("@:" | "@@", _) => self.message = format!("web: usage: :{name}"),
+            ("@:" | "@@", _) => self.fail(format!("web: usage: :{name}")),
             ("echo", rest) => self.echo(&rest.join(" ")),
             // C-SOURCE: the scripts again, clean (arguments: not yet).
             ("source", []) => self.source(),
-            ("source", _) => self.message = "web: usage: :source (no arguments yet)".to_string(),
+            ("source", _) => self.fail("web: usage: :source (no arguments yet)".to_string()),
             ("set", [opt]) => self.set_option(opt),
-            ("set", _) => self.message = SET_USAGE.to_string(),
+            ("set", _) => self.fail(SET_USAGE.to_string()),
             ("q", []) | ("quit", []) => {
                 if !self.help_url.is_empty() && self.url == self.help_url {
                     send(self, Command::Back)
@@ -1853,7 +1874,10 @@ impl Keys {
             _ if self.user_command(name, args) => {}
             _ => {
                 let rest = args.join(" ");
-                self.message = format!("web: unknown command: :{name}{}{rest}", if rest.is_empty() { "" } else { " " });
+                self.fail(format!(
+                    "web: unknown command: :{name}{}{rest}",
+                    if rest.is_empty() { "" } else { " " }
+                ));
             }
         }
     }
@@ -1869,7 +1893,7 @@ impl Keys {
                 return;
             }
             _ => {
-                self.message = format!("web: unknown option: {opt} ({})", SET_USAGE.trim_start_matches("web: "));
+                self.fail(format!("web: unknown option: {opt} ({})", SET_USAGE.trim_start_matches("web: ")));
                 return;
             }
         };

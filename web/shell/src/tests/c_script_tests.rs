@@ -500,3 +500,163 @@ fn c_script_buflist_find_and_switch_example() {
     assert_eq!(k.buffers.current, 2, "switched to the slack buffer");
     assert_eq!(k.buffers.list.len(), 3);
 }
+
+// ---- C-CMDRESULT: web.cmd returns a promise settled with { ok, message } ----
+
+/// A shell with the extra commands `defs` (JS), `:Run` as an async function with `body`, and `:Show`
+/// echoing the array `out` as JSON.
+fn result_shell(defs: &str, body: &str) -> Keys {
+    let mut k = shell(&format!(
+        r#"globalThis.out = [];
+           {defs}
+           web.command("Run", async () => {{ {body} }});
+           web.command("Show", () => web.cmd("echo " + JSON.stringify(out)));"#
+    ));
+    k.script_ready();
+    k
+}
+
+fn shown(k: &mut Keys) -> serde_json::Value {
+    type_line(k, "Show");
+    serde_json::from_str(&k.message).unwrap_or_else(|e| panic!("{e}: {}", k.message))
+}
+
+#[test]
+fn c_cmdresult_ok_and_message_for_good_and_failing_lines() {
+    let mut k = result_shell(
+        "",
+        r#"out.push(await web.cmd("go /x"));
+           out.push(await web.cmd(":echo hello  there"));
+           out.push(await web.cmd("nope"));
+           out.push(await web.cmd("b nomatch"));
+           out.push(await web.cmd("b 9"));
+           out.push(await web.cmd("go"));
+           out.push(await web.cmd("b 1"));"#,
+    );
+    k.effects.clear();
+    type_line(&mut k, "Run");
+    let v = shown(&mut k);
+    assert_eq!(v[0], serde_json::json!({"ok": true, "message": ""}));
+    assert_eq!(v[1], serde_json::json!({"ok": true, "message": "hello  there"}));
+    assert_eq!(v[2], serde_json::json!({"ok": false, "message": "web: unknown command: :nope"}));
+    assert_eq!(v[3], serde_json::json!({"ok": false, "message": "web: no buffer matches nomatch"}));
+    assert_eq!(v[4], serde_json::json!({"ok": false, "message": "web: no buffer 9"}));
+    assert_eq!(v[5], serde_json::json!({"ok": false, "message": "web: usage: :go <url>"}));
+    assert_eq!(v[6]["ok"], true, "{v}");
+}
+
+#[test]
+fn c_cmdresult_user_command_that_throws_is_not_ok() {
+    let mut k = result_shell(
+        r#"web.command("Boom", () => { throw new Error("bad"); });
+           web.command("Fine", () => {});
+           web.command("Inner", () => web.cmd("nope"));"#,
+        r#"out.push(await web.cmd("Boom"));
+           out.push(await web.cmd("Fine"));
+           out.push(await web.cmd("Inner"));"#,
+    );
+    type_line(&mut k, "Run");
+    let v = shown(&mut k);
+    assert_eq!(v[0]["ok"], false);
+    let m = v[0]["message"].as_str().unwrap();
+    assert!(m.starts_with("init.js:") && m.contains("bad"), "{v}");
+    assert_eq!(v[1], serde_json::json!({"ok": true, "message": ""}));
+    // A line the command itself ran failed; the command did not.
+    assert_eq!(v[2]["ok"], true, "{v}");
+}
+
+#[test]
+fn c_cmdresult_awaited_lines_run_in_order_and_the_slack_example_falls_back() {
+    let mut k = shell(
+        r#"web.command("Run", async () => {
+             web.cmd("go /first");
+             await web.cmd("go /second");
+             web.cmd("go /fourth");
+             const r = await web.cmd("b app.slack.com");
+             if (!r.ok) web.cmd("go /fallback");
+           });"#,
+    );
+    k.script_ready();
+    k.effects.clear();
+    type_line(&mut k, "Run");
+    let urls: Vec<String> = sent(&mut k)
+        .into_iter()
+        .map(|c| match c {
+            Command::Open { url } => url,
+            o => panic!("{o:?}"),
+        })
+        .collect();
+    assert_eq!(
+        urls,
+        [
+            "https://a.test/first",
+            "https://a.test/second",
+            "https://a.test/fourth",
+            "https://a.test/fallback"
+        ]
+    );
+}
+
+#[test]
+fn c_cmdresult_ignoring_the_promise_is_silent_and_failures_never_reject() {
+    let mut k = shell(r#"web.command("Run", () => { web.cmd("nope"); web.cmd("b nomatch"); web.cmd("go /ok"); });"#);
+    k.script_ready();
+    k.effects.clear();
+    type_line(&mut k, "Run");
+    assert_eq!(
+        k.message, "web: no buffer matches nomatch",
+        "the last error message, no rejection report"
+    );
+    assert!(!logs(&k).iter().any(|l| l.contains("unhandled")), "{:?}", logs(&k));
+    assert_eq!(sent(&mut k).len(), 1);
+    // With a handler the failure is a value, not an exception.
+    let mut k = shell(r#"web.command("Run", () => web.cmd("nope").then(r => web.cmd("echo ok=" + r.ok)));"#);
+    k.script_ready();
+    type_line(&mut k, "Run");
+    assert_eq!(k.message, "ok=false");
+}
+
+#[test]
+fn c_cmdresult_the_bar_keeps_its_message_when_the_line_gave_none() {
+    let mut k = shell(r#"web.command("Run", () => web.cmd("go /x"));"#);
+    k.script_ready();
+    k.message = "earlier".into();
+    k.run_command_line("Run");
+    assert_eq!(k.message, "earlier");
+}
+
+#[test]
+fn c_cmdresult_error_in_the_continuation_is_reported_like_any_call() {
+    let mut k = shell(r#"web.command("Run", async () => { await web.cmd("go /x"); throw new Error("after"); });"#);
+    k.script_ready();
+    type_line(&mut k, "Run");
+    assert!(k.message.contains("unhandled rejection: after"), "{}", k.message);
+}
+
+#[test]
+fn c_cmdresult_top_level_await_resumes_at_ready() {
+    let mut k = Keys::new(None, String::new(), None);
+    k.load_script_source(
+        "init.js",
+        r#"const r = await web.cmd("nope"); web.cmd("echo top " + r.ok);"#,
+        BUDGET,
+    );
+    assert_eq!(k.message, "");
+    assert_eq!(k.buffers.tab_created(1, None), TabCreated::Buffer(1));
+    k.script_ready();
+    assert_eq!(k.message, "top false");
+}
+
+#[test]
+fn c_cmdresult_a_chain_that_never_ends_is_stopped() {
+    let mut k = shell(r#"web.command("Run", async () => { while (true) await web.cmd("go /x"); });"#);
+    k.script_ready();
+    k.effects.clear();
+    let start = Instant::now();
+    type_line(&mut k, "Run");
+    assert!(start.elapsed() < Duration::from_secs(20));
+    assert!(k.message.contains("lines in one chain"), "{}", k.message);
+    // Works again afterwards.
+    type_line(&mut k, "echo fine");
+    assert_eq!(k.message, "fine");
+}

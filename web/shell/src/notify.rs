@@ -191,7 +191,7 @@ impl Keys {
             return;
         }
         if url.is_empty() {
-            self.message = format!("web: buffer {buffer} is closed and the notification has no page URL");
+            self.fail(format!("web: buffer {buffer} is closed and the notification has no page URL"));
             return;
         }
         let num = self.open_buffer(&url);

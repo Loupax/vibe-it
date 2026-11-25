@@ -406,7 +406,7 @@ impl Keys {
     /// status bar says `empty`.
     pub fn open_picker(&mut self, name: &str, rows: Vec<Row>, filter: &str, empty: &str) {
         if rows.is_empty() {
-            self.message = empty.to_string();
+            self.fail(empty.to_string());
             return;
         }
         let mut p = Picker::new(name, rows);
@@ -430,11 +430,11 @@ impl Keys {
     pub fn bookmark_add(&mut self) {
         let url = self.url.clone();
         let Some(dir) = self.state_dir() else {
-            self.message = "web: no state directory: bookmarks are off".to_string();
+            self.fail("web: no state directory: bookmarks are off".to_string());
             return;
         };
         if url.is_empty() || url == "about:blank" {
-            self.message = "web: no page to bookmark".to_string();
+            self.fail("web: no page to bookmark".to_string());
             return;
         }
         let bare = |u: &str| u.split_once("://").map_or(u, |(_, r)| r).to_string();
@@ -443,41 +443,41 @@ impl Keys {
         } else {
             self.title.as_str()
         };
-        self.message = match crate::bookmarks::add(&dir, &url, title) {
-            Ok(crate::bookmarks::Added::New) => format!("bookmarked: {url}"),
-            Ok(crate::bookmarks::Added::Updated) => format!("bookmark updated: {url}"),
-            Err(e) => format!("web: bookmark failed: {e}"),
-        };
+        match crate::bookmarks::add(&dir, &url, title) {
+            Ok(crate::bookmarks::Added::New) => self.message = format!("bookmarked: {url}"),
+            Ok(crate::bookmarks::Added::Updated) => self.message = format!("bookmark updated: {url}"),
+            Err(e) => self.fail(format!("web: bookmark failed: {e}")),
+        }
     }
 
     /// `:bookmarkDelete [url]` (T70, T71).
     pub fn bookmark_delete(&mut self, url: &str) {
         let Some(dir) = self.state_dir() else {
-            self.message = "web: no state directory: bookmarks are off".to_string();
+            self.fail("web: no state directory: bookmarks are off".to_string());
             return;
         };
         if url.is_empty() {
-            self.message = "web: no page: give the bookmark's URL".to_string();
+            self.fail("web: no page: give the bookmark's URL".to_string());
             return;
         }
-        self.message = match crate::bookmarks::delete(&dir, url) {
-            Ok(true) => format!("bookmark removed: {url}"),
-            Ok(false) => format!("web: not bookmarked: {url}"),
-            Err(e) => format!("web: bookmark failed: {e}"),
-        };
+        match crate::bookmarks::delete(&dir, url) {
+            Ok(true) => self.message = format!("bookmark removed: {url}"),
+            Ok(false) => self.fail(format!("web: not bookmarked: {url}")),
+            Err(e) => self.fail(format!("web: bookmark failed: {e}")),
+        }
     }
 
     /// `:historyDelete [url]` (T164).
     pub fn history_delete(&mut self, url: &str) {
         let Some(dir) = self.state_dir() else {
-            self.message = "web: no state directory: history is off".to_string();
+            self.fail("web: no state directory: history is off".to_string());
             return;
         };
-        self.message = match crate::history::delete(&dir, url) {
-            Ok(0) => format!("web: not in the history: {url}"),
-            Ok(n) => format!("history entry removed: {url} ({n} visits)"),
-            Err(e) => format!("web: history delete failed: {e}"),
-        };
+        match crate::history::delete(&dir, url) {
+            Ok(0) => self.fail(format!("web: not in the history: {url}")),
+            Ok(n) => self.message = format!("history entry removed: {url} ({n} visits)"),
+            Err(e) => self.fail(format!("web: history delete failed: {e}")),
+        }
     }
 
     /// `:bookmarkSearch [filter]` (T72).
@@ -611,7 +611,7 @@ impl Keys {
         let Some(row) = p.selected_row().cloned() else { return };
         let name = p.name.clone();
         if !matches!(name.as_str(), "history" | "bookmarks" | "buffers") {
-            self.message = format!("web: nothing to delete in {name}");
+            self.fail(format!("web: nothing to delete in {name}"));
             return;
         }
         if self.scripts.as_ref().is_none_or(|s| s.delete_confirmation(&name)) {
