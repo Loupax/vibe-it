@@ -510,6 +510,41 @@ stop early on a hard failure.
       visited root shows once with its own count (not the site total); order by own count then recency; Ctrl-d y
       on every row deletes something (no `not in the history`); `:go` ranking tests untouched and passing. Update
       c_pickdel_live.py if its 7 -> 5 row count assumed the made-up root.
+- [ ] [WIP] C-SCRIPT-BUFLIST [S] (user, 2026-11-25: "I'd like an easy way to navigate back to [Slack] ... I think
+      it's better to have an internal command that ls uses then. maybe a simple list of just web.buffers?") One
+      internal source for the buffer list, used by `:ls` and by scripts, so they never disagree.
+      - buffers.rs: `pub fn infos(b: &Buffers) -> Vec<BufferInfo>` in `:ls` order: `number` (num), `url`, `title`,
+        `description`, `current` (num == b.current), `alternate` (b.alternate == Some(num)), `loading`, `crashed`,
+        `unread` (count). `rows()` is rebuilt on top of it (same picker rows, byte for byte: existing tests prove it).
+      - script.rs: `web.buffers.list()` (on the existing `web.buffers` object that holds `deleteConfirmation`; a
+        function, not a property, so it is clearly read at call time) returns a fresh array of frozen plain objects
+        with those fields, read from the live `Buffers` at the moment of the call. The script side needs read access
+        to the shell's buffers from inside a script call: pass a snapshot in, or a shared handle, whichever fits the
+        current `Scripts` design; say which in the PR. Called during start before `ready` (no buffers yet): `[]`.
+      - The example the user wants works: `web.map("n", "gs", () => { const b = web.buffers.list().find(b =>
+        b.url.startsWith("https://app.slack.com/")); web.cmd(b ? "b " + b.number : "new https://app.slack.com"); })`.
+        A buffer opened by `web.cmd("new ...")` earlier in the SAME call is not in the list yet (the line runs after
+        the call): document it.
+      - Docs: SCRIPTING.md `web.buffers.list()` (fields, call-time snapshot, the example) and a dated line in
+        "Plugins are trusted code": this is the first read API (URLs of every buffer can now leave through
+        `web.cmd`); DECISIONS.md dated entry; KEYS.md only if a row changes; help.html if it lists the API.
+      Tests: fields for current/alternate/other, order equals `:ls`, empty before ready, a `web.cmd("b ...")` result
+      seen by a list() in a LATER call, objects frozen, `rows()` output unchanged, `c_script_only_web_is_exposed`
+      updated. Live: c_script_live or a new step: three start buffers, a mapping that finds one by URL and
+      switches to it (log shows the switch).
+- [ ] C-CMDRESULT [S] (after C-SCRIPT-BUFLIST, same files; user, 2026-11-25: "I think it's better to know if the
+      command failed so we can handle this properly") `web.cmd(line)` returns a Promise that settles after that
+      line has run, with `{ ok, message }`: `ok` false when the command reported an error (the bar's `web: ...`
+      error messages, unknown command, usage, a script error from a user command it called), else true; `message`
+      the text the bar was given (may be ""). Never rejects (a failed command is a result, not an exception), so
+      ignoring the promise stays silent and existing scripts are unchanged. Lines still run after the current call
+      returns, in order; the promise resolves in its own budgeted job run (same budget and error reporting as any
+      script call). Find how dispatch_command signals errors today; if errors are only strings, add an explicit
+      ok/err result to the dispatch path rather than parsing `web: ` prefixes, and say how in the PR. Depth limit
+      (SCRIPT_DEPTH_MAX) unchanged. Docs: SCRIPTING.md `web.cmd` (return value, the Slack example with
+      `await web.cmd("b app.slack.com")` falling back to `new`), DECISIONS.md. Tests: ok true/false for a good line,
+      an unknown command, `:b nomatch`, a user command that throws; order of several awaited lines; promise ignored
+      = no unhandled rejection; `:source` while a promise is pending drops it without error.
 - [x] C-PICKDEL-MAP [S] (DONE 2026-11-25, a9ecd2c, #753: T167-T168; messages and script errors show beside the filter as T169) (after C-PICKDEL; user, 2026-11-25; KEYS.md T167-T168; SCRIPTING.md "web.map" mode "p") Picker
       mappings for scripts: `web.map("p", "<C-x>", fn)` calls `fn(row)` on the selected row. Read first: script.rs
       `web_map`, `call_map`, keys.rs `run_mapping`, `finish_script_call`, picker.rs `pick_key`.
