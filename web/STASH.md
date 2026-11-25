@@ -179,6 +179,9 @@ the URL with `https://`/`http://` and `www.` stripped; empty word = everything):
 Ties (both groups): the most recent visit first. This is the order of the ghost
 suggestion: the first match is shown, Tab walks down the list (KEYS.md T45-T53).
 
+The site roots are `:go` only (C-HISTREAL, user 2026-11-25): `:historySearch` lists just the URLs that
+have a line in the file, one row each, by their own visit count (group 2's order, a visited root included).
+
 - `--forget-site` does not touch history (yet).
 
 ## Command history (C-CMDHIST)

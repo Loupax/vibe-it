@@ -155,8 +155,10 @@ def main():
         step("open :historySearch over the seeded history", open_picker)
 
         def select_docs():
-            # The first row is a site root made up from its pages (no line of its own to delete); select
-            # the page row, which has real lines.
+            # Every row is a real history line (C-HISTREAL); move to the docs page.
+            if state0["url"].endswith("/docs"):  # the most visited URL is the first row now
+                state0.update(sel=1)
+                return f"selected [1] {state0['url']}"
             for _ in range(state0["total"]):
                 k = log.mark()
                 inject("hold:c", "key:n", "release", "wait:200")
@@ -227,8 +229,8 @@ def main():
                 raise Fail(f"{url} is still in the file: {after}")
             if after != want_kept:
                 raise Fail(f"other lines changed: {after} vs {want_kept}")
-            # Its site root was made up from that one page, so it goes too (two rows less).
-            if total != state0["total"] - 2 or sel != state0["sel"] or newurl == url:
+            # Every row is a real URL (C-HISTREAL): one row less.
+            if total != state0["total"] - 1 or sel != state0["sel"] or newurl == url:
                 raise Fail(f"after y: [{sel}/{n} of {total}] {newurl} (was {state0['total']} rows, {url})")
             return f"{url}: {len(want_gone)} line(s) gone from the file, the others kept; rows {state0['total']} -> {total}, selected [{sel}] {newurl}; message `{m[1]}`"
 

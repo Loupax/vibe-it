@@ -62,9 +62,9 @@ pub struct Row {
 }
 
 /// `:historySearch`'s rows from the history file's text (STASH.md "History"): the `:go` ranking
-/// (`completion::rank_history`: site roots by visits to the site, then pages by their own visits,
-/// ties newest first). Label: the newest non-empty title recorded for exactly that URL (a site root
-/// without one: its host); a page with no title shows its URL as the label. Detail: the URL.
+/// (`completion::rank_pages`, C-HISTREAL: only URLs that have a line in the file, by their own
+/// visits, ties newest first; no made-up site roots). Label: the newest non-empty title recorded for
+/// exactly that URL; a page with no title shows its URL as the label. Detail: the URL.
 /// Matched on the URL without `https://`/`http://`/`www.`, and the title.
 pub fn history_rows(text: &str) -> Vec<Row> {
     let mut titles: std::collections::HashMap<&str, (u64, &str)> = std::collections::HashMap::new();
@@ -82,16 +82,11 @@ pub fn history_rows(text: &str) -> Vec<Row> {
             *e = (ms, title);
         }
     }
-    crate::completion::rank_history(text)
+    crate::completion::rank_pages(text)
         .into_iter()
         .map(|e| {
             let title = match titles.get(e.url.as_str()) {
                 Some((_, t)) => t.to_string(),
-                // A site root with no title of its own: its host (STASH.md "Ranking").
-                None if url::Url::parse(&e.url).is_ok_and(|u| u.path() == "/" && u.query().is_none()) => url::Url::parse(&e.url)
-                    .ok()
-                    .and_then(|u| u.host_str().map(str::to_string))
-                    .unwrap_or_default(),
                 None => String::new(),
             };
             let bare = e.url[e.skip..].to_string();

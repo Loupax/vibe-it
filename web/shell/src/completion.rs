@@ -238,6 +238,17 @@ pub fn strip_scheme_www(url: &str) -> &str {
 /// its own visits; ties go to the newest visit. Lines that do not parse (no tab, bad time, a URL
 /// that is not http(s) with a host) are skipped.
 pub fn rank_history(text: &str) -> Vec<HistoryEntry> {
+    rank_with_sites(text, true)
+}
+
+/// `:historySearch`'s order (C-HISTREAL): only URLs that have a line in the file, one entry per URL,
+/// ranked by its own visits, ties newest first. No made-up site roots; a visited root is an
+/// ordinary entry with its own count.
+pub fn rank_pages(text: &str) -> Vec<HistoryEntry> {
+    rank_with_sites(text, false)
+}
+
+fn rank_with_sites(text: &str, with_sites: bool) -> Vec<HistoryEntry> {
     // (visits, newest ms) per origin root and per page.
     let mut sites: HashMap<String, (u32, u64)> = HashMap::new();
     let mut pages: HashMap<String, (u32, u64)> = HashMap::new();
@@ -255,10 +266,12 @@ pub fn rank_history(text: &str) -> Vec<HistoryEntry> {
             e.0 += 1;
             e.1 = e.1.max(ms);
         };
-        if url != root {
+        if !with_sites || url != root {
             bump(&mut pages, url.to_string());
         }
-        bump(&mut sites, root);
+        if with_sites {
+            bump(&mut sites, root);
+        }
     }
     let sorted = |m: HashMap<String, (u32, u64)>| {
         let mut v: Vec<_> = m.into_iter().collect();

@@ -728,3 +728,25 @@ fn t168_deleting_the_last_row_closes_the_picker() {
     ctrl(&mut k, 'x');
     assert_eq!(k.vim_mode, VimMode::Normal);
 }
+
+// ---------- C-HISTREAL: every row is a real history line ----------
+
+#[test]
+fn c_histreal_ctrl_d_y_on_every_row_deletes_something() {
+    let d = Dir::new("histreal");
+    // Pages of two hosts, no root line for either: no made-up root rows to fail on.
+    d.file(
+        "history",
+        "1\thttps://h.test/a\tA\n2\thttps://h.test/b\tB\n3\thttps://h.test/b\tB\n4\thttps://i.test/c\tC\n",
+    );
+    let mut k = keys_in(&d);
+    run(&mut k, "historySearch");
+    assert!(k.pick_log().contains("[1/3 of 3]"), "{}", k.pick_log());
+    for left in (1..=3).rev() {
+        ctrl_d(&mut k);
+        press(&mut k, KeyInput::ch('y'));
+        assert!(k.message.starts_with("history entry removed:"), "{left}: {}", k.message);
+    }
+    assert_eq!(d.read("history"), "");
+    assert_eq!(k.vim_mode, VimMode::Normal);
+}
