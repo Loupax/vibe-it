@@ -429,8 +429,7 @@ in every list (move, Enter runs the row, Esc closes) and a mode of its own").
 The user's decision, 2026-11-25 (DECISIONS.md "Deleting from a picker"): Ctrl-d deletes the selected row in
 `:historySearch`, `:bookmarkSearch` and `:bufferList`/`:ls`, after a y/n question in the status bar; each source
 has a script switch that turns the question off (SCRIPTING.md "web.history, web.bookmarks, web.buffers", default
-`true`). A script can map its own picker keys (`web.map("p", ...)`, T167). *(Built: C-PICKDEL, T158-T166.
-Not built yet: C-PICKDEL-MAP, T167-T168.)*
+`true`). A script can map its own picker keys (`web.map("p", ...)`, T167). *(Built: C-PICKDEL, T158-T166, C-PICKDEL-MAP, T167-T168.)*
 
 | # | From | Event | Guard | To | Effect |
 |---|---|---|---|---|---|
@@ -443,8 +442,8 @@ Not built yet: C-PICKDEL-MAP, T167-T168.)*
 | T164 | COMMAND | Enter on `:historyDelete [url]` | none | NORMAL | removes every visit of exactly that URL from `DIR/history` (no URL: the page's); `history entry removed: <url> (<n> visits)`, or `web: not in the history: <url>`. A site's root and its pages are separate URLs: deleting the root leaves the pages |
 | T165 | PICK | Ctrl-d on the current buffer (`:ls`) | confirmed or no question | PICK | as `:bd`: the page behind the list switches to the alternate (or next) buffer; the only buffer is replaced by `about:blank` (one row stays) |
 | T166 | any | a script sets `web.history`, `web.bookmarks` or `web.buffers` `.deleteConfirmation` | the value is `true` or `false` | same | the switch is set for the session; `:source` puts every switch back to `true` before running the files again. Any other value: a script error (`must be true or false`), the switch keeps its value |
-| T167 | PICK | a key mapped with `web.map("p", "<C-x>", fn)` | a row is selected | PICK | before every built-in picker key (Ctrl-d, Ctrl-n, Ctrl-p included): `fn(row)` runs (`row`: `source`, `label`, `detail` and one of `url`, `buffer`, `popup`, `notice`), then its `web.cmd` lines in order. The shell asks nothing. No row: nothing *(C-PICKDEL-MAP)* |
-| T168 | PICK | after T167 | still in PICK | PICK | the list refreshes as T163 *(C-PICKDEL-MAP)* |
+| T167 | PICK | a key mapped with `web.map("p", "<C-x>", fn)` | a row is selected | PICK | before every built-in picker key (Ctrl-d, Ctrl-n, Ctrl-p included): `fn(row)` runs (`row`: `source`, `label`, `detail` and one of `url`, `buffer`, `popup`, `notice`), then its `web.cmd` lines in order. The shell asks nothing. No row: nothing. A message its commands set shows beside the filter line (T169) *(C-PICKDEL-MAP)* |
+| T168 | PICK | after T167 | still in PICK | PICK | the list refreshes as T163; a script error shows beside the filter line too *(C-PICKDEL-MAP)* |
 | T169 | PICK | a message is set while the picker is open (T159-T162's `not deleted`, `history entry removed: ...`, `bookmark removed: ...`, `buffer <n> killed`, `web: nothing to delete in <name>`, a delete's error) | none | PICK | the bar draws the filter line as usual and the message right-aligned after it, elided with `…` in the room the filter text leaves (the filter text wins); it goes at the next key that changes the filter or moves the selection (a key that does neither keeps it), when the picker closes, and it is not carried into a picker opened later *(C-PICKMSG)* |
 
 **Adding a source** (C-BOOKMARKS, C4, C-POPUPS): a function returning `Vec<picker::Row>` (label, detail, the

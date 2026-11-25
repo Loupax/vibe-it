@@ -146,7 +146,7 @@ next key; on a timeout or a key that matches nothing, the pending keys are handl
 they would have been without the mapping. Other keys (`<A-...>`, `<Space>`, arrows, ...)
 come when a mapping needs them.
 
-#### Mode `"p"`: keys in a picker (2026-11-25, user; C-PICKDEL-MAP, not built yet)
+#### Mode `"p"`: keys in a picker (2026-11-25, user; C-PICKDEL-MAP)
 
 `web.map("p", "<C-x>", fn)` runs `fn(row)` on the picker's selected row (KEYS.md T167-T168). In a picker the
 letters type the filter, so a `"p"` mapping is exactly one Ctrl key, and its `rhs` is a function (a `:` line
@@ -155,7 +155,8 @@ built-in keys, so mapping `<C-d>` replaces the built-in delete and its question 
 object: `source` (`"history"`, `"bookmarks"`, `"buffers"`, `"popups"`, `"notifications"`), `label`, `detail`,
 and the one of `url` (history, bookmarks), `buffer` (buffers), `popup`, `notice` that applies. After `fn` and
 its `web.cmd` lines have run, the list is read again (a deleted row disappears). No row selected: `fn` is not
-called.
+called. A message the function's commands set (or its error) shows beside the filter line like the
+picker's own (KEYS.md T169).
 
 ```js
 // Ctrl-x deletes history rows without asking, and only history rows.
