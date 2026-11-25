@@ -485,7 +485,7 @@ stop early on a hard failure.
       Live: extend test/c_pick_live.py (or a new c_pickdel_live.py beside it, same style) with a step: seeded
       history, `:historySearch`, Ctrl-d, `y`, the row is gone in the log's `pick` line and from the history file.
       Report the KEYS rows built and anything decided along the way.
-- [ ] [WIP] C-PICKMSG [XS] (from #751; before C-PICKDEL-MAP, same files) In PICK the `>` filter line hides the bar's
+- [x] C-PICKMSG [XS] (DONE 2026-11-25, 844f582, #752: right of the filter, cleared by a filter change or selection move; T169) (from #751; before C-PICKDEL-MAP, same files) In PICK the `>` filter line hides the bar's
       message (statusbar.rs draws the message only when no line is shown), so `not deleted`, `history entry removed:
       ...`, `bookmark deleted ...`, `web: nothing to delete in <name>` and a delete's error are set but never seen.
       Show a message set while PICK is open to the right of the filter text (elided by the bar as usual, filter text
@@ -498,7 +498,7 @@ stop early on a hard failure.
       no visits of its own: :forget-site removes the site` instead; (b) Ctrl-d on a made-up root removes all its
       pages' lines (after a question naming the count); (c) Ctrl-d on a made-up root says nothing to delete and
       does not ask. Coordinator suggests (a).
-- [ ] C-PICKDEL-MAP [S] (after C-PICKDEL; user, 2026-11-25; KEYS.md T167-T168; SCRIPTING.md "web.map" mode "p") Picker
+- [ ] [WIP] C-PICKDEL-MAP [S] (after C-PICKDEL; user, 2026-11-25; KEYS.md T167-T168; SCRIPTING.md "web.map" mode "p") Picker
       mappings for scripts: `web.map("p", "<C-x>", fn)` calls `fn(row)` on the selected row. Read first: script.rs
       `web_map`, `call_map`, keys.rs `run_mapping`, `finish_script_call`, picker.rs `pick_key`.
       - `web_map`: accept mode "p" besides "n" (the unknown-mode error lists both). A "p" mapping's keys must parse

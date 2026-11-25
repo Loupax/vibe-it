@@ -632,3 +632,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-25 C-PICKDEL merged (#751, 608bfdc). Filed C-PICKMSG (messages hidden by the filter line in PICK; running, Sonnet) and C-PICKROOT (USER DECISION: Ctrl-d on a made-up site-root row). C-PICKDEL-MAP after C-PICKMSG (same files).
 
 ## 2026-11-25 web reinstalled with #751 (20261125-143116-a9e0cf8c). Guide v5: web.history/bookmarks/buffers.deleteConfirmation.
+
+## 2026-11-25 C-PICKMSG merged (#752, 844f582). Started C-PICKDEL-MAP (Sonnet).
