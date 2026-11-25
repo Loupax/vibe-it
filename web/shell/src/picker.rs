@@ -259,6 +259,8 @@ pub struct Picker {
     pub selected: usize,
     /// The first match shown (the list scrolls to keep the selection visible).
     top: usize,
+    /// C-PICKDEL: the row Ctrl-d asked about, while the bar waits for `y` (T158).
+    pub confirm: Option<Row>,
 }
 
 impl Picker {
@@ -270,7 +272,17 @@ impl Picker {
             matches,
             selected: 0,
             top: 0,
+            confirm: None,
         }
+    }
+
+    /// T163: the source's rows were read again (a row was deleted): re-rank with `filter`, keep the
+    /// selection at the same position (clamped to the new last match) and the list scrolled to it.
+    pub fn replace_rows(&mut self, rows: Vec<Row>, filter: &str) {
+        self.rows = rows;
+        self.matches = rank(&self.rows, filter);
+        self.selected = self.selected.min(self.matches.len().saturating_sub(1));
+        self.top = scroll_top(self.top, self.selected, PICKER_MAX_ROWS).min(self.matches.len().saturating_sub(1));
     }
 
     /// T59: the filter changed: re-rank, select the best match.
@@ -459,6 +471,19 @@ impl Keys {
         };
     }
 
+    /// `:historyDelete [url]` (T164).
+    pub fn history_delete(&mut self, url: &str) {
+        let Some(dir) = self.state_dir() else {
+            self.message = "web: no state directory: history is off".to_string();
+            return;
+        };
+        self.message = match crate::history::delete(&dir, url) {
+            Ok(0) => format!("web: not in the history: {url}"),
+            Ok(n) => format!("history entry removed: {url} ({n} visits)"),
+            Err(e) => format!("web: history delete failed: {e}"),
+        };
+    }
+
     /// `:bookmarkSearch [filter]` (T72).
     pub fn bookmark_search(&mut self, filter: &str) {
         let rows = crate::bookmarks::rows(&crate::bookmarks::load(self.state_dir().as_deref()));
@@ -470,7 +495,22 @@ impl Keys {
         use smithay::input::keyboard::Keysym as K;
         let s = key.sym;
         let plain = !key.ctrl && !key.alt && !key.logo;
-        if s == K::Escape {
+        if self.picker.as_ref().is_some_and(|p| p.confirm.is_some()) {
+            // T160/T161: the question is open. A modifier alone is not an answer.
+            if crate::keys::is_modifier_sym(s) {
+                return;
+            }
+            let row = self.picker.as_mut().and_then(|p| p.confirm.take());
+            match row {
+                Some(row) if plain && matches!(key.ch, Some('y') | Some('Y')) => self.pick_delete(&row),
+                _ => self.message = "not deleted".to_string(),
+            }
+            return;
+        }
+        if key.ctrl && !key.alt && !key.logo && key.ch == Some('d') {
+            // T158, T159, T162.
+            self.pick_ctrl_d();
+        } else if s == K::Escape {
             // T64.
             self.close_line();
         } else if s == K::Return || s == K::KP_Enter {
@@ -518,6 +558,61 @@ impl Keys {
         }
     }
 
+    /// T158/T159/T162: Ctrl-d on the selected row.
+    fn pick_ctrl_d(&mut self) {
+        let Some(p) = &self.picker else { return };
+        let Some(row) = p.selected_row().cloned() else { return };
+        let name = p.name.clone();
+        if !matches!(name.as_str(), "history" | "bookmarks" | "buffers") {
+            self.message = format!("web: nothing to delete in {name}");
+            return;
+        }
+        if self.scripts.as_ref().is_none_or(|s| s.delete_confirmation(&name)) {
+            if let Some(p) = &mut self.picker {
+                p.confirm = Some(row);
+            }
+        } else {
+            self.pick_delete(&row);
+        }
+    }
+
+    /// The delete itself (T159, T160): what `:historyDelete`, `:bookmarkDelete` or `:bufferKill` do
+    /// for the row, then the list is read again (T163).
+    fn pick_delete(&mut self, row: &Row) {
+        let Some(name) = self.picker.as_ref().map(|p| p.name.clone()) else {
+            return;
+        };
+        match (name.as_str(), &row.action) {
+            ("history", PickAction::Open(url)) => self.history_delete(url),
+            ("bookmarks", PickAction::Open(url)) => self.bookmark_delete(url),
+            ("buffers", PickAction::Buffer(n)) => self.buffer_kill(&[&n.to_string()]),
+            _ => return,
+        }
+        self.refresh_picker();
+    }
+
+    /// T163: reloads the open picker's rows by its name; no rows left: it closes and the message
+    /// the delete set stays.
+    pub fn refresh_picker(&mut self) {
+        let Some(name) = self.picker.as_ref().map(|p| p.name.clone()) else {
+            return;
+        };
+        let rows = match name.as_str() {
+            "history" => history_source(self.state_dir().as_deref()),
+            "bookmarks" => crate::bookmarks::rows(&crate::bookmarks::load(self.state_dir().as_deref())),
+            "buffers" => crate::buffers::rows(&self.buffers),
+            _ => return,
+        };
+        if rows.is_empty() {
+            self.close_line();
+            return;
+        }
+        let filter = self.line.text.clone();
+        if let Some(p) = &mut self.picker {
+            p.replace_rows(rows, &filter);
+        }
+    }
+
     /// T62: what Enter on a row does.
     fn run_pick_action(&mut self, action: PickAction) {
         match action {
@@ -555,7 +650,8 @@ impl Keys {
             })
             .unwrap_or_default();
         let at = if p.match_count() == 0 { 0 } else { p.selected + 1 };
-        format!(" pick {} [{at}/{} of {}] {sel}", p.name, p.match_count(), p.total())
+        let ask = if p.confirm.is_some() { " confirm" } else { "" };
+        format!(" pick {} [{at}/{} of {}] {sel}{ask}", p.name, p.match_count(), p.total())
     }
 }
 

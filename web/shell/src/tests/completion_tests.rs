@@ -82,11 +82,15 @@ fn keys_t46_no_match_empty_word_or_cursor_not_at_the_end_means_no_ghost() {
 
 #[test]
 fn keys_t47_t48_tab_cycles_and_wraps_shift_tab_goes_back() {
-    // `h` matches help, historyBack, historyFront, historySearch (C-PICK).
+    // `h` matches help, historyBack, historyDelete, historyFront, historySearch (C-PICK).
     let mut g = ghost("h").expect("ghost");
-    assert_eq!(g.candidates, vec!["help", "historyBack", "historyFront", "historySearch"]);
+    assert_eq!(
+        g.candidates,
+        vec!["help", "historyBack", "historyDelete", "historyFront", "historySearch"]
+    );
     assert_eq!(g.tab("h"), None);
     assert_eq!(g.rest("h"), "istoryBack");
+    g.tab("h");
     g.tab("h");
     g.tab("h");
     g.tab("h");

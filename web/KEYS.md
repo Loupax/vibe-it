@@ -429,8 +429,8 @@ in every list (move, Enter runs the row, Esc closes) and a mode of its own").
 The user's decision, 2026-11-25 (DECISIONS.md "Deleting from a picker"): Ctrl-d deletes the selected row in
 `:historySearch`, `:bookmarkSearch` and `:bufferList`/`:ls`, after a y/n question in the status bar; each source
 has a script switch that turns the question off (SCRIPTING.md "web.history, web.bookmarks, web.buffers", default
-`true`). A script can map its own picker keys (`web.map("p", ...)`, T167). *(Not built yet: C-PICKDEL,
-C-PICKDEL-MAP.)*
+`true`). A script can map its own picker keys (`web.map("p", ...)`, T167). *(Built: C-PICKDEL, T158-T166.
+Not built yet: C-PICKDEL-MAP, T167-T168.)*
 
 | # | From | Event | Guard | To | Effect |
 |---|---|---|---|---|---|

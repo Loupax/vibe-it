@@ -273,7 +273,7 @@ fn c_script_only_web_is_exposed() {
         if (typeof std !== "undefined" || typeof os !== "undefined" || typeof setTimeout !== "undefined"
             || typeof require !== "undefined" || typeof print !== "undefined") throw new Error("leak");
         const keys = Object.keys(web).sort().join(",");
-        if (keys !== "cmd,command,map,on") throw new Error(keys);
+        if (keys !== "bookmarks,buffers,cmd,command,history,map,on") throw new Error(keys);
         web.extra = 1;
         "#,
     );

@@ -111,6 +111,44 @@ pub fn trim(dir: &Path, max: usize) -> io::Result<()> {
     Ok(()) // dropping `lock` releases the flock
 }
 
+/// `:historyDelete` (C-PICKDEL): removes every line whose URL (second field) is exactly `url`, and
+/// returns how many it removed. Same lock, temp file and rename as [`trim`]; no file: `Ok(0)`.
+pub fn delete(dir: &Path, url: &str) -> io::Result<usize> {
+    let path = dir.join("history");
+    if !path.exists() {
+        return Ok(0);
+    }
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(dir.join(".history.lock"))?;
+    lock.lock()?;
+    let mut data = Vec::new();
+    File::open(&path)?.read_to_end(&mut data)?;
+    let mut kept = Vec::with_capacity(data.len());
+    let mut removed = 0;
+    for line in data.split_inclusive(|&b| b == b'\n') {
+        if line.split(|&b| b == b'\t').nth(1) == Some(url.as_bytes()) {
+            removed += 1;
+        } else {
+            kept.extend_from_slice(line);
+        }
+    }
+    if removed > 0 {
+        let tmp = dir.join(format!(".history.tmp-{}", std::process::id()));
+        {
+            let mut f = OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
+            f.write_all(&kept)?;
+            f.sync_all()?;
+        }
+        fs::rename(&tmp, &path)?;
+    }
+    Ok(removed)
+}
+
 /// The history writer for one state directory (`None`: no history, or `HISTORY` is off).
 pub struct History {
     dir: Option<PathBuf>,
