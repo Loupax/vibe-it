@@ -310,7 +310,7 @@ stop early on a hard failure.
       `web.cmd("echo " + x)`; no `console` object (SCRIPTING.md: nothing exposed unasked). KEYS.md, help.html,
       SCRIPTING.md example, unit tests. Interacts with C-SCRIPT-ERRBAR: an echo from init.js at start must also
       survive the first page load (same fix: messages set before/at start, from scripts, stay until a key).
-- [ ] C-SCRIPT-MODULES [M] (user, 2026-11-25: "I don't like how the 'default'
+- [ ] [WIP] C-SCRIPT-MODULES [M] (user, 2026-11-25: "I don't like how the 'default'
       profile init script gets inherited by the rest of the profiles, it makes it very easy to accidentally add
       conflicting functionality. Remove this, if the users want to reuse functionality they can create reusable
       ECMAScript modules") Two halves that must land together: dropping the inheritance alone removes the only

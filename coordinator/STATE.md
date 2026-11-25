@@ -620,3 +620,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-24 User: web not launchable from the GUI. Cause: no .desktop, ~/.local/bin not on the Plasma session PATH. Filed + started C-DESKTOP-ENTRY (Sonnet).
 
 ## 2026-11-24 C-DESKTOP-ENTRY merged (#745, 23489de); web reinstalled; ~/.local/share/applications/web.desktop checked.
+
+## 2026-11-25 Reviewed + merged the user's plan PRs: #746 C-SCRIPT-MODULES (185a800; review edits: pending top-level await = finished, lib/ modules import with ./), #748 C-PICKDEL/C-PICKDEL-MAP (ddfc57f; review edit: a modifier-only press keeps the y/n question, T161), #747 A-ARCHIVE1 instructions (df152d3). User: they migrate their own config/state for C-SCRIPT-MODULES (do not touch ~/.config/web or ~/.local/state/web). Started C-SCRIPT-MODULES (Opus) and A-ARCHIVE1 (Haiku, user's pick in the file). C-PICKDEL waits for C-SCRIPT-MODULES (same area: script.rs, keys.rs).
