@@ -152,7 +152,10 @@ fn c_histreal_a_visited_root_is_one_row_with_its_own_count_and_order_is_count_th
             _ => unreachable!(),
         })
         .collect();
-    assert_eq!(urls, ["https://s.test/a", "https://t.test/c", "https://s.test/b", "https://s.test/"]);
+    assert_eq!(
+        urls,
+        ["https://s.test/a", "https://t.test/c", "https://s.test/b", "https://s.test/"]
+    );
     // No line for any root: no root row; every row's URL is a line of the file.
     let only_pages = "1\thttps://h.test/x\tX\n2\thttps://h.test/y\tY\n";
     let rows = history_rows(only_pages);
