@@ -48,7 +48,9 @@ it is built in or scriptable from init.js: both.
   true so we can switch it off"; buffers added by the user too). They are the first non-function values on
   `web`: later settings of a source go on its object. They cover the picker's Ctrl-d only; the commands never
   ask.
-- **`:historyDelete [url]`**, new: removes every visit of exactly that URL. A site root row in `:historySearch`
+- **`:historyDelete [url]`**, new: removes every visit of exactly that URL. (2026-11-25, C-HISTREAL, user: "history search should only show real history rows":
+  `:historySearch` no longer lists made-up site roots, so every row has lines to delete; a visited root is an
+  ordinary row with its own count; `:go` keeps the roots first.) A root URL's row
   removes the root URL only, not the site's pages (`:forget-site` stays the tool for a whole site).
 - After a delete the list is read again with the same filter and the selection stays in place.
 - Killing the current buffer from `:ls` is allowed and does what `:bd` does.

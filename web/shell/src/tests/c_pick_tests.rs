@@ -113,28 +113,57 @@ fn keys_t58_history_search_opens_the_picker_in_ranking_order() {
             PickAction::Notice(n) => format!("notice {n}"),
         })
         .collect();
-    // STASH.md "Ranking": site roots by visits to the site, then pages by their own visits.
+    // C-HISTREAL: only URLs with a line in the file, by their own visits, ties newest first; no
+    // made-up site roots (github.com/ and news.test/ were never visited).
     assert_eq!(
         urls,
         [
             "https://www.example.org/",
-            "https://github.com/",
-            "http://news.test/",
             "https://github.com/rust-lang/rust",
             "http://news.test/today",
             "https://www.example.org/docs/intro",
         ]
     );
     let labels: Vec<&str> = p.matches().map(|r| r.label.as_str()).collect();
-    // The newest title of exactly that URL; a root without one: its host; no title: the URL.
+    // The newest title of exactly that URL; no title: the URL.
     assert_eq!(labels[0], "Example Domain (new)");
-    assert_eq!(labels[1], "github.com");
-    assert_eq!(labels[4], "http://news.test/today");
-    assert_eq!(p.matches().nth(4).unwrap().detail, "", "the URL is the label, no detail");
+    assert_eq!(labels[1], "The Rust repo");
+    assert_eq!(labels[2], "http://news.test/today");
+    assert_eq!(p.matches().nth(2).unwrap().detail, "", "the URL is the label, no detail");
     assert_eq!(p.matches().next().unwrap().detail, "https://www.example.org/");
     assert_eq!(selected_url(&k), "https://www.example.org/", "the first row is selected");
     let v = k.bar_view();
     assert_eq!(v.line, Some(('>', String::new(), 0, None)), "the bar shows the (empty) filter");
+}
+
+#[test]
+fn c_histreal_a_visited_root_is_one_row_with_its_own_count_and_order_is_count_then_recency() {
+    // The root was visited once; the site has three more page visits. Own count 1, not 4.
+    let text = "\
+1000\thttps://s.test/\tHome\n\
+1001\thttps://s.test/a\tA\n\
+1002\thttps://s.test/a\tA\n\
+1003\thttps://s.test/b\tB\n\
+1004\thttps://t.test/c\tC\n";
+    let urls: Vec<String> = history_rows(text)
+        .into_iter()
+        .map(|r| match r.action {
+            PickAction::Open(u) => u,
+            _ => unreachable!(),
+        })
+        .collect();
+    assert_eq!(
+        urls,
+        ["https://s.test/a", "https://t.test/c", "https://s.test/b", "https://s.test/"]
+    );
+    // No line for any root: no root row; every row's URL is a line of the file.
+    let only_pages = "1\thttps://h.test/x\tX\n2\thttps://h.test/y\tY\n";
+    let rows = history_rows(only_pages);
+    assert_eq!(rows.len(), 2);
+    for r in rows {
+        let PickAction::Open(u) = r.action else { unreachable!() };
+        assert!(only_pages.contains(&format!("\t{u}\t")), "{u}");
+    }
 }
 
 #[test]
@@ -182,7 +211,7 @@ fn keys_t59_typing_filters_and_selects_the_best() {
     for _ in 0.."Rust repo".len() {
         press(&mut k, KeyInput::sym(Keysym::BackSpace));
     }
-    assert_eq!(k.picker.as_ref().unwrap().match_count(), 6);
+    assert_eq!(k.picker.as_ref().unwrap().match_count(), 4);
     assert_eq!(k.bar_view().line, Some(('>', String::new(), 0, None)));
 }
 
@@ -260,13 +289,13 @@ fn keys_t60_ctrl_n_and_down_move_down_and_stop_at_the_last() {
     let mut k = keys_with(&dir);
     run(&mut k, "historySearch");
     press(&mut k, KeyInput::ch('n').ctrl());
-    assert_eq!(selected_url(&k), "https://github.com/");
+    assert_eq!(selected_url(&k), "https://github.com/rust-lang/rust");
     press(&mut k, KeyInput::sym(Keysym::Down));
-    assert_eq!(selected_url(&k), "http://news.test/");
+    assert_eq!(selected_url(&k), "http://news.test/today");
     for _ in 0..10 {
         press(&mut k, KeyInput::sym(Keysym::Down));
     }
-    assert_eq!(k.picker.as_ref().unwrap().selected, 5, "no wrap: stays on the last row");
+    assert_eq!(k.picker.as_ref().unwrap().selected, 3, "no wrap: stays on the last row");
     assert_eq!(k.line.text, "", "Ctrl-n types nothing");
 }
 
@@ -278,7 +307,7 @@ fn keys_t61_ctrl_p_and_up_move_up_and_stop_at_the_first() {
     press(&mut k, KeyInput::sym(Keysym::Down));
     press(&mut k, KeyInput::sym(Keysym::Down));
     press(&mut k, KeyInput::ch('p').ctrl());
-    assert_eq!(selected_url(&k), "https://github.com/");
+    assert_eq!(selected_url(&k), "https://github.com/rust-lang/rust");
     press(&mut k, KeyInput::sym(Keysym::Up));
     press(&mut k, KeyInput::sym(Keysym::Up));
     assert_eq!(k.picker.as_ref().unwrap().selected, 0);
@@ -529,5 +558,5 @@ fn pick_log_names_the_selection_for_the_live_check() {
     let mut k = keys_with(&dir);
     assert_eq!(k.pick_log(), "");
     run(&mut k, "historySearch");
-    assert_eq!(k.pick_log(), " pick history [1/6 of 6] https://www.example.org/");
+    assert_eq!(k.pick_log(), " pick history [1/4 of 4] https://www.example.org/");
 }

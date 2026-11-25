@@ -403,9 +403,9 @@ in every list (move, Enter runs the row, Esc closes) and a mode of its own").
   font and paddings; at most `PICKER_MAX_ROWS` (12) rows of `PICKER_ROW_H` (22) logical px under a header row
   of the same height, fewer when the page is shorter; the list scrolls to keep the selection shown. Colours
   and sizes are `config.rs` `PICKER_*`.
-- **`:historySearch [filter]`**: the history file (STASH.md "History") in the `:go` ranking (site roots
-  first, then pages). Label: the newest title recorded for exactly that URL (a site root without one: its
-  host; a page without one: its URL, and no detail); detail: the URL. Matched on the URL without
+- **`:historySearch [filter]`**: the history file (STASH.md "History"): only URLs that have a line in it, one
+  row per URL, ranked by that URL's own visits, ties newest first (no made-up site roots; the `:go` ranking is
+  separate, C-HISTREAL). Label: the newest title recorded for exactly that URL (none: the URL, and no detail); detail: the URL. Matched on the URL without
   `https://`/`http://`/`www.`, and the title. Enter loads the URL in the current page (`open`). An argument
   is typed into the filter *(proposed)*.
 
