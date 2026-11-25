@@ -1,8 +1,10 @@
 //! C-SCRIPT: the user's init.js (SCRIPTING.md; DECISIONS.md 2026-11-24 "User scripts").
 //!
-//! QuickJS (rquickjs) with no `std`/`os` modules, no module loader and no timers. Every file is
-//! evaluated as one classic script in strict mode, all in one context. The only thing a script sees
-//! is the global `web`: `web.cmd`, `web.command`, `web.map` (C-SCRIPT-MAP), `web.on("ready")`.
+//! QuickJS (rquickjs) with no `std`/`os` modules and no timers. One file runs per start, the profile's
+//! `init.js`, evaluated as an ES module (always strict). C-SCRIPT-MODULES: it imports other modules
+//! through our own resolver and loader (`ModuleDirs`, SCRIPTING.md "Modules"), confined to
+//! `$XDG_CONFIG_HOME/web/`. The only thing a script sees is the global `web`: `web.cmd`,
+//! `web.command`, `web.map` (C-SCRIPT-MAP), `web.on("ready")`.
 //!
 //! Re-entrancy: no JS function ever holds a borrow of the shell. `web.cmd(line)` only appends the
 //! line to a queue (a `RefCell` borrowed for the push and nothing else); after each call into JS
@@ -12,49 +14,178 @@
 //! does `cmd("C")` runs A, C, B. The nesting of user commands through `web.cmd` is counted
 //! (`SCRIPT_DEPTH_MAX`); past it the whole chain stops with an error.
 //!
-//! The loader takes a list of files (`init_files`), so C-PROFILE's profile script is one more entry.
+//! `init_files` gives at most one file (C-SCRIPT-MODULES: no global script any more); `:source` runs
+//! it again in a new runtime, so edited modules are read again.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use rquickjs::context::EvalOptions;
-use rquickjs::{Context, Ctx, Exception, Function, Object, Persistent, Runtime, Value};
+use rquickjs::loader::{ImportAttributes, Loader, Resolver};
+use rquickjs::promise::PromiseState;
+use rquickjs::{Context, Ctx, Exception, Function, Module, Object, Persistent, Promise, Runtime, Value};
 
-use crate::config::{SCRIPT_BUDGET_MS, SCRIPT_DEPTH_MAX, SCRIPT_MEMORY_MAX};
+use crate::config::{SCRIPT_BUDGET_MS, SCRIPT_DEPTH_MAX, SCRIPT_MEMORY_MAX, SCRIPT_MODULE_MAX};
 use crate::keys::{parse_map_keys, parse_map_rhs, resolve_mapping, Effect, Keys, MapKey, MapLine, MapStep};
 
-/// One script to load: where it is and the name errors give it (`init.js`, or a profile's path).
+/// One script to load: where it is, the name the bar gives it (`init.js`) and the config directory
+/// (`$XDG_CONFIG_HOME/web`) its imports are confined to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptFile {
     pub path: PathBuf,
     pub label: String,
+    pub root: PathBuf,
 }
 
-/// The scripts web loads at start, in order: `$XDG_CONFIG_HOME/web/init.js` (default
-/// `~/.config/web/init.js`), then with `--profile NAME` `.../web/profiles/NAME/init.js`
-/// (its errors are labelled with that path).
-pub fn init_files(env: &dyn Fn(&str) -> Option<String>, profile: Option<&str>) -> Vec<ScriptFile> {
+/// The script web loads at start (C-SCRIPT-MODULES: one file, nothing else is read):
+/// `$XDG_CONFIG_HOME/web/profiles/PROFILE/init.js` (default `~/.config/web/...`). `profile` is
+/// `default` without `--profile` (args.rs). Errors in it are labelled `init.js`. Empty when there is
+/// no config directory at all.
+pub fn init_files(env: &dyn Fn(&str) -> Option<String>, profile: &str) -> Vec<ScriptFile> {
     let set = |k: &str| env(k).filter(|v| !v.is_empty());
     let config = match (set("XDG_CONFIG_HOME"), set("HOME")) {
         (Some(x), _) if Path::new(&x).is_absolute() => PathBuf::from(x),
         (_, Some(h)) => Path::new(&h).join(".config"),
         _ => return Vec::new(),
     };
-    let mut files = vec![ScriptFile {
-        path: config.join("web").join("init.js"),
+    let root = config.join("web");
+    vec![ScriptFile {
+        path: root.join("profiles").join(profile).join("init.js"),
         label: "init.js".to_string(),
-    }];
-    if let Some(name) = profile {
-        let path = config.join("web").join("profiles").join(name).join("init.js");
-        files.push(ScriptFile {
-            label: path.display().to_string(),
-            path,
-        });
+        root,
+    }]
+}
+
+/// C-SCRIPT-MODULES: where one runtime's imports may come from (SCRIPTING.md "Modules").
+#[derive(Debug, Clone, Default)]
+pub struct ModuleDirs {
+    /// `$XDG_CONFIG_HOME/web` as written and with its symlinks resolved. None: every import is
+    /// refused (a script given as text, in tests).
+    root: Option<(PathBuf, PathBuf)>,
+    /// The profile's folder: what a bare specifier (`"common.js"`) is relative to.
+    profile: PathBuf,
+}
+
+impl ModuleDirs {
+    /// For `file`: confined to its `root`, bare names from the file's own folder. A root that does
+    /// not exist (so has no real path) allows nothing.
+    pub fn of(file: &ScriptFile) -> ModuleDirs {
+        ModuleDirs {
+            root: file.root.canonicalize().ok().map(|real| (file.root.clone(), real)),
+            profile: file.path.parent().map(Path::to_path_buf).unwrap_or_default(),
+        }
     }
-    files
+
+    /// `specifier` imported from the module named `base`: the module's name (its real path), or why
+    /// it is refused (the rule and the path). Nothing is read; `read_script` checks the open file again.
+    pub fn resolve(&self, base: &str, specifier: &str) -> Result<String, String> {
+        let Some((root, real_root)) = &self.root else {
+            return Err("no config directory to import from".to_string());
+        };
+        let p = Path::new(specifier);
+        let joined = if specifier.starts_with("./") || specifier.starts_with("../") {
+            Path::new(base).parent().unwrap_or(Path::new("")).join(p)
+        } else if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            self.profile.join(p)
+        };
+        let path = normalize(&joined);
+        let shown = path.display();
+        if !path.is_absolute() {
+            return Err(format!("not an absolute path: {shown}"));
+        }
+        if path.extension().is_none_or(|e| e != "js") {
+            return Err(format!("not a .js file: {shown}"));
+        }
+        let outside = || format!("outside {}/: {shown}", root.display());
+        // By text first, so `../` past the root is refused whether or not the file exists.
+        if !path.starts_with(root) && !path.starts_with(real_root) {
+            return Err(outside());
+        }
+        // Then on the real path: a symlink inside the root must not lead out of it.
+        let real = match path.canonicalize() {
+            Ok(r) => r,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(format!("no such file: {shown}")),
+            Err(e) => return Err(format!("{shown}: {e}")),
+        };
+        if !real.starts_with(real_root) {
+            return Err(format!("{} (a symlink to {})", outside(), real.display()));
+        }
+        if real.extension().is_none_or(|e| e != "js") {
+            return Err(format!("not a .js file: {shown} (a symlink to {})", real.display()));
+        }
+        let meta = std::fs::metadata(&real).map_err(|e| format!("{shown}: {e}"))?;
+        check_script_meta(&meta).map_err(|why| format!("{why}: {shown}"))?;
+        real.into_os_string()
+            .into_string()
+            .map_err(|p| format!("not a UTF-8 path: {}", Path::new(&p).display()))
+    }
+}
+
+/// `p` with `.` and `..` taken out by text (no file system access; `/..` stays `/`).
+fn normalize(p: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            c => out.push(c.as_os_str()),
+        }
+    }
+    out
+}
+
+/// A script file must be a regular file (no FIFO, device, directory) of at most `SCRIPT_MODULE_MAX`.
+fn check_script_meta(meta: &std::fs::Metadata) -> Result<(), String> {
+    if !meta.is_file() {
+        return Err("not a regular file".to_string());
+    }
+    if meta.len() > SCRIPT_MODULE_MAX {
+        return Err(format!("larger than SCRIPT_MODULE_MAX ({SCRIPT_MODULE_MAX} bytes)"));
+    }
+    Ok(())
+}
+
+/// Reads a script file (init.js or a module it imports): opened without blocking (a FIFO swapped in
+/// after the check cannot hang the shell), checked on the open file, read up to `SCRIPT_MODULE_MAX`.
+/// A missing file keeps `ErrorKind::NotFound`; a refusal names the rule.
+pub fn read_script(path: &Path) -> std::io::Result<String> {
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path)?;
+    check_script_meta(&file.metadata()?).map_err(std::io::Error::other)?;
+    let mut bytes = Vec::new();
+    file.take(SCRIPT_MODULE_MAX + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > SCRIPT_MODULE_MAX {
+        return Err(std::io::Error::other(format!(
+            "larger than SCRIPT_MODULE_MAX ({SCRIPT_MODULE_MAX} bytes)"
+        )));
+    }
+    String::from_utf8(bytes).map_err(|_| std::io::Error::other("not UTF-8"))
+}
+
+/// rquickjs's side of `ModuleDirs` (our own, not its FileResolver/ScriptLoader: no search path, no
+/// extension guessing). A refusal throws `import "SPEC": RULE: PATH`.
+struct WebModules(Rc<ModuleDirs>);
+
+impl Resolver for WebModules {
+    fn resolve<'js>(&mut self, ctx: &Ctx<'js>, base: &str, name: &str, _: Option<ImportAttributes<'js>>) -> rquickjs::Result<String> {
+        self.0
+            .resolve(base, name)
+            .map_err(|why| Exception::throw_message(ctx, &format!("import {name:?}: {why}")))
+    }
+}
+
+impl Loader for WebModules {
+    fn load<'js>(&mut self, ctx: &Ctx<'js>, name: &str, _: Option<ImportAttributes<'js>>) -> rquickjs::Result<Module<'js>> {
+        let source = read_script(Path::new(name)).map_err(|e| Exception::throw_message(ctx, &format!("import {name}: {e}")))?;
+        Module::declare(ctx.clone(), name, source)
+    }
 }
 
 /// An error out of a script: what the status bar shows (`init.js:LINE: message`) and the full
@@ -107,11 +238,22 @@ pub struct Scripts {
     /// before the call ends is removed; what is left is reported.
     rejected: Rc<RefCell<Vec<(usize, String, String)>>>,
     budget: Duration,
-    /// The label errors without a script frame get.
+    /// The label errors without a script frame get (`init.js`).
     fallback: String,
+    /// The init file's module name (its path); a stack frame in it is shown as `fallback`.
+    init_name: String,
+    /// C-SCRIPT-MODULES: the init module's evaluation promise while a top-level `await` keeps it
+    /// pending; whichever later call settles it reports its rejection as the file's error.
+    module_promise: Rc<RefCell<Option<Persistent<Promise<'static>>>>>,
+    /// The promise of the module evaluated in this call: its rejection is the call's error, so the
+    /// rejection tracker must not report it again.
+    module_seen: Rc<Cell<Option<usize>>>,
+    /// Set while the init module is compiled, linked and its imports loaded: an error then is the
+    /// init file's (`init.js: /path/to/module.js:3: ...`).
+    loading: Rc<Cell<bool>>,
     /// Files evaluated so far.
     files: usize,
-    /// `web.cmd` lines queued by the files themselves: run when `ready` fires (before the
+    /// `web.cmd` lines queued by the file itself (and its modules): run when `ready` fires (before the
     /// handlers), since before that there is no host to send commands to.
     held: Vec<String>,
     ready_fired: bool,
@@ -125,6 +267,7 @@ pub struct Scripts {
 impl Drop for Scripts {
     fn drop(&mut self) {
         // Persistent values must go before the runtime does.
+        self.module_promise.borrow_mut().take();
         let mut r = self.reg.borrow_mut();
         r.commands.clear();
         r.ready.clear();
@@ -139,9 +282,12 @@ pub fn valid_command_name(name: &str) -> bool {
 }
 
 impl Scripts {
-    /// A runtime with `web` installed and nothing else beyond the language itself.
-    pub fn new(budget: Duration) -> Result<Scripts, String> {
+    /// A runtime with `web` installed and nothing else beyond the language itself; its imports
+    /// come from `dirs` only.
+    pub fn new(budget: Duration, dirs: ModuleDirs) -> Result<Scripts, String> {
         let rt = Runtime::new().map_err(|e| format!("script runtime: {e}"))?;
+        let dirs = Rc::new(dirs);
+        rt.set_loader(WebModules(dirs.clone()), WebModules(dirs));
         let ctx = Context::full(&rt).map_err(|e| format!("script context: {e}"))?;
         let deadline: Rc<Cell<Option<Instant>>> = Rc::default();
         let interrupted: Rc<Cell<bool>> = Rc::default();
@@ -180,6 +326,10 @@ impl Scripts {
             rejected,
             budget,
             fallback: "init.js".to_string(),
+            init_name: "init.js".to_string(),
+            module_promise: Rc::default(),
+            module_seen: Rc::default(),
+            loading: Rc::default(),
             files: 0,
             held: Vec::new(),
             ready_fired: false,
@@ -190,18 +340,33 @@ impl Scripts {
         })
     }
 
-    /// Runs one file (a classic script, strict). What it set up before an error stays.
-    pub fn eval_file(&mut self, label: &str, source: &str) -> CallResult {
+    /// Runs the init file as an ES module named `name` (its path: relative imports resolve against
+    /// it), errors labelled `label`. Its imports are loaded and everything is evaluated in this one
+    /// budgeted call; the evaluation promise is driven until it settles (a top-level throw rejects it:
+    /// that is this call's error, reported once). A top-level `await` still pending when no job is left
+    /// waits for a later call (a `ready` handler, a command) to settle it; the start is finished, not
+    /// failed. What ran before an error stays.
+    pub fn eval_module(&mut self, name: &str, label: &str, source: &str) -> CallResult {
         if self.files == 0 {
             self.fallback = label.to_string();
+            self.init_name = name.to_string();
         }
         self.files += 1;
-        let mut opts = EvalOptions::default();
-        opts.global = true;
-        opts.strict = true;
-        opts.filename = Some(label.to_string());
-        let source = source.to_string();
-        self.call(label, move |ctx| ctx.eval_with_options::<Value, _>(source, opts).map(|_| ()))
+        let (name, source) = (name.to_string(), source.to_string());
+        let (pending, seen, loading) = (self.module_promise.clone(), self.module_seen.clone(), self.loading.clone());
+        self.call(label, move |ctx| {
+            loading.set(true);
+            let (_, promise) = Module::declare(ctx.clone(), name, source)?.eval()?;
+            loading.set(false);
+            seen.set(Some(promise_id(promise.as_value())));
+            match promise.finish::<Value>() {
+                Err(rquickjs::Error::WouldBlock) => {
+                    *pending.borrow_mut() = Some(Persistent::save(ctx, promise));
+                    Ok(())
+                }
+                r => r.map(|_| ()),
+            }
+        })
     }
 
     /// The user commands' names, sorted.
@@ -268,11 +433,12 @@ impl Scripts {
         self.deadline.set(Some(Instant::now() + self.budget));
         let interrupted = self.interrupted.clone();
         let budget = self.budget;
+        let init = self.init_name.clone();
         let error = self.ctx.with(|ctx| match f(&ctx) {
             Ok(()) => None,
             Err(rquickjs::Error::Exception) => {
                 let caught = ctx.catch();
-                Some(describe(label, &caught, interrupted.get().then_some(budget)))
+                Some(describe((&init, label), &caught, interrupted.get().then_some(budget)))
             }
             Err(e) => Some(ScriptError {
                 bar: format!("{label}: {e}"),
@@ -280,20 +446,33 @@ impl Scripts {
             }),
         });
         self.deadline.set(None);
+        // An import that failed (not found, refused, a syntax error in the module) is the init file's
+        // error, with the module's path in the message.
+        let error = match error {
+            Some(e) if self.loading.replace(false) && !e.bar.starts_with(&format!("{label}:")) => Some(ScriptError {
+                bar: format!("{label}: {}", e.bar),
+                full: format!("{label}: {}", e.full),
+            }),
+            e => e,
+        };
         // A pending job (a promise reaction) would run with no budget later: run them now, under it.
         self.run_jobs();
         let mut error = error;
+        let mut module_ids = Vec::from_iter(self.module_seen.take());
+        // A top-level await that a callback (this call) let go on: its rejection is the file's error.
+        if let Some((id, e)) = self.settled_module() {
+            module_ids.push(id);
+            error = join_errors(error, e);
+        }
         // Promises still rejected with no handler: reported like any other script error (once: drained).
         let rejected = std::mem::take(&mut *self.rejected.borrow_mut());
-        for (_, message, stack) in rejected {
-            let e = build_error(&self.fallback, &format!("unhandled rejection: {message}"), &stack);
-            error = Some(match error {
-                None => e,
-                Some(mut first) => {
-                    first.full = format!("{}\n{}", first.full, e.full);
-                    first
-                }
-            });
+        for (_, message, stack) in rejected.into_iter().filter(|(id, _, _)| !module_ids.contains(id)) {
+            let e = build_error(
+                (&self.init_name, &self.fallback),
+                &format!("unhandled rejection: {message}"),
+                &stack,
+            );
+            error = join_errors(error, Some(e));
         }
         if error.is_some() {
             // An out-of-memory error leaves garbage (cycles) behind: collect it so the next call has room.
@@ -303,6 +482,32 @@ impl Scripts {
             lines: std::mem::take(&mut self.reg.borrow_mut().queue),
             error,
         }
+    }
+
+    /// The init module left pending by a top-level `await`, once it has settled: its promise's
+    /// identity and, when it was rejected, the error (labelled as the file's own errors are).
+    fn settled_module(&mut self) -> Option<(usize, Option<ScriptError>)> {
+        let p = self.module_promise.borrow().clone()?;
+        let names = (self.init_name.clone(), self.fallback.clone());
+        let interrupted = self.interrupted.get().then_some(self.budget);
+        let settled = self.ctx.with(|ctx| {
+            let p = p.restore(&ctx).ok()?;
+            let id = promise_id(p.as_value());
+            match p.state() {
+                PromiseState::Pending => None,
+                PromiseState::Resolved => Some((id, None)),
+                PromiseState::Rejected => {
+                    // `result` throws the reason; take it back off the context.
+                    let _ = p.result::<Value>();
+                    let reason = ctx.catch();
+                    Some((id, Some(describe((&names.0, &names.1), &reason, interrupted))))
+                }
+            }
+        });
+        if settled.is_some() {
+            self.module_promise.borrow_mut().take();
+        }
+        settled
     }
 
     /// Runs the promise jobs a call left (`Promise.resolve().then(...)`), each under the budget.
@@ -408,14 +613,29 @@ fn install_web<'js>(ctx: &Ctx<'js>, reg: &Rc<RefCell<Registry>>) -> rquickjs::Re
     Ok(())
 }
 
+/// `(init file's module name, its label)`: a stack frame in the init file is shown with the label
+/// (`init.js:3`), a frame in an imported module with that module's path; no frame: the label.
+type Names<'a> = (&'a str, &'a str);
+
+/// Two errors of one call: the first is what the bar shows, the log gets both.
+fn join_errors(first: Option<ScriptError>, second: Option<ScriptError>) -> Option<ScriptError> {
+    match (first, second) {
+        (Some(mut a), Some(b)) => {
+            a.full = format!("{}\n{}", a.full, b.full);
+            Some(a)
+        }
+        (a, b) => a.or(b),
+    }
+}
+
 /// The bar's `FILE:LINE: message` and the log's full text for a caught exception.
-fn describe(fallback: &str, v: &Value, interrupted: Option<Duration>) -> ScriptError {
+fn describe(names: Names, v: &Value, interrupted: Option<Duration>) -> ScriptError {
     let (message, stack) = message_stack(v);
     let message = match interrupted {
         Some(b) => format!("interrupted: ran longer than SCRIPT_BUDGET_MS ({} ms)", b.as_millis()),
         None => message,
     };
-    build_error(fallback, &message, &stack)
+    build_error(names, &message, &stack)
 }
 
 /// A thrown or rejected value's message and stack text.
@@ -432,8 +652,14 @@ fn promise_id(p: &Value) -> usize {
     unsafe { p.as_raw().u.ptr as usize }
 }
 
-fn build_error(fallback: &str, message: &str, stack: &str) -> ScriptError {
-    let at = stack_location(stack).unwrap_or_else(|| fallback.to_string());
+fn build_error((init, label): Names, message: &str, stack: &str) -> ScriptError {
+    let at = match stack_location(stack) {
+        Some(loc) => match loc.rsplit_once(':') {
+            Some((file, line)) if file == init => format!("{label}:{line}"),
+            _ => loc,
+        },
+        None => label.to_string(),
+    };
     let bar = format!("{at}: {message}");
     let full = if stack.trim().is_empty() {
         bar.clone()
@@ -485,8 +711,8 @@ pub fn stack_location(stack: &str) -> Option<String> {
 // ---- the shell's side (`Keys`) ----
 
 impl Keys {
-    /// At start: runs each file that exists, in order (a missing file is not an error). An error
-    /// shows in the bar and the log; the next file still runs.
+    /// At start: runs the init file if it exists (`init_files`: at most one; a missing file is not
+    /// an error). An error shows in the bar and the log.
     pub fn load_scripts(&mut self, files: &[ScriptFile]) -> (usize, usize) {
         self.load_scripts_with(files, Duration::from_millis(SCRIPT_BUDGET_MS))
     }
@@ -498,7 +724,9 @@ impl Keys {
         self.script_budget = budget;
         let (mut ran, mut failed) = (0, 0);
         for f in files {
-            let source = match std::fs::read_to_string(&f.path) {
+            // The same checks as an import's (a regular file under SCRIPT_MODULE_MAX), so a FIFO or
+            // a huge file cannot hold up the start.
+            let source = match read_script(&f.path) {
                 Ok(s) => s,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(e) => {
@@ -511,17 +739,26 @@ impl Keys {
                 }
             };
             ran += 1;
-            if !self.load_script_source(&f.label, &source, budget) {
+            let name = f.path.display().to_string();
+            if !self.run_init(&name, &f.label, ModuleDirs::of(f), &source, budget) {
                 failed += 1;
             }
         }
         (ran, failed)
     }
 
-    /// Runs one script's text (`load_scripts`, and tests). False when it failed.
+    /// Runs a script's text as the init module named `label`, with no file behind it (tests): every
+    /// import is refused. False when it failed.
+    #[cfg(test)]
     pub fn load_script_source(&mut self, label: &str, source: &str, budget: Duration) -> bool {
+        self.run_init(label, label, ModuleDirs::default(), source, budget)
+    }
+
+    /// Runs `source` as the init module `name` (errors labelled `label`), in a new runtime whose
+    /// imports come from `dirs` if there is none yet. False when it failed.
+    fn run_init(&mut self, name: &str, label: &str, dirs: ModuleDirs, source: &str, budget: Duration) -> bool {
         if self.scripts.is_none() {
-            match Scripts::new(budget) {
+            match Scripts::new(budget, dirs) {
                 Ok(s) => self.scripts = Some(s),
                 Err(m) => {
                     self.script_error(ScriptError { bar: m.clone(), full: m });
@@ -531,7 +768,7 @@ impl Keys {
         }
         let start = Instant::now();
         let Some(s) = self.scripts.as_mut() else { return false };
-        let r = s.eval_file(label, source);
+        let r = s.eval_module(name, label, source);
         s.held.extend(r.lines);
         self.effects
             .push(Effect::Log(format!("{label}: ran in {} ms", start.elapsed().as_millis())));
@@ -546,7 +783,7 @@ impl Keys {
 
     /// C-SOURCE `:source`: the scripts again, clean (SCRIPTING.md ":source"). The old runtime goes
     /// with every command, mapping and `ready` handler (and the lines a call queued: none are left
-    /// between calls); a new one runs the same files. `ready` is not fired again.
+    /// between calls); a new one runs the same init file (its modules read again). `ready` is not fired again.
     pub(crate) fn source(&mut self) {
         if self.script_lines > 0 {
             self.script_error(ScriptError {
@@ -576,7 +813,7 @@ impl Keys {
         } else {
             Vec::new()
         };
-        // What the files queued at their top level: with the host connected there is nothing to wait for.
+        // What the file queued at their top level: with the host connected there is nothing to wait for.
         self.run_script_lines(held);
     }
 

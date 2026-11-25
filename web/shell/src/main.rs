@@ -371,9 +371,10 @@ fn main() {
     state.apply_output_state();
     state.damage_tracker = Some(OutputDamageTracker::from_output(&state.output));
     state.keys.clipboard = Some(Box::new(desktop_clipboard));
-    // C-SCRIPT: the user's init.js (SCRIPTING.md); its `ready` handlers run at the first tab.
+    // C-SCRIPT: the profile's init.js (SCRIPTING.md; C-SCRIPT-MODULES: that file only, as an ES module);
+    // its `ready` handlers run at the first tab.
     let script_start = Instant::now();
-    state.keys.load_scripts(&script::init_files(&env, args.profile.as_deref()));
+    state.keys.load_scripts(&script::init_files(&env, &args.profile));
     eprintln!(
         "[web +{}ms] scripts loaded in {} us",
         start.elapsed().as_millis(),

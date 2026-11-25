@@ -25,7 +25,8 @@ Architecture C (DECISIONS.md, TODO.txt C1-C8):
 `../archived/scratchy/DECISIONS.md`). scratchy's own engine is not carried over; its shell is.
 
 - `KEYS.md`: modes, bindings, completion (from scratchy).
-- `SCRIPTING.md`: `init.js`, global and per profile (`--profile`): user commands, key mappings, start buffers.
+- `SCRIPTING.md`: one `init.js` per profile (`--profile`, `default` without it), ES modules shared
+  between profiles: user commands, key mappings, start buffers.
 - `STASH.md`: what web keeps on disk: state directory, history and `:go` ranking,
   forget-site (`web --forget-site`, `:forget-site`, how the running instance is found),
   cookies (from scratchy).
@@ -83,7 +84,8 @@ fits: rebuild with `tools/cef-build/` (its README says how to find the matching 
 it exists. To check H.264 works: `python3 -I web/tools/codec-probe/serve.py 18731 /tmp/probe`,
 then `web http://127.0.0.1:18731/probe.html?tag=x` (H264 should be listed on the page). Without `CEF_PATH`, `install.sh` goes back to the stock CEF.
 
-Uninstall (state lives apart, in `~/.local/state/web`, and is kept unless you remove it):
+Uninstall (state lives apart, in `~/.local/state/web/profiles/NAME` per profile, and is kept unless you remove it;
+your scripts in `~/.config/web` too):
 
     rm -f ~/.local/bin/web ~/.local/share/applications/web.desktop && rm -rf ~/.local/lib/web
-    rm -rf ~/.local/state/web      # optional: profile, history, cookies
+    rm -rf ~/.local/state/web      # optional: every profile's history, cookies, engine profile

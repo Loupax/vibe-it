@@ -4,9 +4,10 @@ use crate::args::{Args, Engine};
 use std::path::{Path, PathBuf};
 
 /// The state directory (STASH.md "State directory"): `--state-dir` as given, else the base
-/// (`$WEB_STATE_DIR`, `$XDG_STATE_HOME/web`, `~/.local/state/web`); with `--profile NAME` the
-/// base gets `/profiles/NAME` (C-PROFILE: `$WEB_STATE_DIR` is a base, so profiles stay apart
-/// under it; only `--state-dir` names the exact directory).
+/// (`$WEB_STATE_DIR`, `$XDG_STATE_HOME/web`, `~/.local/state/web`) plus `/profiles/NAME`
+/// (C-PROFILE: `$WEB_STATE_DIR` is a base, so profiles stay apart under it; only `--state-dir`
+/// names the exact directory). C-SCRIPT-MODULES: without `--profile` NAME is `default`, so the
+/// base itself is never a state directory.
 pub fn state_dir(args: &Args, env: &dyn Fn(&str) -> Option<String>) -> Result<PathBuf, String> {
     if let Some(d) = &args.state_dir {
         return Ok(d.clone());
@@ -21,10 +22,7 @@ pub fn state_dir(args: &Args, env: &dyn Fn(&str) -> Option<String>) -> Result<Pa
     } else {
         return Err("no state directory: set --state-dir, WEB_STATE_DIR, XDG_STATE_HOME or HOME".into());
     };
-    Ok(match &args.profile {
-        Some(name) => base.join("profiles").join(name),
-        None => base,
-    })
+    Ok(base.join("profiles").join(&args.profile))
 }
 
 /// The engine's profile inside the state directory: `DIR/engines/<engine>/`.
@@ -134,11 +132,16 @@ mod tests {
     fn state_dir_order() {
         let e = env_of(&[("WEB_STATE_DIR", "/w"), ("XDG_STATE_HOME", "/x"), ("HOME", "/h")]);
         assert_eq!(state_dir(&args(&["--state-dir", "/s"]), &e).unwrap(), PathBuf::from("/s"));
-        assert_eq!(state_dir(&args(&[]), &e).unwrap(), PathBuf::from("/w"));
+        // C-SCRIPT-MODULES: no --profile is --profile default, a profile like any other.
+        assert_eq!(state_dir(&args(&[]), &e).unwrap(), PathBuf::from("/w/profiles/default"));
         let e = env_of(&[("WEB_STATE_DIR", ""), ("XDG_STATE_HOME", "/x"), ("HOME", "/h")]);
-        assert_eq!(state_dir(&args(&[]), &e).unwrap(), PathBuf::from("/x/web"));
+        assert_eq!(state_dir(&args(&[]), &e).unwrap(), PathBuf::from("/x/web/profiles/default"));
         let e = env_of(&[("HOME", "/h")]);
-        assert_eq!(state_dir(&args(&[]), &e).unwrap(), PathBuf::from("/h/.local/state/web"));
+        assert_eq!(
+            state_dir(&args(&[]), &e).unwrap(),
+            PathBuf::from("/h/.local/state/web/profiles/default")
+        );
+        assert_eq!(state_dir(&args(&["--state-dir=/s"]), &e).unwrap(), PathBuf::from("/s"));
         assert!(state_dir(&args(&[]), &env_of(&[])).is_err());
         // C-PROFILE: the base gets profiles/NAME; --state-dir is exact.
         let e = env_of(&[("XDG_STATE_HOME", "/x"), ("HOME", "/h")]);

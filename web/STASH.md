@@ -9,8 +9,8 @@ store is dropped; see the end of this file.
 
 ## State directory
 
-- `--state-dir DIR` (exact) / `WEB_STATE_DIR` (a base); default `$XDG_STATE_HOME/web`
-  (`~/.local/state/web` when unset). Created with mode 0700.
+- `--state-dir DIR` (exact) / `WEB_STATE_DIR` (a base); default base `$XDG_STATE_HOME/web`
+  (`~/.local/state/web` when unset), plus `/profiles/NAME` (below). Created with mode 0700.
 - `--profile NAME` (C-PROFILE, SCRIPTING.md "Files and profiles"): the base (`WEB_STATE_DIR`, else
   `$XDG_STATE_HOME/web`, else `~/.local/state/web`) gets `/profiles/NAME`, so each profile has its
   own history, bookmarks, engine profile (cookies, storage), lock and socket, and its own running
@@ -18,22 +18,39 @@ store is dropped; see the end of this file.
   `web --profile NAME --forget-site SITE` act on that profile only). `--state-dir DIR` is used as
   given and wins over everything, `--profile` included (the script still follows the profile).
   `WEB_STATE_DIR` is a base, not an exact path, so a profile under it stays distinct. The
-  directories are created 0700, parents included. Without `--profile`: as above, unchanged.
+  directories are created 0700, parents included.
+- Without `--profile` (C-SCRIPT-MODULES, 2026-11-25): it is `--profile default`, so the state directory
+  is `<base>/profiles/default` (`~/.local/state/web/profiles/default`), like any profile's; the base
+  itself holds only `profiles/`. Before, it was the base itself. web does not move state left there
+  (history, bookmarks, cmdhistory, the engine profile with cookies and storage); to keep it, with web
+  not running:
+
+  ```
+  cd ~/.local/state/web && mkdir -p profiles/default &&
+    for f in history bookmarks cmdhistory .history.lock engines; do [ -e "$f" ] && mv "$f" profiles/default/; done
+  ```
+
+  (`$XDG_STATE_HOME/web` or `$WEB_STATE_DIR` instead of `~/.local/state/web` if set. The socket and
+  lock files are made again at the next start.)
 - A tmpfs directory (e.g. `$XDG_RUNTIME_DIR/web`) gives state that survives web
   restarts but not a logout (as in scratchy).
 - If the directory cannot be used, web logs once and runs with an in-memory profile
   (the engine's incognito mode) and no history.
 
 ```
-DIR/
+$XDG_STATE_HOME/web/      <- the base: nothing but profiles/ (C-SCRIPT-MODULES)
+  profiles/
+    default/              <- DIR without --profile (it is --profile default)
+    NAME/                 <- DIR with --profile NAME
+
+DIR/                      <- one profile's state directory (or --state-dir DIR as given)
   history                 <- the shell's (format below)
   bookmarks               <- the shell's ("Bookmarks" below)
+  cmdhistory              <- the `:` lines (C-CMDHIST)
   .history.lock
   engines/
     cef/                  <- web-host-cef's profile: cookies, localStorage, IndexedDB, cache
     webkit/               <- web-host-webkit's data and cache directories
-  profiles/NAME/          <- with --profile NAME the state directory is this one, same tree inside
-                             (DIR is $XDG_STATE_HOME/web for the default profile only)
 ```
 
 - Each engine host gets its own profile directory from the shell and must never fall

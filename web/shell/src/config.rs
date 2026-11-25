@@ -371,6 +371,10 @@ pub const SCRIPT_DEPTH_MAX: usize = 16;
 /// kilobytes (a 100k-entry array is ~2 MiB), so this is ~30x any real use, and a runaway loop is stopped at
 /// a size that costs the shell nothing (the 100 ms budget alone allowed a few hundred MB).
 pub const SCRIPT_MEMORY_MAX: usize = 64 * 1024 * 1024;
+/// C-SCRIPT-MODULES: the largest file web reads as a script (a profile's init.js or a module it imports).
+/// The read is Rust I/O, outside SCRIPT_BUDGET_MS and SCRIPT_MEMORY_MAX, so it has its own cap; a larger file
+/// is refused unread. 1 MiB is far beyond any hand-written config.
+pub const SCRIPT_MODULE_MAX: u64 = 1024 * 1024;
 /// C-SCRIPT-MAP: while the keys typed in NORMAL are the start of a longer `web.map` mapping, the shell
 /// waits this many milliseconds for the next key (vim's `timeoutlen`, same default); then the keys are
 /// handled as without the mapping (or a shorter mapping they complete runs). With no mapping sharing a

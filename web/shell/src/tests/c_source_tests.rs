@@ -23,11 +23,13 @@ impl Config {
         let dir = std::env::temp_dir().join(format!("web-c-source-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("web/profiles/p")).unwrap();
+        std::fs::create_dir_all(dir.join("web/profiles/default")).unwrap();
         Config { dir }
     }
 
-    fn global(&self, src: &str) {
-        std::fs::write(self.dir.join("web/init.js"), src).unwrap();
+    /// The `default` profile's init.js (what runs without `--profile`).
+    fn default_init(&self, src: &str) {
+        std::fs::write(self.dir.join("web/profiles/default/init.js"), src).unwrap();
     }
 
     fn profile(&self, src: &str) {
@@ -36,7 +38,10 @@ impl Config {
 
     fn files(&self, profile: Option<&str>) -> Vec<ScriptFile> {
         let home = self.dir.display().to_string();
-        init_files(&move |k| (k == "XDG_CONFIG_HOME").then(|| home.clone()), profile)
+        init_files(
+            &move |k| (k == "XDG_CONFIG_HOME").then(|| home.clone()),
+            profile.unwrap_or("default"),
+        )
     }
 
     /// A shell that loaded this config as at start, its first tab existing.
@@ -174,11 +179,11 @@ fn echo_there_is_no_console_object() {
 #[test]
 fn source_drops_old_commands_and_runs_the_changed_file() {
     let c = Config::new("cmds");
-    c.global(r#"web.command("Old", () => web.cmd("echo old")); web.command("Keep", () => web.cmd("echo keep1"));"#);
+    c.default_init(r#"web.command("Old", () => web.cmd("echo old")); web.command("Keep", () => web.cmd("echo keep1"));"#);
     let mut k = c.shell(None);
     type_line(&mut k, "Old");
     assert_eq!(k.message, "old");
-    c.global(r#"web.command("New", () => web.cmd("echo new")); web.command("Keep", () => web.cmd("echo keep2"));"#);
+    c.default_init(r#"web.command("New", () => web.cmd("echo new")); web.command("Keep", () => web.cmd("echo keep2"));"#);
     type_line(&mut k, "source");
     assert_eq!(k.message, "sourced 1 file(s)");
     assert!(logs(&k).iter().any(|l| l.starts_with("script: sourced 1 file(s)")));
@@ -194,7 +199,7 @@ fn source_drops_old_commands_and_runs_the_changed_file() {
 #[test]
 fn source_replaces_mappings_and_forgets_removed_ones() {
     let c = Config::new("maps");
-    c.global(r#"web.map("n", "gx", ":echo one<CR>"); web.map("n", "gy", ":echo gy<CR>");"#);
+    c.default_init(r#"web.map("n", "gx", ":echo one<CR>"); web.map("n", "gy", ":echo gy<CR>");"#);
     let mut k = c.shell(None);
     let t = Instant::now();
     let tap = |k: &mut Keys, s: &str| {
@@ -206,7 +211,7 @@ fn source_replaces_mappings_and_forgets_removed_ones() {
     };
     tap(&mut k, "gx");
     assert_eq!(k.message, "one");
-    c.global(r#"web.map("n", "gx", ":echo two<CR>");"#);
+    c.default_init(r#"web.map("n", "gx", ":echo two<CR>");"#);
     type_line(&mut k, "source");
     k.message.clear();
     tap(&mut k, "gx");
@@ -215,7 +220,7 @@ fn source_replaces_mappings_and_forgets_removed_ones() {
     tap(&mut k, "gy");
     assert_eq!(k.message, "", "a mapping the file no longer has is gone");
     // No mapping left at all: the keys go straight to the bindings again.
-    c.global("");
+    c.default_init("");
     type_line(&mut k, "source");
     assert!(!k.scripts.as_ref().is_some_and(|s| s.has_maps()));
 }
@@ -223,7 +228,7 @@ fn source_replaces_mappings_and_forgets_removed_ones() {
 #[test]
 fn source_does_not_fire_ready_again() {
     let c = Config::new("ready");
-    c.global(r#"web.on("ready", () => web.cmd("new http://127.0.0.1:1/start"));"#);
+    c.default_init(r#"web.on("ready", () => web.cmd("new http://127.0.0.1:1/start"));"#);
     let mut k = c.shell(None);
     k.script_ready();
     assert_eq!(sent(&mut k), vec![new_tab("http://127.0.0.1:1/start", 1)]);
@@ -241,9 +246,9 @@ fn source_does_not_fire_ready_again() {
 #[test]
 fn source_before_ready_leaves_ready_for_its_time() {
     let c = Config::new("early");
-    c.global(r#"web.on("ready", () => web.cmd("new http://127.0.0.1:1/a"));"#);
+    c.default_init(r#"web.on("ready", () => web.cmd("new http://127.0.0.1:1/a"));"#);
     let mut k = c.shell(None);
-    c.global(r#"web.on("ready", () => web.cmd("new http://127.0.0.1:1/b"));"#);
+    c.default_init(r#"web.on("ready", () => web.cmd("new http://127.0.0.1:1/b"));"#);
     type_line(&mut k, "source");
     k.script_ready();
     assert_eq!(sent(&mut k), vec![new_tab("http://127.0.0.1:1/b", 1)]);
@@ -252,9 +257,9 @@ fn source_before_ready_leaves_ready_for_its_time() {
 #[test]
 fn source_error_is_reported_as_at_start_and_keeps_what_ran_before_it() {
     let c = Config::new("err");
-    c.global(r#"web.command("A", () => web.cmd("echo a"));"#);
+    c.default_init(r#"web.command("A", () => web.cmd("echo a"));"#);
     let mut k = c.shell(None);
-    c.global("web.command(\"B\", () => web.cmd(\"echo b\"));\nthrow new Error(\"second boom\");\nweb.command(\"C\", () => {});");
+    c.default_init("web.command(\"B\", () => web.cmd(\"echo b\"));\nthrow new Error(\"second boom\");\nweb.command(\"C\", () => {});");
     type_line(&mut k, "source");
     assert_eq!(k.message, "init.js:2: second boom");
     assert!(logs(&k).iter().any(|l| l.starts_with("script error: init.js:2: second boom")));
@@ -267,30 +272,33 @@ fn source_error_is_reported_as_at_start_and_keeps_what_ran_before_it() {
     k.page_loaded();
     assert_eq!(k.message, "init.js:2: second boom");
     // A syntax error: the old setup is gone (clean reload), the bar says where.
-    c.global("web.command(\"D\", ()");
+    c.default_init("web.command(\"D\", ()");
     type_line(&mut k, "source");
     assert!(k.message.starts_with("init.js:"), "{:?}", k.message);
     assert!(k.user_command_names().is_empty());
 }
 
 #[test]
-fn source_reruns_global_then_profile_with_the_same_profile() {
+fn source_reruns_the_profile_alone_with_the_same_profile() {
+    // C-SCRIPT-MODULES: the default profile's init.js is not run before another profile's, at start or
+    // by `:source`.
     let c = Config::new("profile");
-    c.global(r#"web.command("G", () => web.cmd("echo g1"));"#);
+    c.default_init(r#"web.command("G", () => web.cmd("echo g1"));"#);
     c.profile(r#"web.command("P", () => web.cmd("echo " + typeof G + "1"));"#);
     let mut k = c.shell(Some("p"));
-    c.global(r#"web.command("G", () => web.cmd("echo g2"));"#);
+    assert_eq!(k.user_command_names(), vec!["P".to_string()]);
+    c.default_init(r#"web.command("G", () => web.cmd("echo g2"));"#);
     c.profile(r#"web.command("P", () => web.cmd("echo p2"));"#);
     type_line(&mut k, "source");
-    assert_eq!(k.message, "sourced 2 file(s)");
+    assert_eq!(k.message, "sourced 1 file(s)");
     type_line(&mut k, "G");
-    assert_eq!(k.message, "g2");
+    assert!(k.message.starts_with("web: unknown command: :G"), "{:?}", k.message);
     type_line(&mut k, "P");
     assert_eq!(k.message, "p2");
     // A file that disappeared is not an error; the count says how many ran.
     std::fs::remove_file(c.dir.join("web/profiles/p/init.js")).unwrap();
     type_line(&mut k, "source");
-    assert_eq!(k.message, "sourced 1 file(s)");
+    assert_eq!(k.message, "sourced 0 file(s)");
     type_line(&mut k, "P");
     assert!(k.message.starts_with("web: unknown command: :P"), "{:?}", k.message);
 }
@@ -298,15 +306,15 @@ fn source_reruns_global_then_profile_with_the_same_profile() {
 #[test]
 fn source_with_no_file_left_gives_a_clean_runtime() {
     let c = Config::new("none");
-    c.global(r#"web.command("A", () => {});"#);
+    c.default_init(r#"web.command("A", () => {});"#);
     let mut k = c.shell(None);
-    std::fs::remove_file(c.dir.join("web/init.js")).unwrap();
+    std::fs::remove_file(c.dir.join("web/profiles/default/init.js")).unwrap();
     type_line(&mut k, "source");
     assert_eq!(k.message, "sourced 0 file(s)");
     assert!(k.scripts.is_none());
     assert!(k.user_command_names().is_empty());
     // And a file that appears later loads, without a `ready`.
-    c.global(r#"web.on("ready", () => web.cmd("new http://127.0.0.1:1/x")); web.command("N", () => web.cmd("echo n"));"#);
+    c.default_init(r#"web.on("ready", () => web.cmd("new http://127.0.0.1:1/x")); web.command("N", () => web.cmd("echo n"));"#);
     type_line(&mut k, "source");
     assert_eq!(k.message, "sourced 1 file(s)");
     k.script_ready();
@@ -325,7 +333,7 @@ fn source_with_no_scripts_at_all_works() {
 #[test]
 fn source_from_web_cmd_is_an_error_and_changes_nothing() {
     let c = Config::new("cmd");
-    c.global(
+    c.default_init(
         r#"
         web.command("A", () => web.cmd("echo a"));
         web.command("Reload", () => web.cmd("source"));
@@ -363,7 +371,7 @@ fn source_from_web_cmd_is_an_error_and_changes_nothing() {
 #[test]
 fn source_arguments_are_an_error_for_now() {
     let c = Config::new("args");
-    c.global(r#"web.command("A", () => {});"#);
+    c.default_init(r#"web.command("A", () => {});"#);
     let mut k = c.shell(None);
     type_line(&mut k, "source other.js");
     assert_eq!(k.message, "web: usage: :source (no arguments yet)");
@@ -373,9 +381,9 @@ fn source_arguments_are_an_error_for_now() {
 #[test]
 fn source_runs_from_a_user_mapping_key_outside_a_js_call() {
     let c = Config::new("mapkey");
-    c.global(r#"web.map("n", "ss", ":source<CR>"); web.command("V", () => web.cmd("echo v1"));"#);
+    c.default_init(r#"web.map("n", "ss", ":source<CR>"); web.command("V", () => web.cmd("echo v1"));"#);
     let mut k = c.shell(None);
-    c.global(r#"web.map("n", "ss", ":source<CR>"); web.command("V", () => web.cmd("echo v2"));"#);
+    c.default_init(r#"web.map("n", "ss", ":source<CR>"); web.command("V", () => web.cmd("echo v2"));"#);
     let t = Instant::now();
     for ch in "ss".chars() {
         let key = KeyInput::ch(ch);
@@ -399,7 +407,7 @@ fn source_runs_from_a_user_mapping_key_outside_a_js_call() {
 #[test]
 fn source_matches_a_half_typed_mapping_again_against_the_new_mappings() {
     let c = Config::new("pending");
-    c.global(r#"web.map("n", "xa", ":echo old<CR>");"#);
+    c.default_init(r#"web.map("n", "xa", ":echo old<CR>");"#);
     let mut k = c.shell(None);
     let t = Instant::now();
     let tap = |k: &mut Keys, ch: char, t: Instant| {
@@ -409,7 +417,7 @@ fn source_matches_a_half_typed_mapping_again_against_the_new_mappings() {
     };
     tap(&mut k, 'x', t);
     assert!(k.map_wait(t).is_some(), "x waits for xa");
-    c.global(r#"web.map("n", "xb", ":echo new<CR>");"#);
+    c.default_init(r#"web.map("n", "xb", ":echo new<CR>");"#);
     k.source();
     assert!(k.map_wait(t).is_some(), "the key is still waiting, for the new mappings now");
     k.message.clear();
@@ -424,7 +432,7 @@ fn source_matches_a_half_typed_mapping_again_against_the_new_mappings() {
 #[test]
 fn source_runs_top_level_web_cmd_lines_at_once() {
     let c = Config::new("top");
-    c.global(r#"web.cmd("echo top level");"#);
+    c.default_init(r#"web.cmd("echo top level");"#);
     let mut k = c.shell(None);
     assert_eq!(k.message, "", "at start they wait for ready");
     k.script_ready();
@@ -439,14 +447,14 @@ fn source_resets_the_runtime_state_the_old_chain_left() {
     // A user command chain that hit the depth limit leaves `overflow` set only while it unwinds;
     // the new runtime starts with none, and a runaway file at :source ends under the budget.
     let c = Config::new("budget");
-    c.global(r#"web.command("A", () => {});"#);
+    c.default_init(r#"web.command("A", () => {});"#);
     let mut k = c.shell(None);
-    c.global("while (true) {}");
+    c.default_init("while (true) {}");
     let t0 = Instant::now();
     type_line(&mut k, "source");
     assert!(t0.elapsed() < Duration::from_secs(5));
     assert!(k.message.contains("interrupted"), "{:?}", k.message);
-    c.global(r#"web.command("A", () => web.cmd("echo again"));"#);
+    c.default_init(r#"web.command("A", () => web.cmd("echo again"));"#);
     type_line(&mut k, "source");
     type_line(&mut k, "A");
     assert_eq!(k.message, "again");

@@ -108,8 +108,12 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   `src/tests/c_bell_tests.rs`, live check `test/c_bell_live.py` (on a private D-Bus with a fake
   notification server).
 - **User scripts** (C-SCRIPT, `src/script.rs`, SCRIPTING.md, KEYS.md "User commands", T115-T117):
-  QuickJS (rquickjs, no std/os modules, no module loader) runs `$XDG_CONFIG_HOME/web/init.js` at
-  start (`Keys::load_scripts`, a list of files so C-PROFILE adds one); `web.cmd` only queues its line
+  QuickJS (rquickjs, no std/os modules) runs the profile's `$XDG_CONFIG_HOME/web/profiles/NAME/init.js`
+  (`default` without `--profile`) at start, that file only, as an ES module (`Keys::load_scripts`,
+  `Scripts::eval_module`). C-SCRIPT-MODULES: rquickjs's `loader` feature with our own resolver/loader
+  (`ModuleDirs`, `WebModules`, `read_script`): `./`/`../` from the importing file, bare names from the
+  profile's folder, confined to `$XDG_CONFIG_HOME/web/` on the real path, regular `.js` files up to
+  `SCRIPT_MODULE_MAX`; tests `src/tests/c_script_modules_tests.rs`. `web.cmd` only queues its line
   and `Keys` runs the lines after each call into JS returns (DECISIONS.md "web.cmd queues"), so no
   borrow is held across a call; `web.command` names reach `dispatch_command` and the completion;
   `ready` fires at the first `tab-created`. `SCRIPT_BUDGET_MS` via the interrupt handler,

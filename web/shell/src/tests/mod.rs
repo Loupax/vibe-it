@@ -28,6 +28,7 @@ mod c_popups_tests;
 mod c_repeat_tests;
 mod c_script_map_tests;
 mod c_script_mem_tests;
+mod c_script_modules_tests;
 mod c_script_tests;
 mod c_source_tests;
 mod completion_tests;
