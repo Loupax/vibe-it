@@ -455,7 +455,8 @@ stop early on a hard failure.
          needs nothing: it builds a new `Scripts`, so the switches go back to true.
       4. Ctrl-d in `pick_key` (T158-T162, T165). New state on `Picker`: `pub confirm: Option<Row>` (the row being asked
          about). At the very top of `pick_key`, if `confirm` is Some: a plain `y` (no Ctrl/Alt/Super; `key.ch ==
-         Some('y')` or `Some('Y')`) runs the delete for that row; ANY other key press (Esc included) sets the message
+         Some('y')` or `Some('Y')`) runs the delete for that row; ANY other key press (Esc included; a modifier-only press, e.g. the Shift before `Y`, is skipped and leaves
+         `confirm` as it is) sets the message
          `not deleted` and is otherwise ignored (not typed into the filter, does not close the picker); either way
          `confirm` becomes None; return. Then a new branch before the filter-editing branch: `key.ctrl && key.ch ==
          Some('d')` with a selected row: source "history"/"bookmarks"/"buffers" and the switch true -> set
@@ -469,7 +470,7 @@ stop early on a hard failure.
          The question, in `bar_view`: while `confirm` is Some, `line` is None (no `>` prompt) and `message` is
          `delete history entry <url>? (y/n)` / `delete bookmark <url>? (y/n)` / `kill buffer <n> <label>? (y/n)`.
          Elide nothing yourself; the bar already elides.
-      5. KEYS.md T65 now excludes Ctrl-d (edit it); T158-T166 are written already. help.html: in the picker's
+      5. KEYS.md T65 (already excludes Ctrl-d) and T158-T168 are written already. help.html: in the picker's
          paragraph, one sentence on Ctrl-d. STASH.md "History": a line saying `:historyDelete` and the picker's
          Ctrl-d rewrite the file (temp + rename, under the same lock as the trim). `pick_log` unchanged except a
          ` confirm` suffix while asking (the live check reads it).
