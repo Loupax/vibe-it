@@ -418,7 +418,7 @@ stop early on a hard failure.
       .desktop). `desktop-file-validate` clean if installed. Where logs go when launched from the menu (journal)
       noted in the README. Never touch the user's real ~/.local in tests: test with --prefix and XDG_DATA_HOME
       under a scratch dir.
-- [x] C-PICKDEL [M] (DONE 2026-11-25, 608bfdc, #751: T158-T166; pick_log also logged with no `>` line; buffer_kill keeps PICK, no save/restore; found C-PICKMSG and C-PICKROOT) (user, 2026-11-25; DECISIONS.md "Deleting from a picker"; KEYS.md T158-T166; SCRIPTING.md
+- [x] C-PICKDEL [M] (DONE 2026-11-25, 608bfdc, #751: T158-T166; pick_log also logged with no `>` line; buffer_kill keeps PICK, no save/restore; found C-PICKMSG and C-PICKROOT -> C-HISTREAL) (user, 2026-11-25; DECISIONS.md "Deleting from a picker"; KEYS.md T158-T166; SCRIPTING.md
       "web.history, web.bookmarks, web.buffers") Ctrl-d in the picker deletes the selected row from `:historySearch`,
       `:bookmarkSearch` and `:bufferList`/`:ls`, after a y/n question that each source's script switch can turn off.
       Do the steps in order; each one has its own tests, so commit after each if you like. Read first: picker.rs
@@ -493,11 +493,23 @@ stop early on a hard failure.
       say where the message shows. Tests: the bar view in PICK carries the message after T159/T160/T161/T162, and it
       goes on the next filter key. Live: extend test/c_pickdel_live.py to read the message from the log after `n`
       and after `y`.
-- [ ] C-PICKROOT [XS] USER DECISION (from #751) A `:historySearch` site-root row made up from its pages (no visit
-      of its own): Ctrl-d y says `web: not in the history: https://host/`. Options: (a) keep, but say `site root has
-      no visits of its own: :forget-site removes the site` instead; (b) Ctrl-d on a made-up root removes all its
-      pages' lines (after a question naming the count); (c) Ctrl-d on a made-up root says nothing to delete and
-      does not ask. Coordinator suggests (a).
+- [ ] [WIP] C-HISTREAL [XS] (user, 2026-11-25: "history search should only show real history rows"; replaces
+      C-PICKROOT, found in #751) `:historySearch` reuses the `:go` ranking (`completion::rank_history`, STASH.md
+      "Ranking"), which adds a made-up site-root row per host (`scheme://host/`, ranked by visits to the whole site)
+      even when that URL was never visited; Ctrl-d y on one says `web: not in the history: https://host/`.
+      Change: `picker::history_rows` lists only URLs that have at least one line in the history file: one row per
+      URL, ranked by that URL's own visit count, ties by the most recent visit (the "Pages" order). A root URL that
+      was really visited is an ordinary row with its own count. Label/detail unchanged (newest title for exactly
+      that URL, else the URL; detail the URL); the "site root without a title: its host" label case goes.
+      Unchanged: `:go` completion (ghost, Tab) keeps the site roots first (user, 2026-11-20); do not touch
+      `complete_history_urls`/`rank_history`'s behaviour for `:go` (add a pages-only path or a flag, whichever is
+      smaller). Docs: KEYS.md `:historySearch` bullet (~line 406: "in the `:go` ranking (site roots first, then
+      pages)" -> real visits only, own count, recency) and T163/T164 if they mention roots; DECISIONS.md one dated
+      line amending 2026-11-25 "Deleting from a picker" (the site-root sentence); STASH.md "Ranking": one sentence
+      that the roots are `:go` only. Tests: a history with pages of a host and no root line shows no root row; a
+      visited root shows once with its own count (not the site total); order by own count then recency; Ctrl-d y
+      on every row deletes something (no `not in the history`); `:go` ranking tests untouched and passing. Update
+      c_pickdel_live.py if its 7 -> 5 row count assumed the made-up root.
 - [x] C-PICKDEL-MAP [S] (DONE 2026-11-25, a9ecd2c, #753: T167-T168; messages and script errors show beside the filter as T169) (after C-PICKDEL; user, 2026-11-25; KEYS.md T167-T168; SCRIPTING.md "web.map" mode "p") Picker
       mappings for scripts: `web.map("p", "<C-x>", fn)` calls `fn(row)` on the selected row. Read first: script.rs
       `web_map`, `call_map`, keys.rs `run_mapping`, `finish_script_call`, picker.rs `pick_key`.

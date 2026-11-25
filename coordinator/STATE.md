@@ -640,3 +640,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-25 C-PICKDEL-MAP merged (#753, a9ecd2c). No agents running; open web items are user decisions/manual checks or optional.
 
 ## 2026-11-25 web reinstalled with #753 (20261125-144925-d03dfcad). Guide v6: web.map "p".
+
+## 2026-11-25 User: :historySearch should show only real history rows (made-up site roots are a :go ranking feature). C-PICKROOT replaced by C-HISTREAL; started (Sonnet).
