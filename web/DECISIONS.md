@@ -2,6 +2,22 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-25 `web.buffers.list()` (C-SCRIPT-BUFLIST)
+
+User: "I'd like an easy way to navigate back to [Slack] ... I think it's better to have an internal command
+that ls uses then. maybe a simple list of just web.buffers?"
+
+- **One source for the buffer list**: `buffers::infos()` gives `BufferInfo` rows in `:ls` order; the picker's
+  `rows()` is built on it, and `web.buffers.list()` returns the same data, so they cannot disagree.
+- **Access from a script: a snapshot, not a shared handle.** The scripts live inside `Keys`, so a script
+  cannot borrow the buffers while `Keys` runs it. Before every call into JS (file, `ready`, command, mapping,
+  picker mapping) `Keys::script_sync` saves the current buffer's URL and title and puts a fresh list in the
+  script registry; `list()` copies it into frozen objects. Nothing is read until `ready` (`[]` before).
+- **A new read API, so a new line in "Plugins are trusted code"** (SCRIPTING.md): every buffer's URL can now
+  leave through `web.cmd`.
+- A buffer opened with `web.cmd("new ...")` shows in `list()` from the next call; `web.cmd` lines run after
+  the call returns (C-SCRIPT).
+
 ## 2026-11-25 One init.js per profile; reuse through ES modules (C-SCRIPT-MODULES)
 
 Amends 2026-11-24 "User scripts". User: "I don't like how the 'default' profile init script gets inherited

@@ -274,11 +274,13 @@ fn c_script_only_web_is_exposed() {
             || typeof require !== "undefined" || typeof print !== "undefined") throw new Error("leak");
         const keys = Object.keys(web).sort().join(",");
         if (keys !== "bookmarks,buffers,cmd,command,history,map,on") throw new Error(keys);
+        const bk = Object.keys(web.buffers).sort().join(",");
+        if (bk !== "deleteConfirmation,list") throw new Error(bk);
         web.extra = 1;
         "#,
     );
     // `web` is frozen: the assignment throws in strict mode, after the checks passed.
-    assert!(k.message.starts_with("init.js:6: "), "{}", k.message);
+    assert!(k.message.starts_with("init.js:8: "), "{}", k.message);
     let k = shell(r#"web.on("load", () => {});"#);
     assert!(k.message.contains("web.on: unknown event"), "{}", k.message);
     // C-SCRIPT-MODULES: the file is a module, so `import` parses; with no file behind the text there is
@@ -377,4 +379,124 @@ fn c_script_stack_location() {
         Some("/home/u/.config/web/profiles/p/init.js:4")
     );
     assert_eq!(stack_location(""), None);
+}
+
+// ---- C-SCRIPT-BUFLIST: web.buffers.list() ----
+
+/// A shell with three buffers (3 current, 2 alternate) and `:L` echoing `expr` as JSON.
+fn buflist_shell(expr: &str) -> Keys {
+    let mut k = shell(&format!(r#"web.command("L", () => web.cmd("echo " + JSON.stringify({expr})));"#));
+    k.script_ready();
+    k.title = "One".into();
+    type_line(&mut k, "new https://two.test/");
+    k.buffers.tab_created(2, Some(1));
+    type_line(&mut k, "new https://three.test/");
+    k.buffers.tab_created(3, Some(2));
+    k.buffers.get_mut(2).unwrap().description = "mid".into();
+    k.buffers.get_mut(1).unwrap().loading = true;
+    k.buffers.get_mut(2).unwrap().crashed = true;
+    k
+}
+
+#[test]
+fn c_script_buflist_fields_and_order() {
+    let mut k = buflist_shell("web.buffers.list()");
+    assert_eq!(k.buffers.current, 3);
+    type_line(&mut k, "L");
+    let v: serde_json::Value = serde_json::from_str(&k.message).unwrap_or_else(|e| panic!("{e}: {}", k.message));
+    let a = v.as_array().unwrap();
+    let nums: Vec<u64> = a.iter().map(|b| b["number"].as_u64().unwrap()).collect();
+    assert_eq!(nums, vec![1, 2, 3]);
+    assert_eq!(a[0]["url"], "https://a.test/");
+    assert_eq!(a[0]["title"], "One", "a buffer left is saved before the snapshot");
+    assert_eq!(a[0]["alternate"], false);
+    assert_eq!(a[1]["alternate"], true, "2 was current before 3");
+    assert_eq!(a[1]["description"], "mid");
+    assert_eq!(a[1]["crashed"], true);
+    assert_eq!(a[0]["loading"], true);
+    assert_eq!(a[2]["current"], true);
+    assert_eq!(a[2]["alternate"], false);
+    assert_eq!(a[0]["current"], false);
+    assert_eq!(a[2]["unread"], 0);
+    assert_eq!(a[2]["url"], "https://three.test/");
+    // The same order and numbers as `:ls`.
+    let picker: Vec<u32> = crate::buffers::rows(&k.buffers)
+        .iter()
+        .map(|r| match r.action {
+            crate::picker::PickAction::Buffer(n) => n,
+            _ => 0,
+        })
+        .collect();
+    assert_eq!(picker, vec![1, 2, 3]);
+}
+
+#[test]
+fn c_script_buflist_empty_before_ready_and_current_url_is_live() {
+    let mut k = Keys::new(None, String::new(), None);
+    k.load_script_source(
+        "init.js",
+        r#"web.on("ready", () => web.cmd("echo r" + web.buffers.list().length));
+           web.command("U", () => web.cmd("echo " + web.buffers.list()[0].url));
+           if (web.buffers.list().length !== 0) throw new Error("not empty before ready");"#,
+        BUDGET,
+    );
+    assert_eq!(k.message, "");
+    assert_eq!(k.buffers.tab_created(1, None), TabCreated::Buffer(1));
+    k.url = "https://a.test/".into();
+    k.script_ready();
+    assert_eq!(k.message, "r1", "ready handlers see the buffers");
+    k.url = "https://a.test/moved".into();
+    type_line(&mut k, "U");
+    assert_eq!(k.message, "https://a.test/moved", "the current buffer's url is read at call time");
+}
+
+#[test]
+fn c_script_buflist_cmd_result_seen_in_later_call_only() {
+    let mut k = shell(
+        r#"web.command("N", () => { web.cmd("new https://n.test/"); web.cmd("echo in" + web.buffers.list().length); });
+           web.command("C", () => web.cmd("echo later" + web.buffers.list().length));"#,
+    );
+    k.script_ready();
+    // The lines run after the call returned: it saw one buffer; the list is read when called.
+    type_line(&mut k, "N");
+    assert_eq!(k.message, "in1");
+    assert_eq!(k.buffers.list.len(), 2);
+    type_line(&mut k, "C");
+    assert_eq!(k.message, "later2");
+}
+
+#[test]
+fn c_script_buflist_objects_frozen_and_fresh() {
+    let mut k = shell(
+        r#"web.command("F", () => {
+            const a = web.buffers.list(), b = web.buffers.list();
+            let thrown = false;
+            try { a[0].url = "x"; } catch (e) { thrown = true; }
+            web.cmd("echo " + [thrown, Object.isFrozen(a[0]), a !== b, a[0] !== b[0], a[0].url === b[0].url].join());
+        });"#,
+    );
+    k.script_ready();
+    type_line(&mut k, "F");
+    // Module code is strict: assigning to a frozen object throws.
+    assert_eq!(k.message, "true,true,true,true,true");
+}
+
+#[test]
+fn c_script_buflist_find_and_switch_example() {
+    let mut k = shell(
+        r#"web.map("n", "gs", () => {
+            const b = web.buffers.list().find(b => b.url.startsWith("https://app.slack.com/"));
+            web.cmd(b ? "b " + b.number : "new https://app.slack.com");
+        });"#,
+    );
+    k.script_ready();
+    type_line(&mut k, "new https://app.slack.com/client");
+    k.buffers.tab_created(2, Some(1));
+    type_line(&mut k, "new https://other.test/");
+    k.buffers.tab_created(3, Some(2));
+    assert_eq!(k.buffers.current, 3);
+    press(&mut k, KeyInput::ch('g'));
+    press(&mut k, KeyInput::ch('s'));
+    assert_eq!(k.buffers.current, 2, "switched to the slack buffer");
+    assert_eq!(k.buffers.list.len(), 3);
 }
