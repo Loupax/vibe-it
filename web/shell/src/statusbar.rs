@@ -239,6 +239,15 @@ impl Painter {
             ) {
                 pm.fill_rect(r, &paint, tiny_skia::Transform::identity(), None);
             }
+            if *prompt == '>' && !view.message.is_empty() {
+                // C-PICKMSG: the message, right-aligned, in the room the filter text leaves.
+                let room = (avail - text_w - gap).max(0.0);
+                let msg = elide_end(&view.message, room, &mut |t| self.measure(t));
+                let mw = self.measure(&msg);
+                if mw > 0.0 {
+                    self.text(&mut pm, &msg, w as f32 - pad - mw, mw + 0.5, fg);
+                }
+            }
             if !view.ghost.is_empty() {
                 let x = pad + text_w;
                 self.text(&mut pm, &view.ghost, x, (avail - text_w).max(0.0), rgb(GHOST_FG));

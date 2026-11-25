@@ -178,7 +178,13 @@ impl State {
         let desc = match &v.line {
             Some((p, text, _, sel)) => {
                 let sel = sel.map(|(a, b)| format!(" [selected {a}..{b}]")).unwrap_or_default();
-                format!("{p}{text}|{}{}{sel}", v.ghost, self.keys.pick_log())
+                // C-PICKMSG: the message drawn beside the PICK filter line.
+                let msg = if *p == '>' && !v.message.is_empty() {
+                    format!(" msg: {}", v.message)
+                } else {
+                    String::new()
+                };
+                format!("{p}{text}|{}{}{sel}{msg}", v.ghost, self.keys.pick_log())
             }
             None => format!("{} | {}{}", v.mode, v.message, self.keys.pick_log()),
         };

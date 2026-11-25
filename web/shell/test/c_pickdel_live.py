@@ -32,6 +32,7 @@ SHELL = live.SHELL
 WEB = live.WEB
 Fail = live.Fail
 PICK = re.compile(r"pick history \[(\d+)/(\d+) of (\d+)\] (\S*)( confirm)?")
+MSG = re.compile(r" msg: (.*)$")  # C-PICKMSG: the message drawn beside the filter line
 
 
 def main():
@@ -168,7 +169,7 @@ def main():
             before = history_lines()
             k = log.mark()
             inject("key:n", "wait:300")
-            log.wait(r"\] bar: >\| pick history \[\d+/\d+ of \d+\] \S*$", k, 6)
+            log.wait(r"\] bar: >\| pick history \[\d+/\d+ of \d+\] \S* msg: not deleted$", k, 6)
             time.sleep(0.15)
             line = last_bar(k)
             sel, n, total, url, asking = pick(line)
@@ -178,7 +179,10 @@ def main():
                 raise Fail(f"the n was typed: {line}")
             if history_lines() != before:
                 raise Fail("the history file changed after n")
-            return "the question is gone, the picker is open, the file unchanged (the `not deleted` message shows only when the filter line is not drawn)"
+            m = MSG.search(line)
+            if not m or m[1] != "not deleted":
+                raise Fail(f"no `not deleted` beside the filter line: {line}")
+            return "the question is gone, the picker is open, the file unchanged, `not deleted` beside the filter line"
 
         step("T161 n cancels and is not typed", n_cancels)
 
@@ -189,10 +193,13 @@ def main():
             want_kept = [l for l in before if l.split("\t")[1] != url]
             k = log.mark()
             inject("hold:c", "key:d", "release", "wait:200", "key:y", "wait:400")
-            log.wait(r"\] bar: >\| pick history \[\d+/\d+ of \d+\]", k, 6)
+            log.wait(r"\] bar: >\| pick history \[\d+/\d+ of \d+\] \S* msg: history entry removed: ", k, 6)
             time.sleep(0.2)
             line = last_bar(k)
             sel, n, total, newurl, asking = pick(line)
+            m = MSG.search(line)
+            if not m or not m[1].startswith(f"history entry removed: {url} ("):
+                raise Fail(f"no removal message beside the filter line: {line}")
             if asking:
                 raise Fail(f"still asking: {line}")
             after = history_lines()
@@ -203,7 +210,7 @@ def main():
             # Its site root was made up from that one page, so it goes too (two rows less).
             if total != state0["total"] - 2 or sel != state0["sel"] or newurl == url:
                 raise Fail(f"after y: [{sel}/{n} of {total}] {newurl} (was {state0['total']} rows, {url})")
-            return f"{url}: {len(want_gone)} line(s) gone from the file, the others kept; rows {state0['total']} -> {total}, selected [{sel}] {newurl}"
+            return f"{url}: {len(want_gone)} line(s) gone from the file, the others kept; rows {state0['total']} -> {total}, selected [{sel}] {newurl}; message `{m[1]}`"
 
         step("T160/T163 Ctrl-d, y deletes the row and the file's lines, the list refreshes", y_deletes)
 
