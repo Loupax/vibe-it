@@ -1,0 +1,10 @@
+
+=== from TODO.txt: --- (no header)
+- [x] C-CLOSE-POLITE DONE 3d704df #758 [M] (issue #757; user, 2026-11-26) Closing web ignores beforeunload: X -> `quit` -> host
+      close_browser(1) still shows the dialog in CEF 156 -> "Stay" -> the shell SIGKILLs the host after 5 s. The full spec,
+      with the user's decisions (do not ask), is issue #757. In short: new protocol command `close-all` (polite,
+      close_browser(0), each page decides, as Chrome) used by the X button, `:q`/`:quit` and SIGINT; SIGTERM to the shell is
+      forwarded as SIGTERM to the host = forced `quit` (host gets a self-pipe SIGTERM handler, libc) and the forced quit ends
+      the message loop after 2 s even if a dialog blocks it; the shell never kills the host on a timer and exits only when
+      the host exits, with its exit code (0 stays 0); no about:blank/new-tab while closing. Docs: PROTOCOL.md,
+      shell/README.md, help.html. Tests and the manual check: as in the issue.
