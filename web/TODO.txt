@@ -710,6 +710,31 @@ stop early on a hard failure.
 - [ ] C-DL (from C1 #668) Downloads, JS dialogs and permission prompts as protocol events (today:
       downloads save without asking to <profile>/downloads; dialogs/prompts are the engine default).
       One item each when picked up; download directory and UI need the user's say.
+- [ ] C-FILEPICK [M] (user, 2026-11-26: "File forms seem to not be working. I can select a file, but after that it appears as
+      if the browser never selected the thing"; "I want the browser to work on all my systems with minimal deviation")
+      `<input type=file>`: the chooser opens, a file is picked, and the input still shows "No file chosen"
+      (no `change`/`input` event; nothing in cef.log or stderr). INVESTIGATION (Opus, not yet reproduced; the headless nest
+      did not build that day, .qwork/nest-dwl/build.log, dwl.o): the host has no CefDialogHandler (grep host-cef/src, shell/src:
+      none), so Chromium's stock Linux dialog runs. On the user's KDE/Wayland box the session bus has no
+      org.freedesktop.portal.FileChooser (xdg-desktop-portal + -wlr only; portals.conf says default=gtk but
+      xdg-desktop-portal-gtk is not installed; cef.log: "No such interface org.freedesktop.portal.FileChooser"), and
+      libcef.so carries gtk::SelectFileDialogLinuxGtk (GTK dlopen'd, no kdialog/zenity). So the in-process GTK dialog
+      is the likely chooser; its result probably never reaches the page (suspect: no native parent window for it on
+      the shell's Wayland surfaces). UNCONFIRMED.
+      DECISION (user): do not depend on a portal, GTK, kdialog or any desktop package. Fix: implement
+      CefDialogHandler::on_file_dialog in host-cef (modes open, open-multiple, open-folder, save; accept filters/
+      accept_filters; default path; return true) and answer it ourselves, the same on every system:
+      1. Protocol: host sends `file-dialog <id> <mode> <title> <default-path> <accept...>` (PROTOCOL.md rows,
+         both directions); shell answers `file-dialog-result <id> <path>...` (empty: cancelled). The host calls
+         callback.cont(paths) / cancel(). Always answer or cancel, also when the tab closes or the shell dies.
+      2. Shell UI: a picker in the shell's own style (C-PICK's list/fuzzy-filter is the model): directory
+         listing from the default path, keys per KEYS.md, multiple selection for open-multiple, a typed
+         path for save. Esc cancels. No new dependency.
+      3. Tests: unit tests for the picker's listing/filter/selection and the protocol rows (cancel, multiple,
+         tab closed while open); a live step (nest, tools/inject) with a page that prints `change:` + file
+         names and sizes (t.html style), including upload via FormData to a local server.
+      Verify first (cheap, do before building): in a nest with the same host, check whether the stock dialog
+      appears and whether on_file_dialog is even called for Chrome-style views; record in the item.
 - [-] C1-INPUT [S] SUPERSEDED (2026-11-23: #704 reverses the same-page popup rule; C-POPUPS re-tests popups
       with real clicks) (after C2; from C1 #668) Real-input version of the C1 check: click target=_blank
       and window.open with a user gesture (tools/inject), without --disable-popup-blocking.
