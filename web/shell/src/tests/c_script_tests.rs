@@ -275,7 +275,7 @@ fn c_script_only_web_is_exposed() {
         const keys = Object.keys(web).sort().join(",");
         if (keys !== "bookmarks,buffers,cmd,command,history,map,on") throw new Error(keys);
         const bk = Object.keys(web.buffers).sort().join(",");
-        if (bk !== "deleteConfirmation,list") throw new Error(bk);
+        if (bk !== "deleteConfirmation,focusExisting,list") throw new Error(bk);
         web.extra = 1;
         "#,
     );

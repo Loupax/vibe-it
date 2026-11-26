@@ -301,6 +301,14 @@ pub enum Event {
         tab: TabId,
         url: String,
     },
+    /// C-FOCUSEXISTING: the user left-clicked (or pressed Enter on) a `target=_blank` link in page
+    /// `tab` (no modifier held, a trusted click the page did not cancel); `url` is its absolute
+    /// target. Its popup was cancelled in the renderer; the shell opens the URL in a new buffer, or
+    /// switches to a buffer already showing it (`web.buffers.focusExisting`).
+    BlankLink {
+        tab: TabId,
+        url: String,
+    },
     /// C-BELL: page `tab` showed a Web Notification (`new Notification`, `showNotification`; notify.rs).
     /// The host capped the lengths (control characters became spaces) and rate-limits per page;
     /// `origin` is the notifying frame's (`https://chat.example.com`, `null` when opaque).
@@ -381,6 +389,7 @@ pub fn event_text(ev: &Event) -> String {
         }
         Event::PopupBlocked { tab, popup, url, .. } => format!("popup-blocked {tab} {popup} {url}"),
         Event::OpenLink { tab, url } => format!("open-link {tab} {url}"),
+        Event::BlankLink { tab, url } => format!("blank-link {tab} {url}"),
         Event::Notify { tab, title, body, .. } => format!("notify {tab} {title} {body}"),
         Event::TabClosed { tab } => format!("tab-closed {tab}"),
         Event::Url { tab, url } => format!("url {tab} {url}"),
@@ -969,6 +978,13 @@ mod tests {
                 },
                 r#"{"event":"open-link","tab":2,"url":"https://a.test/x"}"#,
             ),
+            (
+                Event::BlankLink {
+                    tab: 2,
+                    url: "https://a.test/x#y".into(),
+                },
+                r#"{"event":"blank-link","tab":2,"url":"https://a.test/x#y"}"#,
+            ),
             (Event::TabClosed { tab: 3 }, r#"{"event":"tab-closed","tab":3}"#),
             (
                 Event::Url {
@@ -1110,6 +1126,13 @@ mod tests {
                 ok: true
             }),
             "field-result 2 last true"
+        );
+        assert_eq!(
+            event_text(&Event::BlankLink {
+                tab: 2,
+                url: "https://a.test/x".into()
+            }),
+            "blank-link 2 https://a.test/x"
         );
     }
 

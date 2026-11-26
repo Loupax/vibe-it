@@ -142,6 +142,7 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | `crashed <id>` | `{"event":"crashed","tab":1,"reason":"TS_PROCESS_CRASHED (exit code 139)"}` |
 | `popup-blocked <id> <n> <url>` | `{"event":"popup-blocked","tab":1,"popup":7,"url":"https://idp.example/auth","name":"login","frame":"sub","features":"popup,width=400,height=300"}` |
 | `open-link <id> <url>` | `{"event":"open-link","tab":1,"url":"https://a.example/x"}` |
+| `blank-link <id> <url>` | `{"event":"blank-link","tab":1,"url":"https://a.example/x"}` |
 | `notify <id> <title> <body>` | `{"event":"notify","tab":1,"title":"New message","body":"Ana: lunch?","tag":"msg-42","origin":"https://chat.example.com"}` |
 | `forgot <site> ok`, `forgot <site> partial <what failed>` | `{"event":"forgot","site":"https://mail.example.com/","domain":"example.com","result":"ok","cookies":3,"origins":["http://example.com","https://example.com","https://mail.example.com"]}`, with `"result":"partial","failed":["storage https://x.example.com (timeout)"]` |
 | (error) | `{"event":"error","message":"..."}` |
@@ -160,6 +161,15 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 - `open-link` (C-MIDCLICK): the user middle-clicked a link (no modifier held) in page `tab`; `url` is its absolute
   `http:`/`https:`/`file:` target. The click's own navigation was cancelled in the renderer; the shell opens the URL as `:new <url>`
   (KEYS.md T105). Pages cannot send it: the renderer script holds the only reference to the function that does.
+- `blank-link` (C-FOCUSEXISTING, 2026-11-26): the user left-clicked a link whose effective target is `_blank`
+  (its `target`, else `<base target>`; any case) in page `tab` (any frame of it): a trusted `click` (`isTrusted`;
+  Enter on a focused link is one too), button 0, no Ctrl/Shift/Alt/Meta, not cancelled by the page
+  (`defaultPrevented`). `url` is its absolute `http:`/`https:`/`file:` target. The renderer cancelled the
+  click's popup, so no `tab-created` follows from the host; the shell opens the URL in a new buffer (`new-tab`)
+  or, with `web.buffers.focusExisting`, shows a buffer already at that URL (KEYS.md T170). Kept apart from
+  `open-link` because a middle-click ignores that setting. Left to the popup path ("Popups"): links with
+  `download`, with `rel` containing `opener`, other schemes, and clicks a page handler stopped from reaching
+  `window` (`stopPropagation`). Pages cannot send it, as `open-link`.
 - `notify` (C-BELL): page `tab` (any frame of it) showed a Web Notification ("Notifications" below).
   `title`, `body`, `tag` as the page gave them (`tag` `""` when none), `origin` the notifying
   frame's origin (`null` when opaque). The host caps them (title 200, body 500, tag 100, origin 200
@@ -367,7 +377,12 @@ By disposition (`host-cef/src/newtab.rs`) and gesture:
   `window.close()` in it closes only it (`tab-closed`, the shell kills its buffer). `target=_blank`
   links get no `window.opener` (Chromium's implicit `noopener`, as in Chrome); the engine does not
   tell a `target=_blank` click from a `window.open` call. Size and position features are ignored (the
-  shell sizes every page).
+  shell sizes every page). **Since C-FOCUSEXISTING (2026-11-26) a trusted plain left-click (or Enter) on a
+  `target=_blank` link no longer reaches `OnBeforePopup`**: the renderer cancels it and the host sends
+  `blank-link`; the shell opens the page itself with `new-tab`, so that page gets no `Referer` and no copy of
+  the opener's `sessionStorage` (it had no `window.opener` before either). What still comes here as a
+  `target=_blank` link: one with `rel=opener` (its `window.opener` works), `download`, a script's
+  `a.click()` (untrusted), a click a page handler stopped (`stopPropagation`), and forms.
 - the same **without** a gesture: cancelled (the page's `window.open` returns `null`, as with Chrome's
   blocker), recorded in its page and reported as `popup-blocked`. A page forgets its blocked popups when
   it starts a cross-document load (reload included); the shell clears its list on the same `load start`.

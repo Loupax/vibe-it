@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>fe A</title>
+<style>
+  /* C-FOCUSEXISTING live check (c_focusexisting_live.py). Red page A: target=_blank links to B, to
+     B with a fragment, to A itself, and a rel=opener one to B. */
+  html, body { margin: 0; font: 20px sans-serif; background: #ff0000; }
+  .box { position: absolute; left: 40px; width: 300px; height: 60px; line-height: 60px; text-align: center;
+         border: 2px solid #345; background: #fff; }
+  #tob { top: 40px; } #tobx { top: 140px; } #toa { top: 240px; } #opener { top: 340px; }
+</style>
+<a id="tob" class="box" href="fe-b.html" target="_blank">link one: B</a>
+<a id="tobx" class="box" href="fe-b.html#x" target="_blank">link two: B#x</a>
+<a id="toa" class="box" href="fe-a.html" target="_BLANK">link three: A itself</a>
+<a id="opener" class="box" href="fe-b.html" target="_blank" rel="opener">link four: B, rel=opener</a>

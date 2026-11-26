@@ -415,6 +415,31 @@ impl Keys {
         num
     }
 
+    /// A link click the host hands over (KEYS.md T105, T170): `open-link` (a middle-click, `blank`
+    /// false) or `blank-link` (a plain click on a `target=_blank` link, `blank` true) from page `tab`.
+    /// Only the page on screen counts: from another tab it is ignored and false is returned. The mode
+    /// goes to NORMAL (the click may have come in INPUT), then as `:new <url>`: a new buffer, current.
+    /// C-FOCUSEXISTING: a `blank-link` with `web.buffers.focusExisting` on and a buffer whose current
+    /// URL is `url` byte for byte switches to the first such buffer in `:ls` order instead, as `:b N`
+    /// (the one left becomes the alternate; the buffer on screen itself: nothing switches), and says
+    /// `already open: [N] TITLE`.
+    pub fn link_click(&mut self, tab: u64, url: &str, blank: bool) -> bool {
+        if self.buffers.current().tab != Some(tab) {
+            return false;
+        }
+        self.set_key_mode(KeyMode::Normal);
+        if blank && self.scripts.as_ref().is_some_and(|s| s.focus_existing()) {
+            self.save_current();
+            if let Some(n) = self.buffers.list.iter().find(|b| b.url == url).map(|b| b.num) {
+                self.switch_to(n);
+                self.message = format!("already open: [{n}] {}", self.buffers.current().name());
+                return true;
+            }
+        }
+        self.open_buffer(url);
+        true
+    }
+
     /// `:new [url]` / `:bufferNew [url]` (C-NEWBUF): a new buffer, current at once (the old one becomes
     /// the alternate). The argument is `:go`'s; none: an `about:blank` buffer and the `:` line open with
     /// `go ` typed, so the address comes straight away.

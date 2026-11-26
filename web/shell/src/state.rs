@@ -600,15 +600,16 @@ impl State {
                 }
             }
             // C-MIDCLICK (KEYS.md T105): a middle-click on a link of the page on screen is `:new <url>`.
-            Event::OpenLink { tab, ref url } => {
-                if self.keys.buffers.current().tab == Some(tab) {
-                    // As `:new`: the new buffer starts in NORMAL (the click may have come in INPUT).
-                    self.keys.set_key_mode(crate::keys::KeyMode::Normal);
-                    self.keys.open_buffer(url);
+            // C-FOCUSEXISTING (T170): a plain click on a target=_blank link is too, unless
+            // `web.buffers.focusExisting` finds a buffer already showing the URL (`Keys::link_click`).
+            Event::OpenLink { tab, ref url } | Event::BlankLink { tab, ref url } => {
+                let blank = matches!(ev, Event::BlankLink { .. });
+                if self.keys.link_click(tab, url, blank) {
                     self.apply_key_effects(0);
                     self.sync_page();
                 } else {
-                    self.log(&format!("open-link from tab {tab}, not the page on screen: ignored"));
+                    let name = if blank { "blank-link" } else { "open-link" };
+                    self.log(&format!("{name} from tab {tab}, not the page on screen: ignored"));
                 }
             }
             Event::TabClosed { tab } => {

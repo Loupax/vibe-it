@@ -57,7 +57,13 @@ def main():
 
     wl = subprocess.run([os.path.join(WEB, "tools/nest.sh")], check=True, capture_output=True, text=True).stdout.strip()
     nest_env = dict(os.environ, WAYLAND_DISPLAY=wl)
-    shell_env = dict(os.environ, WAYLAND_DISPLAY=wl)
+    # Empty config/state/data homes of its own: no user init.js (web.buffers.focusExisting is off).
+    homes = {}
+    for var in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"):
+        homes[var] = os.path.join(out, var.lower())
+        shutil.rmtree(homes[var], ignore_errors=True)
+        os.makedirs(homes[var], mode=0o700)
+    shell_env = dict(os.environ, WAYLAND_DISPLAY=wl, **homes)
     shell_env.pop("WAYLAND_SOCKET", None)
     shell_env.pop("DISPLAY", None)
 
@@ -134,6 +140,14 @@ def main():
             """The tab-created of a popup of the opener since `since`: its tab."""
             m = log.wait(r'host event: \{"event":"tab-created","tab":(\d+),"opener":' + str(tabs["opener"]) +
                          r',"cause":"' + cause + '"', since, timeout)
+            return int(m.group(1))
+
+        def blank_opened(since, timeout=15):
+            """C-FOCUSEXISTING: a plain target=_blank click is handed to the shell (`blank-link`), which
+            opens it with `new-tab` (web.buffers.focusExisting is off: no init.js here): the new tab."""
+            log.wait(r'host event: \{"event":"blank-link","tab":' + str(tabs["opener"]) + r',"url":"' +
+                     re.escape(child("blank")) + '"', since, timeout)
+            m = log.wait(r'host event: \{"event":"tab-created","tab":(\d+),"req":\d+\}', since, timeout)
             return int(m.group(1))
 
         tabs = {}
@@ -231,7 +245,7 @@ def main():
         def blank():
             k = log.mark()
             click("blank")
-            tab = created(k, "popup")
+            tab = blank_opened(k)
             log.wait(r'host event: \{"event":"title","tab":' + str(tab) + r',"title":"child blank opener=no"', k, 15)
             log.wait(r"buffer 5 of 2 is current", k, 5)
             shows(GREEN, "blank-popup.png")
@@ -239,7 +253,7 @@ def main():
                 raise Fail("the opener navigated")
             k = command("bd", r"NORMAL \| buffer 5 killed")
             log.wait(r"buffer 1 of 1 is current", k, 5)
-            return f"target=_blank click: tab {tab} is buffer 5 (no window.opener, Chromium's noopener); the opener stayed"
+            return f"target=_blank click: tab {tab} is buffer 5 (blank-link: the shell opened it, no window.opener); the opener stayed"
 
         step("T94 a target=_blank link opens a buffer", blank)
 
@@ -260,10 +274,10 @@ def main():
                 raise Fail("a middle-click made a popup")
             k = command("bd", r"NORMAL \| buffer 6 killed")
             log.wait(r"buffer 1 of 1 is current", k, 5)
-            # a plain click right after still opens the popup (the modifiers were restored)
+            # a plain click right after still opens a buffer (the modifiers were restored; blank-link)
             k = log.mark()
             click("blank")
-            tab = created(k, "popup")
+            tab = blank_opened(k)
             log.wait(r"buffer 7 of 2 is current", k, 15)
             k = command("bd", r"NORMAL \| buffer 7 killed")
             log.wait(r"buffer 1 of 1 is current", k, 5)

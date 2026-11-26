@@ -205,6 +205,26 @@ commands (`:historyDelete`, `:bookmarkDelete`, `:bufferKill`) never ask, typed o
 `"p"` mapping does what its function does. These objects are where later settings of a source go, never `web`
 itself (user, 2026-11-25).
 
+### `web.buffers.focusExisting` (2026-11-26, user; C-FOCUSEXISTING)
+
+`false` by default. Set it to `true` and a plain left-click on a `target=_blank` link (or Enter on such a
+link) whose absolute URL is, byte for byte, the current URL of an open buffer shows that buffer instead of
+opening a new one (KEYS.md T170): the first such buffer in `:ls` order, switched to as `:b N` does (the one
+left becomes the alternate, Ctrl-^ returns), and the bar says `already open: [N] TITLE`. When that buffer is
+the one on screen nothing switches; only the message shows. No other match: a new buffer, as with the
+setting off.
+
+```js
+web.buffers.focusExisting = true;
+```
+
+- Exact URLs only: a different `#fragment`, query or trailing slash is another page, and a buffer that was
+  redirected (`http:` to `https:`) does not match the link's URL.
+- Only those clicks: a middle-click (KEYS.md T105) always opens a new buffer, which is the way around it.
+  `window.open`, forms, `:new`, `:go` and a `web URL` from outside never look for an open buffer.
+- Only `true` or `false`; any other value is a script error and the setting keeps its value. `:source` puts
+  it back to `false` before it runs the files again.
+
 ### `web.buffers.list()` (2026-11-25, user; C-SCRIPT-BUFLIST)
 
 The open buffers, in `:ls` order (by number), as a new array of plain objects:

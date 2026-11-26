@@ -95,6 +95,12 @@ pub enum Event {
         tab: u64,
         url: String,
     },
+    /// C-FOCUSEXISTING: a plain left-click (or Enter) on a `target=_blank` link of page `tab`: a new
+    /// buffer for `url`, or (`web.buffers.focusExisting`) the buffer already showing it.
+    BlankLink {
+        tab: u64,
+        url: String,
+    },
     /// C-AUTOFOCUS: the answer to `blur-field` (`op` `blur`) or `focus-field` (`op` `last`/`first`):
     /// `ok` = a field was blurred / has the focus now.
     FieldResult {
@@ -339,6 +345,13 @@ mod tests {
                 Event::OpenLink {
                     tab: 2,
                     url: "https://a.test/x".into(),
+                },
+            ),
+            (
+                r#"{"event":"blank-link","tab":2,"url":"https://a.test/x#y"}"#,
+                Event::BlankLink {
+                    tab: 2,
+                    url: "https://a.test/x#y".into(),
                 },
             ),
             (
