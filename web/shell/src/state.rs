@@ -612,6 +612,19 @@ impl State {
                     self.log(&format!("{name} from tab {tab}, not the page on screen: ignored"));
                 }
             }
+            // C-FILEPICK (KEYS.md T171): a page asks for a file chooser; the picker answers it.
+            Event::FileDialog {
+                tab,
+                id,
+                mode,
+                ref title,
+                ref default,
+                ref accept,
+            } => {
+                self.keys.file_dialog(tab, id, mode, title, default, accept.clone());
+                self.apply_key_effects(0);
+                self.sync_page();
+            }
             Event::TabClosed { tab } => {
                 self.pairing.tab_closed(tab);
                 self.visits.remove(&tab);

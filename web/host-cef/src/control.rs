@@ -59,6 +59,7 @@ wrap_task! {
     impl Task {
         fn execute(&self) {
             log!("control socket closed by the shell: quitting");
+            crate::filedialog::cancel_all();
             crate::page::quit();
         }
     }

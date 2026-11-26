@@ -72,6 +72,7 @@ fn selected_url(k: &Keys) -> String {
         PickAction::Buffer(n) => format!("buffer {n}"),
         PickAction::Popup(n) => format!("popup {n}"),
         PickAction::Notice(n) => format!("notice {n}"),
+        PickAction::FileEntry { path, .. } | PickAction::FileHere(path) => path.clone(),
     }
 }
 
@@ -111,6 +112,7 @@ fn keys_t58_history_search_opens_the_picker_in_ranking_order() {
             PickAction::Buffer(n) => format!("buffer {n}"),
             PickAction::Popup(n) => format!("popup {n}"),
             PickAction::Notice(n) => format!("notice {n}"),
+            PickAction::FileEntry { path, .. } | PickAction::FileHere(path) => path.clone(),
         })
         .collect();
     // C-HISTREAL: only URLs with a line in the file, by their own visits, ties newest first; no

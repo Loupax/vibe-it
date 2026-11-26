@@ -101,6 +101,60 @@ pub enum Command {
     CloseAll,
     /// Closes every page without waiting for `beforeunload` answers, then the host exits.
     Quit,
+    /// C-FILEPICK: the shell's answer to a `file-dialog` event: the chosen paths (empty: cancelled).
+    /// Needs no page; an unknown (already answered, or cancelled by a closed page) `id` is ignored.
+    FileDialogResult {
+        id: u64,
+        #[serde(default)]
+        paths: Vec<String>,
+    },
+}
+
+/// C-FILEPICK: what a file chooser asks for (CEF's `cef_file_dialog_mode_t`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DialogMode {
+    Open,
+    OpenMultiple,
+    OpenFolder,
+    Save,
+}
+
+pub fn dialog_mode_name(m: DialogMode) -> &'static str {
+    match m {
+        DialogMode::Open => "open",
+        DialogMode::OpenMultiple => "open-multiple",
+        DialogMode::OpenFolder => "open-folder",
+        DialogMode::Save => "save",
+    }
+}
+
+/// C-FILEPICK: one entry of a chooser's accept list (`<input accept>`): a lower-cased MIME type
+/// (`image/*`) or extension (`.png`), what CEF expands it to (`.png;.jpg`, "" if unknown) and its
+/// description ("Image Files", "" if unknown).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Accept {
+    pub filter: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub extensions: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+}
+
+/// C-FILEPICK: pairs CEF's three parallel accept lists (same size; a short one is padded with "").
+/// Entries with an empty filter are dropped.
+pub fn accept_list(filters: &[String], extensions: &[String], descriptions: &[String]) -> Vec<Accept> {
+    let at = |v: &[String], i: usize| v.get(i).cloned().unwrap_or_default();
+    filters
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !f.trim().is_empty())
+        .map(|(i, f)| Accept {
+            filter: f.trim().to_string(),
+            extensions: at(extensions, i),
+            description: at(descriptions, i),
+        })
+        .collect()
 }
 
 /// `focus-field`'s field (C-AUTOFOCUS).
@@ -323,6 +377,17 @@ pub enum Event {
         tag: String,
         origin: String,
     },
+    /// C-FILEPICK: page `tab` asked for a file chooser (`<input type=file>`, a save). `id` numbers
+    /// the dialog; the shell answers with `file-dialog-result` (CEF waits for it). `title` and
+    /// `default` (a directory and/or file name) may be "".
+    FileDialog {
+        tab: TabId,
+        id: u64,
+        mode: DialogMode,
+        title: String,
+        default: String,
+        accept: Vec<Accept>,
+    },
     /// The answer to `forget-site`. `site`: the argument as the shell sent it;
     /// `domain`: the registrable domain that was forgotten (with every host under it);
     /// `result`: `ok`, or `partial` with `failed` naming what could not be cleared;
@@ -395,6 +460,16 @@ pub fn event_text(ev: &Event) -> String {
         Event::OpenLink { tab, url } => format!("open-link {tab} {url}"),
         Event::BlankLink { tab, url } => format!("blank-link {tab} {url}"),
         Event::Notify { tab, title, body, .. } => format!("notify {tab} {title} {body}"),
+        Event::FileDialog {
+            tab,
+            id,
+            mode,
+            title,
+            default,
+            ..
+        } => {
+            format!("file-dialog {tab} {id} {} {title} {default}", dialog_mode_name(*mode))
+        }
         Event::TabClosed { tab } => format!("tab-closed {tab}"),
         Event::Url { tab, url, original } => match original {
             Some(o) => format!("url {tab} {url} (from {o})"),
@@ -1450,5 +1525,35 @@ mod tests {
         assert!(host_options(&s(&["h", "--forget-site=com"])).is_err());
         assert!(normalize_argv(&s(&["h", "--forget-site"])).is_err());
         assert!(!host_options(&s(&["h", "--forget-site=a.test"])).unwrap().no_window);
+    }
+
+    #[test]
+    fn file_dialog_event_and_result_command() {
+        let ev = Event::FileDialog {
+            tab: 2,
+            id: 7,
+            mode: DialogMode::OpenMultiple,
+            title: "".into(),
+            default: "/home/u".into(),
+            accept: accept_list(&s(&["image/*", ".pdf", " "]), &s(&[".png;.jpg"]), &s(&["Image Files"])),
+        };
+        assert_eq!(
+            encode_event(&ev),
+            r#"{"event":"file-dialog","tab":2,"id":7,"mode":"open-multiple","title":"","default":"/home/u","accept":[{"filter":"image/*","extensions":".png;.jpg","description":"Image Files"},{"filter":".pdf"}]}"#
+        );
+        assert_eq!(event_text(&ev), "file-dialog 2 7 open-multiple  /home/u");
+        assert_eq!(
+            parse_command(r#"{"cmd":"file-dialog-result","id":7,"paths":["/a b/c.txt","/d"]}"#).unwrap(),
+            Command::FileDialogResult {
+                id: 7,
+                paths: vec!["/a b/c.txt".into(), "/d".into()]
+            }
+        );
+        // No paths: cancelled.
+        assert_eq!(
+            parse_command(r#"{"cmd":"file-dialog-result","id":8}"#).unwrap(),
+            Command::FileDialogResult { id: 8, paths: vec![] }
+        );
+        assert!(parse_command(r#"{"cmd":"file-dialog-result"}"#).is_err());
     }
 }

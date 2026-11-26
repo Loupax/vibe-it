@@ -49,6 +49,11 @@ pub enum PickAction {
     Popup(u32),
     /// Show the buffer of notification `id` (or reopen its page) and mark it read (C-NOTIFLIST).
     Notice(u64),
+    /// C-FILEPICK (`filepick.rs`): a directory entry of a file chooser: Enter descends into a directory
+    /// or chooses a file.
+    FileEntry { path: String, dir: bool },
+    /// C-FILEPICK: "choose this folder" (open-folder).
+    FileHere(String),
 }
 
 /// One row of a source: what is drawn (the label, then the dimmed detail), what the filter is
@@ -302,6 +307,11 @@ impl Picker {
         self.matches.len()
     }
 
+    /// The position among the matches of the first match for which `f` holds.
+    pub fn rows_position(&self, f: impl Fn(&Row) -> bool) -> Option<usize> {
+        self.matches.iter().position(|&i| f(&self.rows[i]))
+    }
+
     /// The row Enter would run, if any matches.
     pub fn selected_row(&self) -> Option<&Row> {
         self.matches.get(self.selected).map(|&i| &self.rows[i])
@@ -515,6 +525,10 @@ impl Keys {
             }
             return;
         }
+        if self.filedlg.is_some() && self.file_key(key) {
+            // C-FILEPICK: Enter, Tab, Backspace and the typed text of a file chooser.
+            return;
+        }
         if self.pick_mapped(key) {
             // T167/T168: a script's "p" mapping, before every built-in key.
             return;
@@ -671,6 +685,8 @@ impl Keys {
             }
             PickAction::Popup(n) => self.popup_open_n(n),
             PickAction::Notice(id) => self.notice_open(id),
+            // A file chooser's rows are run by `file_key` before this is reached.
+            PickAction::FileEntry { .. } | PickAction::FileHere(_) => {}
         }
     }
 
@@ -694,6 +710,7 @@ impl Keys {
                 PickAction::Buffer(n) => format!("buffer {n}"),
                 PickAction::Popup(n) => format!("popup {n}"),
                 PickAction::Notice(id) => format!("notice {id}"),
+                PickAction::FileEntry { path, .. } | PickAction::FileHere(path) => path.clone(),
             })
             .unwrap_or_default();
         let at = if p.match_count() == 0 { 0 } else { p.selected + 1 };
