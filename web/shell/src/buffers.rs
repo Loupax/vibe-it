@@ -29,6 +29,9 @@ pub struct Buffer {
     /// The `new-tab` request still waiting for its `tab-created`.
     pub req: Option<u64>,
     pub url: String,
+    /// The URL requested before redirects for the page now shown (the host's `url` event);
+    /// `None` when there were no redirects.
+    pub original_url: Option<String>,
     pub title: String,
     /// The user's words for it (`:bufferDescribe`); kept across navigation.
     pub description: String,
@@ -338,7 +341,10 @@ impl Keys {
                     b.loading = false;
                 }
             }
-            Event::Url { url, .. } if !current => b.url = url.clone(),
+            Event::Url { url, original, .. } if !current => {
+                b.url = url.clone();
+                b.original_url = original.clone();
+            }
             Event::Title { title, .. } if !current => b.title = title.clone(),
             Event::Crashed { .. } => {
                 b.crashed = true;
@@ -370,8 +376,10 @@ impl Keys {
     /// buffer, so lists and switches see it.
     pub fn save_current(&mut self) {
         let (url, title, search, ret) = (self.url.clone(), self.title.clone(), self.search.clone(), self.popup_return);
+        let original = self.original_url.clone();
         let b = self.buffers.current_mut();
         b.url = url;
+        b.original_url = original;
         b.title = title;
         b.search = search;
         b.popup_return = ret;
@@ -393,6 +401,7 @@ impl Keys {
         self.notices.read_buffer(num);
         let b = self.buffers.current().clone();
         self.url = b.url;
+        self.original_url = b.original_url;
         self.title = b.title;
         self.search = b.search;
         self.popup_return = b.popup_return;
@@ -420,7 +429,7 @@ impl Keys {
     /// Only the page on screen counts: from another tab it is ignored and false is returned. The mode
     /// goes to NORMAL (the click may have come in INPUT), then as `:new <url>`: a new buffer, current.
     /// C-FOCUSEXISTING: a `blank-link` with `web.buffers.focusExisting` on and a buffer whose current
-    /// URL is `url` byte for byte switches to the first such buffer in `:ls` order instead, as `:b N`
+    /// URL, or the URL its page was requested as before redirects, is `url` byte for byte switches to the first such buffer in `:ls` order instead, as `:b N`
     /// (the one left becomes the alternate; the buffer on screen itself: nothing switches), and says
     /// `already open: [N] TITLE`.
     pub fn link_click(&mut self, tab: u64, url: &str, blank: bool) -> bool {
@@ -430,7 +439,13 @@ impl Keys {
         self.set_key_mode(KeyMode::Normal);
         if blank && self.scripts.as_ref().is_some_and(|s| s.focus_existing()) {
             self.save_current();
-            if let Some(n) = self.buffers.list.iter().find(|b| b.url == url).map(|b| b.num) {
+            if let Some(n) = self
+                .buffers
+                .list
+                .iter()
+                .find(|b| b.url == url || b.original_url.as_deref() == Some(url))
+                .map(|b| b.num)
+            {
                 self.switch_to(n);
                 self.message = format!("already open: [{n}] {}", self.buffers.current().name());
                 return true;

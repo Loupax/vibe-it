@@ -226,9 +226,13 @@ pub enum Event {
     TabClosed {
         tab: TabId,
     },
+    /// The page's current URL. `original`: the URL it was requested as before redirects
+    /// (the navigation entry's original URL); only when it differs from `url`.
     Url {
         tab: TabId,
         url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        original: Option<String>,
     },
     Title {
         tab: TabId,
@@ -392,7 +396,10 @@ pub fn event_text(ev: &Event) -> String {
         Event::BlankLink { tab, url } => format!("blank-link {tab} {url}"),
         Event::Notify { tab, title, body, .. } => format!("notify {tab} {title} {body}"),
         Event::TabClosed { tab } => format!("tab-closed {tab}"),
-        Event::Url { tab, url } => format!("url {tab} {url}"),
+        Event::Url { tab, url, original } => match original {
+            Some(o) => format!("url {tab} {url} (from {o})"),
+            None => format!("url {tab} {url}"),
+        },
         Event::Title { tab, title } => format!("title {tab} {title}"),
         Event::Load {
             tab,
@@ -990,8 +997,17 @@ mod tests {
                 Event::Url {
                     tab: 1,
                     url: "https://a.test/\"q\"".into(),
+                    original: None,
                 },
                 r#"{"event":"url","tab":1,"url":"https://a.test/\"q\""}"#,
+            ),
+            (
+                Event::Url {
+                    tab: 1,
+                    url: "https://a.test/pull/1".into(),
+                    original: Some("https://a.test/issues/1".into()),
+                },
+                r#"{"event":"url","tab":1,"url":"https://a.test/pull/1","original":"https://a.test/issues/1"}"#,
             ),
             (
                 Event::Title {

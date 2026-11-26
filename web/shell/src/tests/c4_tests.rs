@@ -205,7 +205,8 @@ fn c4_t83_buffer_describe_sets_keeps_and_clears() {
         2,
         &Event::Url {
             tab: 2,
-            url: "https://blue.example/next".into()
+            url: "https://blue.example/next".into(),
+            original: None
         }
     ));
     k.navigated();
@@ -297,7 +298,8 @@ fn c4_t87_events_of_a_hidden_buffer_stay_in_that_buffer() {
         1,
         &Event::Url {
             tab: 1,
-            url: "https://a.test/next".into()
+            url: "https://a.test/next".into(),
+            original: None
         }
     ));
     assert!(k.page_event(

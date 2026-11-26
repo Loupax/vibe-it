@@ -32,6 +32,9 @@ pub enum Event {
     Url {
         tab: u64,
         url: String,
+        /// The URL the page was requested as before redirects; absent when there were none.
+        #[serde(default)]
+        original: Option<String>,
     },
     Title {
         tab: u64,
@@ -380,6 +383,15 @@ mod tests {
                 Event::Url {
                     tab: 1,
                     url: "https://example.com/".into(),
+                    original: None,
+                },
+            ),
+            (
+                r#"{"event":"url","tab":1,"url":"https://example.com/p","original":"https://example.com/q"}"#,
+                Event::Url {
+                    tab: 1,
+                    url: "https://example.com/p".into(),
+                    original: Some("https://example.com/q".into()),
                 },
             ),
             (

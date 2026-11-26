@@ -621,9 +621,10 @@ impl State {
                 }
                 self.sync_page();
             }
-            Event::Url { url, .. } => {
+            Event::Url { url, original, .. } => {
                 self.url = url.clone();
                 self.keys.url = url;
+                self.keys.original_url = original;
                 self.update_window_title();
             }
             Event::Title { title, .. } => {
