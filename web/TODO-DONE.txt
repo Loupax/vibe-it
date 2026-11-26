@@ -8,3 +8,11 @@
       the message loop after 2 s even if a dialog blocks it; the shell never kills the host on a timer and exits only when
       the host exits, with its exit code (0 stays 0); no about:blank/new-tab while closing. Docs: PROTOCOL.md,
       shell/README.md, help.html. Tests and the manual check: as in the issue.
+
+=== from TODO.txt: --- (no header)
+- [x] C-FOCUSEXISTING DONE cf34b63 #760 [S/M] (issue #759; user, 2026-11-26: "catch clicks to links, and if I already have a buffer open
+      to them, focus on that buffer instead of opening a new one. I don't want this to be default behavior") Opt-in
+      `web.buffers.focusExisting = true` (default false, boolean only, reset by :source). Only trusted unmodified left-clicks
+      (and Enter) on `_blank` links: the renderer catches them (like MIDDLE_JS) and sends a new `blank-link` event; the
+      shell switches to the first exact-URL match in :ls order (bar: `already open: [N] TITLE`) or opens a buffer as today.
+      Middle-click unchanged. Exact URL match, no normalization. Full spec and decisions (do not ask): issue #759.

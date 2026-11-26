@@ -545,12 +545,6 @@ stop early on a hard failure.
       `await web.cmd("b app.slack.com")` falling back to `new`), DECISIONS.md. Tests: ok true/false for a good line,
       an unknown command, `:b nomatch`, a user command that throws; order of several awaited lines; promise ignored
       = no unhandled rejection; `:source` while a promise is pending drops it without error.
-- [ ] [WIP] C-FOCUSEXISTING [S/M] (issue #759; user, 2026-11-26: "catch clicks to links, and if I already have a buffer open
-      to them, focus on that buffer instead of opening a new one. I don't want this to be default behavior") Opt-in
-      `web.buffers.focusExisting = true` (default false, boolean only, reset by :source). Only trusted unmodified left-clicks
-      (and Enter) on `_blank` links: the renderer catches them (like MIDDLE_JS) and sends a new `blank-link` event; the
-      shell switches to the first exact-URL match in :ls order (bar: `already open: [N] TITLE`) or opens a buffer as today.
-      Middle-click unchanged. Exact URL match, no normalization. Full spec and decisions (do not ask): issue #759.
 - [x] C-PICKDEL-MAP [S] (DONE 2026-11-25, a9ecd2c, #753: T167-T168; messages and script errors show beside the filter as T169) (after C-PICKDEL; user, 2026-11-25; KEYS.md T167-T168; SCRIPTING.md "web.map" mode "p") Picker
       mappings for scripts: `web.map("p", "<C-x>", fn)` calls `fn(row)` on the selected row. Read first: script.rs
       `web_map`, `call_map`, keys.rs `run_mapping`, `finish_script_call`, picker.rs `pick_key`.
