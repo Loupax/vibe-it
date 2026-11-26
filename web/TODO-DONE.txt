@@ -44,3 +44,44 @@
       class backed by the shell's `url` crate: getters, toString/toJSON, URL.canParse/URL.parse, TypeError on bad input,
       frozen) and `web:api` (default export = the original `web` object, named exports per key). No new globals; the `web`
       global is unchanged; bare "url" stays a file import. Full spec and decisions: issue #767.
+
+=== from TODO.txt: --- (no header)
+- [x] C-FILEPICK DONE 28376b8d #769 [M] (user, 2026-11-26: "File forms seem to not be working. I can select a file, but after that it appears as
+      if the browser never selected the thing"; "I want the browser to work on all my systems with minimal deviation")
+      `<input type=file>`: the chooser opens, a file is picked, and the input still shows "No file chosen"
+      (no `change`/`input` event; nothing in cef.log or stderr). INVESTIGATION (Opus, not yet reproduced; the headless nest
+      did not build that day, .qwork/nest-dwl/build.log, dwl.o): the host has no CefDialogHandler (grep host-cef/src, shell/src:
+      none), so Chromium's stock Linux dialog runs. On the user's KDE/Wayland box the session bus has no
+      org.freedesktop.portal.FileChooser (xdg-desktop-portal + -wlr only; portals.conf says default=gtk but
+      xdg-desktop-portal-gtk is not installed; cef.log: "No such interface org.freedesktop.portal.FileChooser"), and
+      libcef.so carries gtk::SelectFileDialogLinuxGtk (GTK dlopen'd, no kdialog/zenity). So the in-process GTK dialog
+      is the likely chooser; its result probably never reaches the page (suspect: no native parent window for it on
+      the shell's Wayland surfaces). UNCONFIRMED.
+      DECISION (user): do not depend on a portal, GTK, kdialog or any desktop package. Fix: implement
+      CefDialogHandler::on_file_dialog in host-cef (modes open, open-multiple, open-folder, save; accept filters/
+      accept_filters; default path; return true) and answer it ourselves, the same on every system:
+      1. Protocol: host sends `file-dialog <id> <mode> <title> <default-path> <accept...>` (PROTOCOL.md rows,
+         both directions); shell answers `file-dialog-result <id> <path>...` (empty: cancelled). The host calls
+         callback.cont(paths) / cancel(). Always answer or cancel, also when the tab closes or the shell dies.
+      2. Shell UI: a picker in the shell's own style (C-PICK's list/fuzzy-filter is the model): directory
+         listing from the default path, keys per KEYS.md, multiple selection for open-multiple, a typed
+         path for save. Esc cancels. No new dependency.
+      3. Tests: unit tests for the picker's listing/filter/selection and the protocol rows (cancel, multiple,
+         tab closed while open); a live step (nest, tools/inject) with a page that prints `change:` + file
+         names and sizes (t.html style), including upload via FormData to a local server.
+      Verify first (cheap, do before building): in a nest with the same host, check whether the stock dialog
+      appears and whether on_file_dialog is even called for Chrome-style views; record in the item.
+      VERIFIED/BUILT (Sonnet, 2026-11-26): (a) the nest still cannot start (tools/nest.sh: headless dwl build fails,
+      `.qwork/nest-dwl/build.log`: dwl.c `profiles` undeclared in the user's dwl tree; not fixed), so no live run.
+      (b) Reading libcef: CefDialogHandler::OnFileDialog is called from `CefFileDialogManager`
+      (libcef/browser/file_dialog_manager.cc, `CefBrowserHostBase::EnsureFileDialogManager`/`RunFileChooser`, which
+      libcef.so carries and which is not Alloy-only; cef_dialog_handler.h states no runtime restriction), so it should
+      be called for Chrome-style views. UNCONFIRMED live: the host logs `on_file_dialog called: tab N mode M`.
+      (c) Built: host-cef/src/filedialog.rs (handler + registry that always ends the callback: shell answer, page
+      closed, shell gone, quit, no shell = cancel), protocol rows `file-dialog` / `file-dialog-result` (JSON, PROTOCOL.md
+      "File choosers"), shell/src/filepick.rs (the picker over a directory; open, open-multiple, open-folder, save;
+      accept filters; KEYS.md T171-T182), unit tests (host registry + protocol, shell listing/accept/keys/cancel/tab
+      closed). LIVE CHECK OWED (needs a working nest or the user's session): the test page with the file input
+      (`change: name:size`), pick one file, several, a folder, cancel with Esc; an upload via FormData to a local server;
+      confirm the `on_file_dialog called` line and that no GTK dialog shows. If on_file_dialog is NOT called in the
+      Chrome runtime, the fallback is the chrome file-select helper (not planned yet).
