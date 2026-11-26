@@ -16,3 +16,11 @@
       (and Enter) on `_blank` links: the renderer catches them (like MIDDLE_JS) and sends a new `blank-link` event; the
       shell switches to the first exact-URL match in :ls order (bar: `already open: [N] TITLE`) or opens a buffer as today.
       Middle-click unchanged. Exact URL match, no normalization. Full spec and decisions (do not ask): issue #759.
+
+=== from TODO.txt: --- (no header)
+- [x] C-LIVE-XDG DONE 22e64f6 #761 [XS] (from #760; coordinator, 2026-11-26) About 20 shell live scripts (web/shell/test/*_live.py,
+      live.py, livelib.py, c6c_bench.py, c6d_desktop_check.sh) start web without their own XDG_CONFIG_HOME, so an agent's
+      live run would load the user's real profiles/default/init.js. #760 fixed c_popups_live.py only. Fix it in one place
+      where possible (livelib.py, or whatever starts the shell): every shell a test starts gets a fresh empty
+      XDG_CONFIG_HOME, XDG_STATE_HOME and XDG_DATA_HOME unless the test passes its own. Add a check (unit test or a grep test)
+      that fails when a live script starts the shell without them. Not host-cef/test (the host reads no init.js).
