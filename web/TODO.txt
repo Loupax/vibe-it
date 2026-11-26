@@ -545,6 +545,12 @@ stop early on a hard failure.
       `await web.cmd("b app.slack.com")` falling back to `new`), DECISIONS.md. Tests: ok true/false for a good line,
       an unknown command, `:b nomatch`, a user command that throws; order of several awaited lines; promise ignored
       = no unhandled rejection; `:source` while a promise is pending drops it without error.
+- [ ] [WIP] C-LIVE-XDG [XS] (from #760; coordinator, 2026-11-26) About 20 shell live scripts (web/shell/test/*_live.py,
+      live.py, livelib.py, c6c_bench.py, c6d_desktop_check.sh) start web without their own XDG_CONFIG_HOME, so an agent's
+      live run would load the user's real profiles/default/init.js. #760 fixed c_popups_live.py only. Fix it in one place
+      where possible (livelib.py, or whatever starts the shell): every shell a test starts gets a fresh empty
+      XDG_CONFIG_HOME, XDG_STATE_HOME and XDG_DATA_HOME unless the test passes its own. Add a check (unit test or a grep test)
+      that fails when a live script starts the shell without them. Not host-cef/test (the host reads no init.js).
 - [x] C-PICKDEL-MAP [S] (DONE 2026-11-25, a9ecd2c, #753: T167-T168; messages and script errors show beside the filter as T169) (after C-PICKDEL; user, 2026-11-25; KEYS.md T167-T168; SCRIPTING.md "web.map" mode "p") Picker
       mappings for scripts: `web.map("p", "<C-x>", fn)` calls `fn(row)` on the selected row. Read first: script.rs
       `web_map`, `call_map`, keys.rs `run_mapping`, `finish_script_call`, picker.rs `pick_key`.
