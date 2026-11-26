@@ -682,3 +682,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-26 #761 C-LIVE-XDG merged (22e64f6)
 - live.py sets temp XDG homes on import (all live scripts import it); c6d_desktop_check.sh exports its own; guard test test_live_xdg.py (5 OK). Live: c_bookmarks 5/5, c_pick 6/6, c_enter 11/11. No install. No agents running.
+
+## 2026-11-26 issue #763 applied: only `ready` issues are requests
+- Cherry-picked 38cfbebc from claude/awesome-ride-mnulad onto main (COORDINATOR_PROMPT.md). Hourly job recreated with --label ready. Issues #762 and #764 are labelled ready: filed next.
