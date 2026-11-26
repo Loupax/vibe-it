@@ -263,6 +263,8 @@ impl Default for DeleteConfirm {
 struct Registry {
     /// C-PICKDEL: `web.history/bookmarks/buffers.deleteConfirmation`.
     confirm: DeleteConfirm,
+    /// C-FOCUSEXISTING: `web.buffers.focusExisting` (default false).
+    focus_existing: bool,
     queue: Vec<ScriptLine>,
     commands: BTreeMap<String, Persistent<Function<'static>>>,
     ready: Vec<Persistent<Function<'static>>>,
@@ -449,6 +451,12 @@ impl Scripts {
             "buffers" => c.buffers,
             _ => true,
         }
+    }
+
+    /// C-FOCUSEXISTING: `web.buffers.focusExisting`: whether a plain click on a `target=_blank` link
+    /// to a URL a buffer already shows switches to that buffer instead of opening a new one.
+    pub fn focus_existing(&self) -> bool {
+        self.reg.borrow().focus_existing
     }
 
     /// C-SCRIPT-BUFLIST: the snapshot the next call's `web.buffers.list()` reads.
@@ -776,6 +784,22 @@ fn install_web<'js>(ctx: &Ctx<'js>, reg: &Rc<RefCell<Registry>>) -> rquickjs::Re
         desc.set("enumerable", true)?;
         define.call::<_, Value>((obj.clone(), "deleteConfirmation", desc))?;
         if name == "buffers" {
+            // C-FOCUSEXISTING: `web.buffers.focusExisting`, a boolean accessor like deleteConfirmation.
+            let r = reg.clone();
+            let get = Function::new(ctx.clone(), move || r.borrow().focus_existing)?;
+            let r = reg.clone();
+            let set = Function::new(ctx.clone(), move |ctx: Ctx<'js>, v: Value<'js>| {
+                let Some(b) = v.as_bool() else {
+                    return Err(Exception::throw_type(&ctx, "web.buffers.focusExisting must be true or false"));
+                };
+                r.borrow_mut().focus_existing = b;
+                Ok(())
+            })?;
+            let desc = Object::new(ctx.clone())?;
+            desc.set("get", get)?;
+            desc.set("set", set)?;
+            desc.set("enumerable", true)?;
+            define.call::<_, Value>((obj.clone(), "focusExisting", desc))?;
             // C-SCRIPT-BUFLIST: a function, so it is clearly read when called. Fresh frozen objects.
             let r = reg.clone();
             let list = Function::new(ctx.clone(), move |ctx: Ctx<'js>| -> rquickjs::Result<rquickjs::Array<'js>> {

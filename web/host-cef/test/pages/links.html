@@ -11,12 +11,15 @@
   #img   { top: 340px; width: 200px; height: 120px; background: #c33; display: block; }
   #txt   { top: 500px; border: 0; }
   #cust  { top: 600px; left: 560px; width: 300px; height: 80px; border: 2px solid #543; }
+  #opener { top: 100px; left: 560px; width: 300px; }
   #form  { position: absolute; left: 100px; top: 620px; }
 </style>
 </head>
 <body>
 <a id="plain" class="box" href="b.html?via=plain">plain link to B</a>
 <a id="blank" class="box" href="b.html?via=blank" target="_blank">target=_blank link to B</a>
+<a id="opener" class="box" href="b.html?via=opener" target="_blank" rel="opener">rel=opener _blank to B</a>
+<a id="opener" class="box" href="b.html?via=opener" target="_blank" rel="opener">rel=opener _blank to B</a>
 <img id="img" class="box" alt="red" src="data:image/svg+xml;utf8,&lt;svg xmlns='http://www.w3.org/2000/svg' width='200' height='120'&gt;&lt;rect width='200' height='120' fill='%23c33'/&gt;&lt;/svg&gt;">
 <div id="txt" class="box">selectable words here</div>
 <div id="cust" class="box">own contextmenu</div>

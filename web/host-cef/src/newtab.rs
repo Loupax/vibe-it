@@ -6,6 +6,8 @@
 //!   `--disable-popup-blocking`, so every popup reaches it, C4-SPIKE).
 //! - `open_url_action`: what `OnOpenURLFromTab` does (a navigation the engine wants in another tab
 //!   outside the popup path: real Ctrl/Shift clicks on links; a middle-click never gets here, `MIDDLE_JS` cancels it first).
+//! - `BLANK_JS` (C-FOCUSEXISTING): a real plain left-click on a `target=_blank` link never reaches
+//!   `OnBeforePopup` either: the renderer cancels it and the shell opens it (`blank-link`).
 //!
 //! The context menu is gone altogether since C-NOMENU: see `HostContextMenuHandler`.
 
@@ -112,13 +114,29 @@ pub const MIDDLE_FN: &str = "__webHostMiddleClick";
 /// `window`: a middle-click (an `auxclick` with `button` 1: Ctrl+click is a `click` with button 0,
 /// so the DOM tells the two apart where Chromium's NEW_BACKGROUND_TAB disposition cannot) with no
 /// modifier on a link (`a[href]`, `area[href]`, SVG `a` too) cancels the click's own navigation and
-/// hands the link's absolute URL to the host, which tells the shell (`open-link`). Middle-clicks on
+/// hands the link's absolute URL to the host, which tells the shell (`open-link`; never `blank-link`:
+/// a middle-click ignores `web.buffers.focusExisting`). Middle-clicks on
 /// anything else are untouched; `javascript:` links are left to Chromium (which drops them).
 pub const MIDDLE_JS: &str = "(function(f){delete window.__webHostMiddleClick;addEventListener('auxclick',function(e){if(e.button!==1||e.ctrlKey||e.shiftKey||e.altKey||e.metaKey||!e.target||!e.target.closest)return;var a=e.target.closest('a[href],area[href]');if(!a)return;var u;try{u=new URL(a.getAttribute('href'),document.baseURI).href}catch(x){return}if(/^javascript:/i.test(u))return;e.preventDefault();f(u);},true);})(window.__webHostMiddleClick);";
 
-/// What the host accepts from the renderer's middle-click message (a compromised renderer could send
-/// anything): the URL when it is `http:`, `https:` or `file:`, else None.
-pub fn middle_click_url(url: &str) -> Option<String> {
+/// C-FOCUSEXISTING: the name of the function the renderer hands `BLANK_JS` (as `MIDDLE_FN`).
+pub const BLANK_FN: &str = "__webHostBlankClick";
+
+/// C-FOCUSEXISTING: run in every page's main world by the renderer, after it has put the function
+/// `BLANK_FN` on `window`. A real (`isTrusted`) left-click (`button` 0, no Ctrl/Shift/Alt/Meta) on a
+/// link (`a[href]`, `area[href]`, SVG `a` too) whose effective target is `_blank` (its own `target`
+/// attribute, else `<base target>`; any case) cancels the click's popup and hands the link's absolute
+/// URL to the host, which tells the shell (`blank-link`): the shell opens it in a new buffer or, with
+/// `web.buffers.focusExisting`, switches to a buffer already showing it. Enter on a focused link is a
+/// trusted `click` too. The listener is on `window` in the bubble phase, so a page handler that called
+/// `preventDefault()` wins (one that stopped the event leaves it to Chromium's popup path). Left to
+/// Chromium (the popup path, as before): named targets, `download` links, `rel` with the token
+/// `opener` (the page wants `window.opener`), and URLs that are not `http:`/`https:`/`file:`.
+pub const BLANK_JS: &str = "(function(f){delete window.__webHostBlankClick;addEventListener('click',function(e){if(e.defaultPrevented||!e.isTrusted||e.button!==0||e.ctrlKey||e.shiftKey||e.altKey||e.metaKey||!e.target||!e.target.closest)return;var a=e.target.closest('a[href],area[href]');if(!a)return;var t;if(a.hasAttribute('target'))t=a.getAttribute('target');else{var b=document.querySelector('base[target]');t=b?b.getAttribute('target'):''}if(t.toLowerCase()!=='_blank')return;if(a.hasAttribute('download'))return;if((a.getAttribute('rel')||'').toLowerCase().split(/\\s+/).indexOf('opener')>=0)return;var u;try{u=new URL(a.getAttribute('href'),document.baseURI).href}catch(x){return}if(!/^(https?|file):/i.test(u))return;e.preventDefault();f(u);},false);})(window.__webHostBlankClick);";
+
+/// What the host accepts from the renderer's middle-click and `_blank` click messages (a compromised
+/// renderer could send anything): the URL when it is `http:`, `https:` or `file:`, else None.
+pub fn link_click_url(url: &str) -> Option<String> {
     let l = url.to_ascii_lowercase();
     ["http://", "https://", "file://"]
         .iter()
@@ -148,10 +166,37 @@ mod tests {
     }
 
     #[test]
-    fn middle_click_urls_are_web_or_file() {
-        assert_eq!(middle_click_url("https://a.test/x?y#z").as_deref(), Some("https://a.test/x?y#z"));
-        assert_eq!(middle_click_url("HTTP://a.test/").as_deref(), Some("HTTP://a.test/"));
-        assert_eq!(middle_click_url("file:///tmp/a.html").as_deref(), Some("file:///tmp/a.html"));
+    fn blank_js_takes_only_a_trusted_unmodified_left_click_on_a_blank_link() {
+        // One listener, `click` in the bubble phase (so a page's preventDefault wins).
+        assert!(BLANK_JS.contains("addEventListener('click',function(e){"));
+        assert!(BLANK_JS.contains("},false);"));
+        assert!(!BLANK_JS.contains("'auxclick'"));
+        assert!(BLANK_JS.contains("if(e.defaultPrevented||!e.isTrusted||e.button!==0||"));
+        for m in ["ctrlKey", "shiftKey", "altKey", "metaKey"] {
+            assert!(BLANK_JS.contains(&format!("||e.{m}||")), "{m}");
+        }
+        assert!(BLANK_JS.contains("closest('a[href],area[href]')"));
+        // The effective target: the link's own attribute (even empty), else <base target>; `_blank` in any case.
+        assert!(BLANK_JS.contains("if(a.hasAttribute('target'))t=a.getAttribute('target');"));
+        assert!(BLANK_JS.contains("document.querySelector('base[target]')"));
+        assert!(BLANK_JS.contains("if(t.toLowerCase()!=='_blank')return;"));
+        // Left to Chromium: download links and a rel with the token `opener`.
+        assert!(BLANK_JS.contains("if(a.hasAttribute('download'))return;"));
+        assert!(BLANK_JS.contains("(a.getAttribute('rel')||'').toLowerCase().split(/\\s+/).indexOf('opener')>=0)return;"));
+        // The absolute URL, web or file schemes only; only then is the popup cancelled and the host told.
+        assert!(BLANK_JS.contains("u=new URL(a.getAttribute('href'),document.baseURI).href"));
+        assert!(BLANK_JS.contains("if(!/^(https?|file):/i.test(u))return;e.preventDefault();f(u);"));
+        assert!(!BLANK_JS.contains("stopPropagation"));
+        // The function is taken into the closure and removed from window up front.
+        assert!(BLANK_JS.starts_with("(function(f){delete window.__webHostBlankClick;"));
+        assert!(BLANK_JS.ends_with(&format!("(window.{BLANK_FN});")));
+    }
+
+    #[test]
+    fn link_click_urls_are_web_or_file() {
+        assert_eq!(link_click_url("https://a.test/x?y#z").as_deref(), Some("https://a.test/x?y#z"));
+        assert_eq!(link_click_url("HTTP://a.test/").as_deref(), Some("HTTP://a.test/"));
+        assert_eq!(link_click_url("file:///tmp/a.html").as_deref(), Some("file:///tmp/a.html"));
         for bad in [
             "",
             "javascript:alert(1)",
@@ -161,7 +206,7 @@ mod tests {
             "/relative",
             "mailto:a@b.test",
         ] {
-            assert_eq!(middle_click_url(bad), None, "{bad}");
+            assert_eq!(link_click_url(bad), None, "{bad}");
         }
     }
 

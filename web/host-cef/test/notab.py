@@ -7,11 +7,15 @@ nested compositor (web/tools/nest.sh), never on the user's display:
 
 It plays the shell like drive.py (control socket, memory-capped host, test pages from
 127.0.0.1) and uses real input through web/tools/inject (nested compositor):
-  - Ctrl+click, middle-click, Shift+click and Ctrl+Shift+click on a link, and Ctrl+Enter
-    in a form that targets _blank: no event at all (no new page, the page is not
-    navigated either), and the host log says the popup was dropped;
-  - a plain click on a target=_blank link and a plain Enter in that form open a new page
-    (C-POPUPS: `tab-created` with `opener`, closed again with `close-tab`); nothing else does;
+  - Ctrl+click, Shift+click and Ctrl+Shift+click on a link, and Ctrl+Enter in a form that
+    targets _blank: no event at all (no new page, the page is not navigated either), and the
+    host log says the popup was dropped;
+  - a middle-click on a link (C-MIDCLICK): `open-link` with its URL, no new page, no navigation;
+  - a plain click on a target=_blank link (C-FOCUSEXISTING): `blank-link` with its URL, no new
+    page (the shell would open it), no navigation;
+  - a plain click on a target=_blank rel=opener link and a plain Enter in the target=_blank form
+    open a new page (C-POPUPS: `tab-created` with `opener`, closed again with `close-tab`);
+    nothing else does;
   - right-click on a link, an image, selected text, the page and an editable field: no context
     menu at all (C-NOMENU): the host log says it was suppressed and a grim screenshot taken
     before and after the click is identical (no popup surface); the page still receives its
@@ -54,9 +58,9 @@ def menu_shown_lines(host_log_lines):
     return [l for l in host_log_lines if re.search(r"context menu: removed \[", l)]
 
 
-def ppm_diff(a, b, masks=((90, 615, 430, 665), (90, 90, 520, 320))):
+def ppm_diff(a, b, masks=((90, 615, 430, 665), (90, 90, 520, 320), (550, 90, 870, 200))):
     """Number of pixels that differ between two P6 screenshots, ignoring the rectangle
-    `masks` (x0, y0, x1, y1): the form's input (blinking caret) and the two links (their focus ring comes and goes when focus moves). A menu popup would
+    `masks` (x0, y0, x1, y1): the form's input (blinking caret) and the three links (their focus ring comes and goes when focus moves). A menu popup would
     paint far more than that rectangle (it opens below and right of the click)."""
     def parse(d):
         _, size, _, body = d.split(b"\n", 3)
@@ -153,7 +157,7 @@ def steps(sh, conn, base, a, host_log_path):
     def at(sel):
         # Centres of the boxes in links.html (window coordinates; dwl border ignored).
         return {"plain": (300, 140), "blank": (300, 260), "img": (200, 400), "txt": (300, 540),
-                "input": (150, 632), "page": (800, 800), "cust": (710, 640)}[sel]
+                "input": (150, 632), "page": (800, 800), "cust": (710, 640), "opener": (710, 140)}[sel]
 
     def move(sel):
         x, y = at(sel)
@@ -188,14 +192,37 @@ def steps(sh, conn, base, a, host_log_path):
             raise Fail(f"{what}: host log has no '{log_has}' line since the input; new lines: {new[-6:]}")
         sh.note(f"ok: {what} (page saw {seen}): nothing opened, the page was not navigated ({hit[0] if hit else 'no log check'})")
 
+    def handed(what, event, url, *cmds):
+        """A click the renderer hands to the shell (`open-link`, `blank-link`): exactly that event
+        with the link's URL and nothing else but the page's input diagnostics: no new page, the
+        page is not navigated."""
+        n = len(sh.events)
+        inject(*cmds)
+        sh.seen_since(n, f"{event} for {what}", is_ev(event, tab=first, url=url), 10)
+        time.sleep(1.0)
+        with sh.cv:
+            got = [ev for _, ev in sh.events[n:]]
+        extra = [ev for ev in got if ev.get("event") not in (event, "editable-focused")
+                 and not (ev.get("event") == "title" and ev["title"].startswith("ev:"))]
+        if extra or sum(1 for ev in got if ev.get("event") == event) != 1:
+            raise Fail(f"{what}: events after the input: {got}")
+        sh.cursor = len(sh.events)
+        sh.note(f"ok: {what}: {event} {url}, nothing opened, the page was not navigated")
+
     sh.note("step: user new-tab gestures on a link open nothing and do not navigate")
     quiet("ctrl+click", "hold:c", move("plain"), "click", "wait:200", "release", log_has=DROP)
-    quiet("middle-click", move("plain"), "mclick", "wait:200", log_has=DROP)
     quiet("shift+click", "hold:s", move("plain"), "click", "wait:200", "release", log_has=DROP)
     quiet("ctrl+shift+click", "hold:cs", move("plain"), "click", "wait:200", "release")
     quiet("ctrl+shift+click on a target=_blank link", "hold:cs", move("blank"), "click", "wait:200", "release")
     quiet("ctrl+click on a target=_blank link", "hold:c", move("blank"), "click", "wait:200", "release", log_has=DROP)
-    quiet("middle-click on a target=_blank link", move("blank"), "mclick", "wait:200", log_has=DROP)
+
+    sh.note("step: a middle-click on a link is handed to the shell (C-MIDCLICK)")
+    handed("middle-click", "open-link", base + "b.html?via=plain", move("plain"), "mclick", "wait:200")
+    handed("middle-click on a target=_blank link", "open-link", base + "b.html?via=blank",
+           move("blank"), "mclick", "wait:200")
+
+    sh.note("step: a plain target=_blank click is handed to the shell (C-FOCUSEXISTING)")
+    handed("target=_blank click", "blank-link", base + "b.html?via=blank", move("blank"), "click", "wait:200")
 
     sh.note("step: Ctrl+Enter in a form that targets _blank opens nothing")
     # Chromium dispatches no keypress for Ctrl+Enter, so there is no implicit submission
@@ -218,8 +245,10 @@ def steps(sh, conn, base, a, host_log_path):
         time.sleep(0.8)
         sh.note(f"ok: {what}: a new page (tab {new}), the first page stayed")
 
-    sh.note("step: plain target=_blank click opens a new page (C-POPUPS)")
-    popup("target=_blank click", base + "b.html?via=blank", move("blank"), "click", "wait:200")
+    sh.note("step: plain click on a target=_blank rel=opener link opens a new page (C-POPUPS)")
+    popup("target=_blank rel=opener click", base + "b.html?via=opener", move("opener"), "click", "wait:200")
+    if not sh.none_since(0, is_ev("blank-link", url=base + "b.html?via=opener")):
+        raise Fail("the rel=opener link was handed to the shell")
 
     sh.note("step: plain Enter in the target=_blank form opens a new page (C-POPUPS)")
     popup("Enter in the form", lambda u: (u or "").startswith(base + "b.html?via=form"),
@@ -274,7 +303,8 @@ def steps(sh, conn, base, a, host_log_path):
 
 
 def pages_created(sh):
-    """(pages that are not popups, popups): only the first page and the two target=_blank popups."""
+    """(pages that are not popups, popups): only the first page and the two popups (the rel=opener
+    link and the form; a plain target=_blank click is handed to the shell, `blank-link`)."""
     created = [e for _, e in sh.events if e.get("event") == "tab-created"]
     popups = sum(1 for e in created if e.get("opener") is not None)
     return len(created) - popups, popups

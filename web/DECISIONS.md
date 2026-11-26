@@ -2,6 +2,36 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-26 `web.buffers.focusExisting`: a `_blank` link to an open page shows its buffer (C-FOCUSEXISTING)
+
+User (issue #759): "catch clicks to links, and if I already have a buffer open to them, focus on that buffer
+instead of opening a new one. I don't want this to be default behavior, but I think it makes sense to have it
+as an option."
+
+- **Opt-in**, set in `init.js`: `web.buffers.focusExisting = true`. Default `false`; boolean only (anything
+  else is a script error, the value is kept); `:source` puts it back to `false`. Spec: SCRIPTING.md, KEYS.md T170.
+- **Only real user clicks on links that would open a new buffer**: an unmodified left-click on a link whose
+  target is `_blank` (`isTrusted`, button 0, no Ctrl/Shift/Alt/Meta, not `defaultPrevented`). Enter on a
+  focused link is a trusted `click` too and counts. Nothing else: no `window.open`, no forms, no `web URL`
+  handoff, no `:new`.
+- **Middle-click is the way around it**: it always opens a new buffer, as before (C-MIDCLICK, T105).
+- **Exact URL match only**: the link's absolute URL equals a buffer's current URL byte for byte. No fragment,
+  query or trailing-slash normalization; a redirected buffer (http→https) does not match. Accepted.
+- **Several matches: the first in `:ls` order** (the lowest number). **The current buffer matches too**: then
+  nothing opens, only the message. A switch is `:b N`'s (the old buffer becomes the alternate). The bar says
+  `already open: [N] TITLE`.
+- **How**: the renderer now catches those clicks always, whatever the setting (`newtab::BLANK_JS`, a `click`
+  listener on `window` in the bubble phase, so a page's own `preventDefault` wins), cancels the popup and
+  sends the new event `blank-link`; the shell decides. `open-link` stays for middle-clicks so the shell can
+  tell the two apart. Links with `rel` containing `opener` or `download`, other schemes, and clicks a page
+  stopped before `window` keep Chromium's popup path (PROTOCOL.md "Popups").
+- **Known behaviour change with the setting off**: a `_blank` left-click now opens its buffer through the
+  shell (`new-tab`) instead of Chromium's popup path. It looks the same (a new current buffer), but the new
+  page gets no `Referer` header and no copy of the opener's `sessionStorage` (`window.opener` was already
+  null: Chromium's implicit `noopener`). If that is not acceptable, the alternative is to inject `BLANK_JS`
+  only while the setting is on, which needs the setting passed to the renderer processes; not built unless
+  asked.
+
 ## 2026-11-26 Closing web: polite by default, SIGTERM forced, the shell never kills the host (C-CLOSE-POLITE)
 
 User (issue #757): closing web with X on a page with `beforeunload`, choosing "Stay on page", closed web

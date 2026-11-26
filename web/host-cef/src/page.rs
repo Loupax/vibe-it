@@ -489,12 +489,25 @@ wrap_client! {
             if name == crate::renderer::MIDDLE_MSG {
                 // C-MIDCLICK: a middle-click on a link (newtab::MIDDLE_JS): the shell opens it as `:new`.
                 let url = msg.argument_list().map(|a| CefString::from(&a.string(0)).to_string()).unwrap_or_default();
-                match (page_of(&browser), newtab::middle_click_url(&url)) {
+                match (page_of(&browser), newtab::link_click_url(&url)) {
                     (Some(tab), Some(url)) => {
                         log!("middle-click on a link: {url}");
                         emit(Event::OpenLink { tab, url });
                     }
                     _ => log!("middle-click message refused: {url:?}"),
+                }
+                return 1;
+            }
+            if name == crate::renderer::BLANK_MSG {
+                // C-FOCUSEXISTING: a plain left-click on a target=_blank link (newtab::BLANK_JS): the
+                // shell opens it, or switches to a buffer already showing it (web.buffers.focusExisting).
+                let url = msg.argument_list().map(|a| CefString::from(&a.string(0)).to_string()).unwrap_or_default();
+                match (page_of(&browser), newtab::link_click_url(&url)) {
+                    (Some(tab), Some(url)) => {
+                        log!("target=_blank click on a link: {url}");
+                        emit(Event::BlankLink { tab, url });
+                    }
+                    _ => log!("target=_blank click message refused: {url:?}"),
                 }
                 return 1;
             }
