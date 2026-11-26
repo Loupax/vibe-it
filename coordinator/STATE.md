@@ -663,3 +663,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-26 GitHub issues as requests
 - User decision: open issues by Loupax on Loupax/vibe-it are requests, the same as chat. Checked hourly while the session runs, and at session start. Other people's issues and comments are ignored. No label is needed; the `note` label (created) excludes an issue. Rules are in COORDINATOR_PROMPT.md "GitHub issues". The coordinator prompt's stale ci_then_push default (scratchy) is corrected to none.
+
+## 2026-11-26 issue #757 -> C-CLOSE-POLITE
+- First request from a GitHub issue. Filed C-CLOSE-POLITE (11cf68fb), commented on #757, started an Opus agent (worktree). The live checks owed to the user go in the PR.
