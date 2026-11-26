@@ -679,3 +679,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-26 C-LIVE-XDG filed and started
 - From the #760 report: ~20 shell live scripts would read the real ~/.config/web init.js. Filed C-LIVE-XDG, Sonnet agent started.
+
+## 2026-11-26 #761 C-LIVE-XDG merged (22e64f6)
+- live.py sets temp XDG homes on import (all live scripts import it); c6d_desktop_check.sh exports its own; guard test test_live_xdg.py (5 OK). Live: c_bookmarks 5/5, c_pick 6/6, c_enter 11/11. No install. No agents running.
