@@ -673,3 +673,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-26 issue #759 -> C-FOCUSEXISTING
 - Filed C-FOCUSEXISTING (f0c85c5b) from issue #759, commented, started an Opus agent (worktree). Opt-in web.buffers.focusExisting; new blank-link event.
+
+## 2026-11-26 #760 C-FOCUSEXISTING merged (cf34b63), closes #759
+- Opt-in web.buffers.focusExisting; new blank-link event from a renderer click listener; exact URL match, first in :ls order. Shell 534 tests, host 45, py 22; live 9/9 + notab + c_popups 10/10. Agent also gave c_popups_live.py its own temp XDG dirs (it would have read the user's real init.js). Installed 20261126-125146-4ce1a1dd. Scripting guide v9.
