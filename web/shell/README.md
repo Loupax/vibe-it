@@ -77,15 +77,27 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   `src/tests/search_tests.rs`, live check `test/c5_live.py`.
 - **The clipboard** (C6, `src/clipboard.rs` the desktop's side, `src/selection.rs` the page's):
   the shell bridges the page's wl_data_device / zwp_primary_selection (on its own seat) and
-  the desktop's clipboard and primary selection (copypasta: smithay-clipboard on the shell
-  window's Wayland connection, x11-clipboard on X11; a worker thread, every wait bounded to
-  1 s). A copy in the page is read (a text type) and written to the desktop; the desktop's
-  text is offered to the page (a compositor selection served from memory) when the window
-  gains focus, before a paste key reaches the page and before a middle click, only when it
-  changed since it was last carried across. `yy`, `:let @+ = @%`, `@+` as a source, and
-  paste (Ctrl-v, Ctrl-Shift-v, Shift-Insert) into the `:` and `/` lines use the desktop's
-  clipboard directly. Text only. Tests `src/tests/c6_tests.rs`, live check
-  `test/c6_live.py` (Wayland and `--x11`).
+  the desktop's clipboard and primary selection.
+  - **Wayland: every type** (C-CLIPTYPES, DECISIONS.md 2026-11-26, `src/desktop_selection.rs`):
+    the shell window's own wl_data_device and zwp_primary_selection_device_v1 on winit's
+    connection (a `web-selection` thread). Each desktop `selection` becomes the page's selection
+    with the desktop's types; a page read passes the page's fd to the desktop's offer. A copy in
+    the page becomes the shell's source on the desktop with the page's types (while the window
+    has the desktop's keyboard focus); a desktop read passes that client's fd to the page. The
+    shell never reads the data. Its sources also offer `application/x-web-shell-own`, so the
+    page's own selection coming back is not carried to the page again (never shown to the page).
+  - **X11** (and Wayland without wl_data_device_manager): **text only**. A copy in the page is
+    read (a text type) and written to the desktop (x11-clipboard); the desktop's text is offered
+    to the page (a compositor selection served from memory) when the window gains focus, before
+    a paste key reaches the page and before a middle click, only when it changed since it was
+    last carried across.
+  - `yy`, `:let @+ = @%`, `@+` as a source, and paste (Ctrl-v, Ctrl-Shift-v, Shift-Insert) into
+    the `:` and `/` lines read and write the desktop's clipboard as text through copypasta
+    (smithay-clipboard on Wayland, x11-clipboard on X11; a worker thread, every wait bounded to
+    1 s). While the desktop's clipboard is the page's own (Wayland), they read the page's copied
+    text from memory instead of asking the desktop (which would ask the waiting shell).
+  Tests `src/tests/c6_tests.rs`, `src/tests/c_cliptypes_tests.rs`, live check `test/c6_live.py`
+  (Wayland, with an image, text/html and the primary selection; and `--x11`, text only).
 - **Enter in NORMAL** (C-ENTER, KEYS.md T18-T20): goes to the page; with a find open the shell
   sends `find-clear` first (Chromium then focuses the match's link) and the Enter 50 ms later
   (`Effect::Pause`, `input.rs`). **`:set caret|nocaret|caret?`** (C-CARETCMD): the host's

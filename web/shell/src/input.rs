@@ -94,7 +94,7 @@ impl State {
                 keyboard.input::<(), _>(self, code, event.state(), serial, time, |state, mods, handle| {
                     let key = KeyInput::from_xkb(handle.modified_sym(), mods);
                     if state.keys.key(code.raw(), pressed, &key, Instant::now()) {
-                        // C6: the page reads the desktop's clipboard on a paste key.
+                        // C6: the page reads the desktop's clipboard on a paste key (the text bridge, X11).
                         if pressed && crate::keys::is_paste_chord(&key) {
                             state.sync_from_desktop(crate::clipboard::Which::Clipboard);
                         }
@@ -135,7 +135,7 @@ impl State {
                 if state == ButtonState::Pressed && self.surface_under(pointer.current_location()).is_some() {
                     // T29: a focus change reported soon after this is the user's click.
                     self.last_click = Some(Instant::now());
-                    // C6: a middle click pastes the primary selection: offer the desktop's.
+                    // C6: a middle click pastes the primary selection: offer the desktop's (X11).
                     if event.button_code() == BTN_MIDDLE {
                         self.sync_from_desktop(crate::clipboard::Which::Primary);
                     }

@@ -13,6 +13,7 @@ mod cmdhist;
 mod completion;
 mod config;
 mod control;
+mod desktop_selection;
 mod dmabuf;
 mod external;
 mod forget;
@@ -183,6 +184,18 @@ fn main() {
                 })
                 .unwrap();
             ime::start(display, ime_tx);
+            // C-CLIPTYPES: the desktop's clipboard and primary selection with every type. Until it
+            // is ready (or if the desktop lacks wl_data_device_manager) the text bridge is used.
+            let (sel_tx, sel_rx) = calloop::channel::channel::<desktop_selection::FromDesktop>();
+            event_loop
+                .handle()
+                .insert_source(sel_rx, |ev, _, state| {
+                    if let calloop::channel::Event::Msg(m) = ev {
+                        state.desktop_selection(m);
+                    }
+                })
+                .unwrap();
+            desktop_selection::start(display, sel_tx);
         }
         clipboard::Desktop::start(kind)
     };
@@ -415,7 +428,8 @@ fn main() {
                 // Live checks wait for this before the first click (c6_live.py).
                 state.log(&format!("shell window focused: {focused}"));
                 if focused {
-                    // C6: a copy made on the desktop meanwhile is offered to the page.
+                    // C6: a copy made on the desktop meanwhile is offered to the page (X11: on Wayland the
+                    // desktop sends its selections again on a focus gain, C-CLIPTYPES).
                     state.sync_from_desktop(clipboard::Which::Clipboard);
                     state.sync_from_desktop(clipboard::Which::Primary);
                 }

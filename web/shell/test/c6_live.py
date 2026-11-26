@@ -16,7 +16,15 @@ host's `editable-focused true` after the click). They used to press `i` when the
 INPUT after the click, which put the shell in INPUT with nothing focused, so a click that missed
 the field showed up as four unrelated failures (a whole-page Ctrl-A copy, nothing pasted, nothing
 typed). Middle-click paste into the page is not supported (web/DECISIONS.md 2026-11-23), so the
-primary step checks only that a selection in the page becomes the desktop's primary."""
+primary step checks only that a selection in the page becomes the desktop's primary.
+
+C-CLIPTYPES (Wayland only; --x11 runs the text steps): every type is carried. The page also has a
+`copy` handler (text/plain and text/html) and a `paste` handler that reports a paste without text
+(an image) in its title as `c6 paste types=... file=<type>:<size> v=<value>`. The extra steps: an
+image-only desktop clipboard (`wl-copy -t image/png`) pastes the image into the page and no old
+text (page or `:` line); a copy in the page lists text/html and the marker type in `wl-paste -l`;
+yy then a paste in the page; the page's primary selection with its types. Run it with a private
+D-Bus (`dbus-run-session --config-file=web/tools/notify-probe/private-bus.conf -- ...`)."""
 
 import argparse
 import functools
@@ -26,7 +34,9 @@ import shutil
 import subprocess
 import sys
 import threading
+import struct
 import time
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -66,6 +76,23 @@ class DesktopClipboard:
         self.procs.append(p)
         time.sleep(0.4)
 
+    def set_file(self, path, mime):
+        """C-CLIPTYPES: the desktop's clipboard holds only `path`'s bytes as `mime` (Wayland)."""
+        with open(path, "rb") as f:
+            p = subprocess.Popen(["wl-copy", "--foreground", "-t", mime], stdin=f, env=self.nest_env,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.procs.append(p)
+        time.sleep(0.4)
+
+    def types(self, primary=False):
+        r = subprocess.run(["wl-paste", "-l"] + (["-p"] if primary else []), env=self.nest_env,
+                           capture_output=True, text=True, timeout=5)
+        return r.stdout.split()
+
+    def get_type(self, mime):
+        r = subprocess.run(["wl-paste", "-n", "-t", mime], env=self.nest_env, capture_output=True, text=True, timeout=5)
+        return r.stdout
+
     def get(self, primary=False):
         if self.x11:
             cmd = ["xsel", "-p" if primary else "-b", "-o"]
@@ -94,6 +121,15 @@ class DesktopClipboard:
                     p.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     p.kill()
+
+
+def tiny_png(w=4, h=3):
+    """C-CLIPTYPES: a small RGB PNG (stdlib only), what `grim - | wl-copy` puts on the clipboard."""
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    rows = b"".join(b"\x00" + b"".join(bytes((x * 60, y * 80, 200)) for x in range(w)) for y in range(h))
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
 
 
 def main():
@@ -130,6 +166,14 @@ def main():
         shell_env["WAYLAND_DISPLAY"] = wl
         print(f"nested dwl {wl}, shell as a Wayland client, clipboard through wl-copy/wl-paste")
     desk = DesktopClipboard(a.x11, nest_env, x_env)
+    # The bridge's log lines: C-CLIPTYPES carries every type on Wayland, X11 stays text only.
+    if a.x11:
+        page_to_desktop_re = r"clipboard: page {} \(\d+ bytes\) to the desktop"
+        desktop_to_page_re = r"clipboard: desktop {} \(\d+ bytes\) offered to the page"
+    else:
+        page_to_desktop_re = r"clipboard: page {} offered to the desktop \(\d+ types"
+        desktop_to_page_re = r"clipboard: desktop {} offered to the page \(\d+ types"
+    PAGE_TO_DESKTOP, DESKTOP_TO_PAGE = page_to_desktop_re, desktop_to_page_re  # noqa: N806
 
     page_log = open(os.path.join(out, "pages.log"), "w", buffering=1)
     srv = live.Server(("127.0.0.1", 0), functools.partial(live.Pages, directory=os.path.join(HERE, "pages"), log=page_log))
@@ -214,7 +258,7 @@ def main():
             into_field()
             k = log.mark()
             inject(*chord("c", "a"), *chord("c", "c"))
-            log.wait(r"clipboard: page clipboard \(\d+ bytes\) to the desktop", k)
+            log.wait(PAGE_TO_DESKTOP.format("clipboard"), k)
             desk.wait_for("copied in the page 7")
             return "Ctrl-A Ctrl-C in the page's textarea: the desktop's clipboard (wl-paste/xsel) holds the text"
         step("page -> desktop: a copy in the page reaches the desktop clipboard", page_to_desktop)
@@ -246,14 +290,17 @@ def main():
         step("desktop -> `/` line (T22)", desktop_to_search)
 
         def desktop_to_page():
+            # Offered to the page when the desktop's selection changes (C-CLIPTYPES, Wayland) or on
+            # the paste key (X11).
+            k0 = log.mark()
             desk.set("pasted from the desktop 9")
             into_field()
             k = log.mark()
             inject(*chord("c", "a"), *chord("c", "v"))
             title("pasted from the desktop 9", k)
-            log.wait(r"clipboard: desktop clipboard \(\d+ bytes\) offered to the page", k)
+            log.wait(DESKTOP_TO_PAGE.format("clipboard"), k0)
             shot("pasted-into-page.png")
-            return "Ctrl-A Ctrl-V in the textarea: the page's field holds the desktop's text (offered on the paste key)"
+            return "Ctrl-A Ctrl-V in the textarea: the page's field holds the desktop's text"
         step("desktop -> page: Ctrl-v in INPUT pastes the desktop clipboard", desktop_to_page)
 
         def page_to_line():
@@ -267,7 +314,12 @@ def main():
             inject(*keys_for(":"), "wait:200", *chord("c", "v"))
             bar(re.escape(":page word") + r"\|", k)
             inject("key:esc", "wait:300")
-            return "typed 'page word' in the page, copied it there, Ctrl-v in the `:` line shows it"
+            # C-CLIPTYPES 5: on Wayland the desktop's clipboard is the page's own source, read from
+            # memory: no wait for the desktop (it would ask the shell's main thread, the one waiting).
+            stuck = [line for line in log.lines[k:] if "did not answer" in line]
+            if stuck:
+                raise Fail(f"the `:` line paste waited for the desktop: {stuck[0]}")
+            return "typed 'page word' in the page, copied it there, Ctrl-v in the `:` line shows it (no 'did not answer')"
         step("page -> `:` line", page_to_line)
 
         def yy():
@@ -305,10 +357,108 @@ def main():
             into_field()
             k = log.mark()
             inject(*chord("c", "a"), *keys_for("prim one"), "wait:200", *chord("c", "a"), "wait:400")
-            log.wait(r"clipboard: page primary selection \(\d+ bytes\) to the desktop", k, timeout=6)
+            log.wait(PAGE_TO_DESKTOP.format("primary selection"), k, timeout=6)
             desk.wait_for("prim one", primary=True)
             return "select-all in the page set the desktop's primary selection (wl-paste -p / xsel -p)"
         step("primary selection: page -> desktop", primary)
+
+        # C-CLIPTYPES: every type on Wayland (X11 stays text only: these are skipped there).
+        if not a.x11:
+            png = os.path.join(out, "tiny.png")
+            with open(png, "wb") as f:
+                f.write(tiny_png())
+            png_size = os.path.getsize(png)
+
+            def image_to_page():
+                # 1: an image-only desktop clipboard (`grim - | wl-copy`) pastes the image in the page.
+                # Step 7: the offer carried to the page is not carried back to the desktop.
+                k0 = log.mark()
+                desk.set_file(png, "image/png")
+                log.wait(DESKTOP_TO_PAGE.format("clipboard") + r": image/png\)", k0)
+                into_field()
+                k = log.mark()
+                inject(*chord("c", "v"))
+                log.wait(r"clipboard: the page reads the clipboard as image/png \(from the desktop\)", k)
+                m = log.wait(r'"title":"c6 paste types=([^ "]*) file=image/png:(\d+)', k)
+                if int(m[2]) != png_size:
+                    raise Fail(f"the page got an image/png of {m[2]} bytes, the desktop's is {png_size}")
+                bounced = [line for line in log.lines[k0:] if "page clipboard offered to the desktop" in line]
+                if bounced:
+                    raise Fail(f"the desktop's selection went back to the desktop: {bounced[0]}")
+                return f"Ctrl-v in the field: paste event types={m[1]}, file image/png of {png_size} bytes; not carried back"
+            step("C-CLIPTYPES desktop image -> page", image_to_page)
+
+            def image_no_old_text():
+                # 2: an image-only clipboard pastes no old text, in the page or in the `:` line.
+                desk.set("old text 5")
+                into_field()
+                inject(*chord("c", "a"), *keys_for("field"), "wait:300")
+                desk.set_file(png, "image/png")
+                k = log.mark()
+                inject(*chord("c", "v"))
+                m = log.wait(r'"title":"c6 paste types=[^ "]* file=image/png:\d+ v=([^"]*)"', k)
+                if m[1] != "field":
+                    raise Fail(f"after the image paste the field holds {m[1]!r}, want 'field'")
+                time.sleep(0.5)
+                if any("old text 5" in line for line in log.lines[k:]):
+                    raise Fail("the page pasted the old text")
+                to_normal()
+                k = log.mark()
+                inject(*keys_for(":"), "wait:200", *chord("c", "v"), "wait:200", *keys_for("z"))
+                bar(re.escape(":z") + r"\|", k)
+                inject("key:esc", "wait:300")
+                return "after an image wl-copy: the field still holds 'field', Ctrl-v in the `:` line inserts nothing"
+            step("C-CLIPTYPES image-only clipboard: no old text", image_no_old_text)
+
+            def rich_copy():
+                # 3: the page's copy reaches the desktop with all its types (text/plain, text/html).
+                desk.set("something else")
+                into_field()
+                inject(*chord("c", "a"), *keys_for("rich one"), "wait:300")
+                k = log.mark()
+                inject(*chord("c", "a"), *chord("c", "c"))
+                log.wait(PAGE_TO_DESKTOP.format("clipboard"), k)
+                desk.wait_for("rich one")
+                types = desk.types()
+                for want in ("text/html", "application/x-web-shell-own"):
+                    if want not in types:
+                        raise Fail(f"wl-paste -l lists {types}, no {want}")
+                if not any(t.startswith("text/plain") for t in types):
+                    raise Fail(f"wl-paste -l lists {types}, no text/plain")
+                html = desk.get_type("text/html")
+                if "<b>rich one</b>" not in html:
+                    raise Fail(f"wl-paste -t text/html gave {html!r}")
+                log.wait(r"clipboard: the desktop reads the clipboard as text/html \(from the page\)", k)
+                return f"wl-paste -l: {', '.join(types)}; -t text/html: {html.strip()[:70]!r}"
+            step("C-CLIPTYPES page rich copy -> desktop", rich_copy)
+
+            def yy_to_page():
+                # 4: yy (smithay-clipboard's own source on the desktop) reaches the page.
+                desk.set("old")
+                to_normal()
+                inject("key:y", "wait:100", "key:y", "wait:400")
+                desk.wait_for(page_url)
+                into_field()
+                k = log.mark()
+                inject(*chord("c", "a"), *chord("c", "v"))
+                title(page_url, k)
+                log.wait(r"clipboard: the page reads the clipboard as \S+ \(from the desktop\)", k)
+                return f"yy, then Ctrl-A Ctrl-v in the field: it holds {page_url}"
+            step("C-CLIPTYPES yy -> paste in the page", yy_to_page)
+
+            def primary_types():
+                # 6: the page's primary selection is the shell's source on the desktop (with the marker).
+                desk.set("old primary 2", primary=True)
+                into_field()
+                k = log.mark()
+                inject(*chord("c", "a"), *keys_for("prim two"), "wait:200", *chord("c", "a"), "wait:400")
+                log.wait(PAGE_TO_DESKTOP.format("primary selection"), k)
+                desk.wait_for("prim two", primary=True)
+                types = desk.types(primary=True)
+                if "application/x-web-shell-own" not in types:
+                    raise Fail(f"wl-paste -l -p lists {types}, no marker")
+                return f"wl-paste -p holds 'prim two'; wl-paste -l -p: {', '.join(types)}"
+            step("C-CLIPTYPES primary: page -> desktop with its types", primary_types)
 
     except Fail as e:
         results.append(("start", False, str(e)))

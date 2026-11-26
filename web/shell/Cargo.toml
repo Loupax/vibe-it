@@ -25,7 +25,9 @@ tiny-skia = { version = "0.12", default-features = false, features = ["std", "si
 url = "2"
 # C6: the host desktop's clipboard and primary selection (as alacritty): smithay-clipboard on Wayland
 # (the shell window's own connection, core wl_data_device: works on every Wayland desktop),
-# x11-clipboard on X11.
+# x11-clipboard on X11. C-CLIPTYPES: on Wayland smithay-clipboard is now used for the shell's own text
+# reads and writes only (`yy`, `@+`, paste into the `:` / `/` lines); the page's selections carry
+# every type through `desktop_selection.rs` (wayland-client below).
 copypasta = "0.10"
 # C6: the clipboard thread blocks SIGTERM/SIGINT (they are for the main loop's signalfd).
 libc = "0.2"
