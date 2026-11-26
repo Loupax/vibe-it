@@ -556,6 +556,34 @@ unmodified again after the release), so Ctrl/Shift/Ctrl+Shift-click are dropped 
 host in both modes (T92); a middle-click on a link opens it as `:new` (T105, amended 2026-11-24). NORMAL's keys are unaffected: the page's modifiers are never changed by a key
 there. Not now (DECISIONS.md): a per-site "always allow popups" list.
 
+## File chooser (C-FILEPICK)
+
+A page's `<input type=file>` (and a save) opens the shell's own chooser, not Chromium's GTK/portal dialog
+(user, 2026-11-26: no dependency on portals, GTK or kdialog; the same on every system). It is the picker
+(T58-T68) over a directory's entries, in PICK, answering the host's `file-dialog` (PROTOCOL.md "File
+choosers"). Rows: `../`, the directories (`name/`), then the files with their size; for open-folder a first row
+`[choose this folder]`; for open-multiple with files marked a first row `[open N selected]`. Files that do not
+pass the page's `accept` are not listed (Alt-a shows them). Dotfiles are listed while the filter starts with `.`.
+The page keeps getting no keys, as in any picker.
+
+| ID | Mode | Key | Condition | Next | Action |
+|---|---|---|---|---|---|
+| T171 | any | the page on screen asks for a chooser (`file-dialog`) | no chooser is open | PICK | the chooser opens at the page's default path (a directory, or a file in one: its directory, and for save its name typed on the line), else the directory the last chooser ended in, else `$HOME`, else `/`. An open `:`/`/` line or picker is replaced. The header names the dialog (the page's title for it, else `open file`, `open files`, `open folder`, `save as`) and the directory (`~` for the home directory) |
+| T172 | any | a chooser is asked for | the page is not the one on screen (a background buffer), or a chooser is already open, or no directory can be listed | same | cancelled at once (the host gets an empty `file-dialog-result`); nothing opens |
+| T173 | PICK (chooser) | typing, Backspace, Ctrl-w, Ctrl-u | open modes | PICK | fuzzy-filters the directory's entries as any picker (T59) |
+| T174 | PICK (chooser) | Enter | open or open-multiple: the selected row is a directory (or `../`) | PICK | the directory is listed (an unreadable one: `web: cannot read ...`, stays). Going up with `../` selects the directory just left |
+| T175 | PICK (chooser) | Enter | open: the selected row is a file | NORMAL | the file is the answer. open-multiple: the files marked with Tab plus this one (T176). open-folder: the `[choose this folder]` row answers with the directory listed |
+| T176 | PICK (chooser) | Tab | open-multiple, the selected row is a file | PICK | marks it (`* ` before its name) or unmarks it and moves down; marks stay while directories are entered. `[open N selected]` (Enter) answers with the marked files. In the other modes Tab does nothing, except T178 |
+| T177 | PICK (chooser) | Backspace | the filter line is empty, not save | PICK | up one directory (as `../`) |
+| T178 | PICK (chooser) | typing; Enter; Tab | save: the line is the file name (not a filter) | PICK / NORMAL | Enter with a name: `name` under the directory listed, `~/x` under `$HOME`, an absolute path as it is; a name that is a directory enters it; a name that exists says `PATH exists: Enter again to overwrite` and the next Enter (any other key forgets it) answers; a missing parent directory is `web: no such directory: ...`. Enter with an empty line on a directory row enters it, on a file row saves over it (with the same overwrite question). Tab enters the selected directory |
+| T179 | PICK (chooser) | Esc, a click outside or on the list | any | NORMAL | cancelled: the host gets an empty `file-dialog-result` and the page sees no file |
+| T180 | PICK (chooser) | the page closes (`tab-closed`, the host already cancelled its dialog) | the chooser is of that page | NORMAL | the chooser closes, no answer is sent |
+| T181 | PICK (chooser) | Alt-a | any open mode | PICK | the page's `accept` list on or off (`showing all files` / `showing the accepted files`) |
+| T182 | PICK (chooser) | Ctrl-n, Ctrl-p, Down, Up, PageUp, PageDown | any | PICK | as T60, T61, T61a |
+
+The chooser answers the host exactly once: whatever closes it (Enter, Esc, a click, a new chooser's
+replacement) sends the result; when the shell is gone the host cancels the dialog itself.
+
 ## Opening a page in another browser (C-EXTERNAL)
 
 User, 2026-11-23, after C-WEBEX (#718) showed Webex needs WebRTC H.264, which the prebuilt CEF lacks: "Let's do both.

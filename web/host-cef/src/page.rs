@@ -470,6 +470,10 @@ wrap_client! {
         fn download_handler(&self) -> Option<DownloadHandler> {
             Some(crate::download::HostDownloadHandler::new())
         }
+        // C-FILEPICK: file choosers are answered by the shell's picker (filedialog.rs).
+        fn dialog_handler(&self) -> Option<DialogHandler> {
+            Some(crate::filedialog::HostDialogHandler::new())
+        }
         fn command_handler(&self) -> Option<CommandHandler> {
             Some(HostCommandHandler::new())
         }
@@ -851,6 +855,7 @@ wrap_life_span_handler! {
                 (ps.pages.len(), ps.quitting, ps.closing_all)
             });
             crate::notify::forget_tab(id);
+            crate::filedialog::page_closed(id);
             emit(Event::TabClosed { tab: id });
             // The last page gone ends the host only on `quit` (or standalone, when its window was
             // closed): the shell opens a new page before it closes its last one (PROTOCOL.md).
@@ -1300,6 +1305,7 @@ pub fn quit() {
     }) else {
         return;
     };
+    crate::filedialog::cancel_all();
     crate::forget::shutdown(Box::new(|| {}));
     if hosts.is_empty() {
         return quit_message_loop();
@@ -1423,6 +1429,7 @@ pub fn run_command(line: &str) {
             }
             return;
         }
+        Command::FileDialogResult { id, paths } => return crate::filedialog::answer(id, &paths),
         Command::NewTab { req, .. } if with_pages(|ps| ps.quitting) => {
             // A browser created while CEF shuts down crashes the host (seen live by C4).
             return emit(Event::Error {
@@ -1554,7 +1561,8 @@ pub fn run_command(line: &str) {
         | Command::NewTab { .. }
         | Command::ShowTab { .. }
         | Command::CloseTab { .. }
-        | Command::PopupOpen { .. } => unreachable!(),
+        | Command::PopupOpen { .. }
+        | Command::FileDialogResult { .. } => unreachable!(),
     }
 }
 

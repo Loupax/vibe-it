@@ -16,6 +16,7 @@ mod control;
 mod desktop_selection;
 mod dmabuf;
 mod external;
+mod filepick;
 mod forget;
 mod history;
 mod host;

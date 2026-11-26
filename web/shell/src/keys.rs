@@ -698,6 +698,10 @@ pub struct Keys {
     pub caret: bool,
     /// The open picker (C-PICK, `picker.rs`), while `vim_mode` is `Pick`.
     pub picker: Option<crate::picker::Picker>,
+    /// C-FILEPICK: the open file chooser (`filepick.rs`), while its picker is shown.
+    pub filedlg: Option<crate::filepick::FileDlg>,
+    /// C-FILEPICK: the directory the last chooser ended in, where the next one starts.
+    pub file_dir: Option<PathBuf>,
     /// The buffers (C4, `buffers.rs`); `url`, `title`, `search` and `popup_return` above are the
     /// current buffer's.
     pub buffers: crate::buffers::Buffers,
@@ -744,6 +748,8 @@ impl Keys {
             popup_return: None,
             caret: false,
             picker: None,
+            filedlg: None,
+            file_dir: None,
             buffers: crate::buffers::Buffers::new(),
             bell: Default::default(),
             notices: Default::default(),
@@ -1474,6 +1480,8 @@ impl Keys {
         self.line.clear();
         self.ghost = None;
         self.picker = None;
+        // C-FILEPICK: a chooser that ends without an answer (Esc, a click) is cancelled at the host.
+        self.file_dialog_cancelled();
     }
 
     /// The state directory (the history file's), if any.

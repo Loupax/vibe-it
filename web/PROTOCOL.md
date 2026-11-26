@@ -114,6 +114,7 @@ is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page command
 | `blur-field` | `{"cmd":"blur-field","tab":4}` | C-AUTOFOCUS: blur the page's focused text field (in the frame of the last `editable-focused true`, else the main frame); the page keeps it as its last field. Answered by `field-result` (`op` `blur`; `ok` false when no field had the focus). The page's blur handlers run |
 | `focus-field last\|first` | `{"cmd":"focus-field","which":"last"}` | C-AUTOFOCUS: focus the last text field focused in the document (`last`: in the frame of the last `editable-focused true`, else the main frame; only if still connected, rendered, not disabled or read-only) or the first visible one (`first`: main frame; input text/search/url/tel/email/password/number, textarea, contenteditable; the first in the viewport, else the first in the document). Answered by `field-result` (`ok`: a field has the focus now) |
 | `popup-open <id> <n>` | `{"cmd":"popup-open","tab":1,"popup":7}` | open blocked popup `n` of page `id` ("Popups"); answered by a `tab-created` with `opener` (`cause` `popup-open` or `popup-fresh`); an unknown page or popup (already opened, or forgotten at a new document): `error` |
+| `file-dialog-result <id> <path>...` | `{"cmd":"file-dialog-result","id":3,"paths":["/home/u/a.png"]}` | C-FILEPICK: the answer to a `file-dialog` event; no `paths` (or an empty list) = cancelled. Needs no page and takes no `tab`. An unknown or already ended `id` is ignored (logged) |
 | `close-all` | `{"cmd":"close-all"}` | C-CLOSE-POLITE: close **every** page politely: each runs its `beforeunload` (CEF `CloseBrowser(false)`), so a page may show its "Leave site?" dialog; a page whose user chooses to stay stays open and the host keeps running normally (`new-tab` etc. still work). `tab-closed` is sent for each page that closes; the host exits after the last one has closed. Sent again, it asks the remaining pages again |
 | `quit` | `{"cmd":"quit"}` | close **every** page, forced (CEF `CloseBrowser(true)`). CEF 156 still runs `beforeunload` then and would show the dialog: the host answers it "Leave" itself while quitting (`beforeunload answered Leave without a dialog`). If a page still has not closed 2 s later (a dialog that was already on screen), the host ends anyway (`quit: N page(s) did not close; ending anyway`, then it exits with status 0 without CEF's shutdown). **SIGTERM to the host is the same as `quit`** (it logs `SIGTERM: forced quit`) |
 
@@ -144,6 +145,7 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | `open-link <id> <url>` | `{"event":"open-link","tab":1,"url":"https://a.example/x"}` |
 | `blank-link <id> <url>` | `{"event":"blank-link","tab":1,"url":"https://a.example/x"}` |
 | `notify <id> <title> <body>` | `{"event":"notify","tab":1,"title":"New message","body":"Ana: lunch?","tag":"msg-42","origin":"https://chat.example.com"}` |
+| `file-dialog <tab> <id> <mode> <title> <default>` | `{"event":"file-dialog","tab":1,"id":3,"mode":"open-multiple","title":"","default":"/home/u","accept":[{"filter":"image/*","extensions":".png;.jpg","description":"Image Files"},{"filter":".pdf"}]}` |
 | `forgot <site> ok`, `forgot <site> partial <what failed>` | `{"event":"forgot","site":"https://mail.example.com/","domain":"example.com","result":"ok","cookies":3,"origins":["http://example.com","https://example.com","https://mail.example.com"]}`, with `"result":"partial","failed":["storage https://x.example.com (timeout)"]` |
 | (error) | `{"event":"error","message":"..."}` |
 
@@ -364,6 +366,28 @@ Chromium's own way for a frame to ask; not checked here.
   iframe.
 - Storage the site has as a third party inside other sites' pages (partitioned
   storage keys) is not reached.
+
+## File choosers (C-FILEPICK)
+
+`<input type=file>` (and a save) must not open Chromium's own dialog (GTK or a desktop portal: a dependency
+that differs between systems, and on some of them the chosen file never reaches the page). web-host-cef
+implements CEF's `CefDialogHandler::OnFileDialog` and returns true: the chooser is the shell's (KEYS.md "File
+chooser", T171-T182). The wire:
+
+- `file-dialog` (host -> shell): `tab` the page; `id` the dialog's number (counts up from 1 in a host run);
+  `mode` `open`, `open-multiple`, `open-folder` or `save` (CEF's `FILE_DIALOG_*`); `title` the page's own
+  title for it ("" usually); `default` the path (a directory and/or a file name) the page suggests ("");
+  `accept` the page's accept list, one entry per `<input accept>` token: `filter` (lower-cased MIME type
+  `image/*` or extension `.png`), `extensions` what CEF expanded a MIME type to (`.png;.jpg`; omitted when
+  unknown) and `description` (`Image Files`; omitted when unknown). Entries with an empty filter are dropped.
+- `file-dialog-result` (shell -> host): `id` and `paths` (absolute). The host completes CEF's callback:
+  `Continue(paths)`, or `Cancel` for none. For `open` the host passes one path, for `open-multiple` several.
+- **Always answered.** The host keeps CEF's callback until it has been completed, and completes it exactly
+  once: by the shell's `file-dialog-result`; as cancelled when the page closes (before its `tab-closed`; the
+  shell then drops its chooser without answering); as cancelled when the shell closes the socket or on `quit`;
+  at once as cancelled when no shell is connected (standalone). The shell answers "cancelled" itself when it
+  cannot show the chooser (the page is not the one on screen, a chooser is already open).
+- The host logs `on_file_dialog called: tab N mode M` and `file dialog ID: ...` lines.
 
 ## Popups (C-POPUPS)
 

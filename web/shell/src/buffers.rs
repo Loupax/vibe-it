@@ -571,6 +571,7 @@ impl Keys {
     /// since that would open an `about:blank` buffer and send `new-tab` to a host that is exiting.
     /// Returns whether a buffer went.
     pub fn tab_closed(&mut self, tab: u64, closing: bool) -> bool {
+        self.file_dialog_tab_closed(tab);
         if !self.buffers.list.iter().any(|b| b.tab == Some(tab)) {
             // Killed by the shell (`:bufferKill`): its buffer is already gone.
             return false;

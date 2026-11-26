@@ -122,6 +122,18 @@ pub enum Event {
         #[serde(default)]
         origin: String,
     },
+    /// C-FILEPICK: page `tab` asked for a file chooser; answer it with `file-dialog-result` `id`.
+    FileDialog {
+        tab: u64,
+        id: u64,
+        mode: DialogMode,
+        #[serde(default)]
+        title: String,
+        #[serde(default)]
+        default: String,
+        #[serde(default)]
+        accept: Vec<Accept>,
+    },
     Error {
         message: String,
     },
@@ -162,6 +174,28 @@ impl Event {
             _ => None,
         }
     }
+}
+
+/// C-FILEPICK: what a file chooser asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DialogMode {
+    Open,
+    OpenMultiple,
+    OpenFolder,
+    Save,
+}
+
+/// C-FILEPICK: one entry of a chooser's accept list: a lower-cased MIME type (`image/*`) or an
+/// extension (`.png`), the extensions the host expanded a MIME type to (`.png;.jpg`) and its
+/// description.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Accept {
+    pub filter: String,
+    #[serde(default)]
+    pub extensions: String,
+    #[serde(default)]
+    pub description: String,
 }
 
 /// A command to the engine host (the ones the shell sends so far; `zoom` and
@@ -230,6 +264,11 @@ pub enum Command {
     CloseAll,
     /// Close every page without waiting for `beforeunload` answers; the host exits.
     Quit,
+    /// C-FILEPICK: the answer to a `file-dialog` event: the chosen paths, none = cancelled.
+    FileDialogResult {
+        id: u64,
+        paths: Vec<String>,
+    },
 }
 
 /// Which field `focus-field` focuses (C-AUTOFOCUS).

@@ -685,6 +685,7 @@ impl Scripts {
                 PickAction::Buffer(n) => o.set("buffer", n)?,
                 PickAction::Popup(n) => o.set("popup", n)?,
                 PickAction::Notice(n) => o.set("notice", n as f64)?,
+                PickAction::FileEntry { path, .. } | PickAction::FileHere(path) => o.set("path", path)?,
             }
             f.restore(ctx)?.call::<_, Value>((o,)).map(|_| ())
         })
