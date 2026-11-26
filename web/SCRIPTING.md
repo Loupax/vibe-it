@@ -16,6 +16,8 @@ The runtime has no QuickJS `std`/`os` modules: no network, no timers, no file ac
 the module imports below. The profile's `init.js` is evaluated as an ES module, so it is always
 strict (C-SCRIPT-MODULES, 2026-11-25; C-SCRIPT ran it as a strict classic script so that this could
 come without breaking a script) and can `import` other modules (below, "Modules").
+`web` is still the only global; the built-in modules `web:api` and `web:url` (C-SCRIPT-URL) are
+imported, never globals ("Modules", "Built-in modules").
 
 ## Files and profiles
 
@@ -72,6 +74,15 @@ export function startBuffers(urls) {
 - **Regular `.js` files only**, of at most `SCRIPT_MODULE_MAX` (config.rs, 1 MiB): no FIFO, device,
   folder, `.json` or other file. Reading a file is Rust I/O, outside the time budget and the memory
   limit, hence the size cap (it holds for `init.js` too).
+- **Built-in modules** (2026-11-26, user; C-SCRIPT-URL). A specifier starting with `web:` is built into
+  the shell, the same pattern as Node's `node:url`, and is checked before any file rule: no file can
+  shadow one, and it works with no config directory. They are not files, so the confinement, `.js` and
+  size rules do not apply. Today there are `web:api` (the `web` object, "API" below) and `web:url`
+  (`URL`, "`web:url`" below). Any other `web:` name (`web:nope`, `web:`, `web:URL`: names are
+  case-sensitive) is refused: `init.js: import "web:nope": no such built-in module`. A built-in loads
+  once per runtime, so every module that imports it gets the same objects (`instanceof URL` holds across
+  modules). Only a specifier that *starts* with `web:` is one: `./web:url.js` is a file. A bare `"url"`
+  is a file import like any bare name (refused as `not a .js file: .../profiles/NAME/url`), not this.
 - A refused import names the rule and the path, and nothing is read:
   `init.js: import "../../../x.js": outside /home/u/.config/web/: /home/u/x.js`. Other refusals:
   `no such file`, `not a .js file`, `not a regular file`, `larger than SCRIPT_MODULE_MAX`.
@@ -101,6 +112,20 @@ stops a script from reading arbitrary files through `import`; it does not make a
 ## API (2026-11-24, user)
 
 Everything lives on one global object, `web`.
+
+`web` is also the default export of the built-in module `web:api` (2026-11-26, user; C-SCRIPT-URL),
+with one named export per key of `web` (`bookmarks`, `buffers`, `cmd`, `command`, `history`, `map`,
+`on`). It is the very same object (`===` the global) and the same values, not a copy: commands, mappings
+and settings made through either are the same. The global is a plain writable property, so a script can
+overwrite or delete it (`globalThis.web = null`) for every module; the import always gives the original
+back (user: "We should still be able to import it in case the user overwrites it and wants to
+reimport it"). The global itself is unchanged. `cmd`, `map`, `command` and `on` do not use `this`, so
+an imported `cmd("b 3")` works bare.
+
+```js
+import web from "web:api";
+import { cmd, map } from "web:api";
+```
 
 ### `web.cmd(line)`
 
@@ -249,12 +274,51 @@ top level) there are no buffers yet and it returns `[]`; `ready` handlers, comma
 is not in a `list()` made later in that same call; the next call sees it.
 
 ```js
-// gs: go to the Slack buffer, or open it.
+import { URL } from "web:url";
+
+// gs: go to the first Slack buffer, or open Slack.
 web.map("n", "gs", () => {
-  const b = web.buffers.list().find(b => b.url.startsWith("https://app.slack.com/"));
+  const b = web.buffers.list().find(b => URL.parse(b.url)?.hostname === "app.slack.com");
   web.cmd(b ? "b " + b.number : "new https://app.slack.com");
 });
 ```
+
+### `web:url` (2026-11-26, user; C-SCRIPT-URL)
+
+```js
+import { URL } from "web:url";
+```
+
+A `URL` class that behaves like the browser's, read-only for now. It is an import, not a global (user:
+"it has to be global? can't we make it importable?"), and the only export (`import URL from "web:url"`
+is a module error). It is backed by the `url` crate, the WHATWG parser the shell itself uses, so a
+script and the shell parse a URL the same way.
+
+`new URL(input, base?)`: `input` and `base` are converted with `String(...)`, so a `URL` works as either.
+With `base`, `input` is parsed against it (`new URL("../x?y", "https://a.test/b/c/d")` is
+`https://a.test/b/x?y`). Bad input or a bad base throws a `TypeError` with the message
+`Invalid URL: <input>`; calling `URL(...)` without `new` throws a `TypeError`. An uncaught one shows at the
+script's own line (`init.js:3: Invalid URL: x`).
+
+| property | value |
+|---|---|
+| `href` | the whole URL, serialized |
+| `protocol` | the scheme and `:` (`https:`) |
+| `username`, `password` | `""` when none |
+| `hostname` | the host (IDN as punycode, `xn--...`; IPv6 in brackets), `""` when none |
+| `port` | `""` when none or the scheme's default (`https://a.test:443/` gives `""`) |
+| `host` | `hostname`, plus `:port` when `port` is not empty |
+| `origin` | `https://a.test:8080`; `"null"` for an opaque origin (`about:blank`, `data:`, `file:`) |
+| `pathname` | the path |
+| `search` | `?` and the query; `""` when the query is empty (`https://a.test/?` too) |
+| `hash` | `#` and the fragment; `""` when empty |
+
+- `toString()` and `toJSON()` give `href`, so `String(u)`, `` `${u}` `` and `JSON.stringify({ u })` do.
+- `URL.canParse(input, base?)`: a boolean, never throws. `URL.parse(input, base?)`: a `URL` or `null`.
+- **Read-only for now**: the properties are getters with no setters, so `u.hostname = "x"` throws a
+  `TypeError` (modules are strict). No `searchParams`/`URLSearchParams`. `URL` and `URL.prototype` are
+  frozen, so one module cannot change `URL` for the others.
+- The URL is parsed once, when made; reading a property does not parse again.
 
 ### Commands for scripts: `:echo` and `:source`
 

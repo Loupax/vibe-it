@@ -2,6 +2,41 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-26 Built-in modules `web:url` and `web:api` (C-SCRIPT-URL)
+
+Issue #767. A mapping that jumps to the first Slack buffer, whatever its path, has to read the hostname of
+each buffer's URL; `web.buffers.list()` gives `url` as a string and QuickJS has no `URL`, so the obvious
+`new URL(b.url).hostname` threw `ReferenceError`, swallowed by a `catch`, and never matched. Spec:
+SCRIPTING.md "Modules" ("Built-in modules"), "API", "`web:url`".
+
+- **A `URL` class that behaves like the browser's**, so `URL.parse(b.url)?.hostname` works as people
+  expect. `web.buffers.list()` is unchanged (no `host` field).
+- **Importable, not a global** (user: "it has to be global? can't we make it importable?"):
+  `import { URL } from "web:url"`.
+- **A reserved `web:` prefix for built-in modules**, the pattern of Node's `node:url` (user: "how does node
+  import from its stdlib?", then "update the issue to use web:url"). The resolver checks `web:` names
+  before any file rule, so a built-in cannot be shadowed by a file and a file cannot be taken for one.
+  Only the prefixed spelling: bare `"url"` stays a file import (refused as `not a .js file`); there is no
+  list of reserved bare names. An unknown `web:` name is `no such built-in module`.
+- **`web` is importable too, and stays a global** (user: "for now only focus on the URL and web itself. We
+  should still be able to import it in case the user overwrites it and wants to reimport it").
+  `import web from "web:api"` is the original object (kept in Rust, not looked up on `globalThis`), with
+  one named export per key of `web`, read from the object so a later key is exported too. The global is
+  not changed (still writable and configurable), so existing `init.js` files keep working; the precedent
+  is Node's `process` global and `node:process`.
+- **Backed by the Rust `url` crate** the shell already uses (the WHATWG parser), so scripts and the shell
+  parse URLs the same way. No JS polyfill (`whatwg-url` and the like carry large IDNA tables and would be a
+  second parser that could disagree). No new dependency, no rquickjs `macro` feature: `web:url` is a native
+  module whose parse closure feeds a short embedded class; nothing is left on `globalThis`.
+- **Read-only first**: getters only, no setters, no `searchParams`/`URLSearchParams`. `URL` and
+  `URL.prototype` are frozen, as `web` is.
+- Beyond the issue (C-SCRIPT-URL agent): an error thrown inside a built-in (`new URL("x")` uncaught) is
+  shown at the user's line (`init.js:3: Invalid URL: x`): stack frames of `web:` modules are skipped
+  when the bar's `FILE:LINE` is chosen, as native frames already were.
+- Out of scope, to be filed separately if wanted: a global `URL`, bare `"url"`/`"web"` aliases, removing or
+  locking down the `web` global, setters, `searchParams`, a `host` field on `web.buffers.list()`,
+  `URLPattern`, URL normalization in `focusExisting`.
+
 ## 2026-11-26 Every clipboard type between the desktop and the page on Wayland (C-CLIPTYPES)
 
 The bug (issue #764, seen by the user): screenshots taken with a dwl keybinding,
