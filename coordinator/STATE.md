@@ -660,3 +660,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 ## 2026-11-25 C-CMDRESULT merged (#756, a8f9e6e). No agents running.
 
 ## 2026-11-25 web reinstalled with #756 (20261125-180413-e03d7fc5). Guide v8: web.cmd result.
+
+## 2026-11-26 GitHub issues as requests
+- User decision: open issues by Loupax on Loupax/vibe-it are requests, the same as chat. Checked hourly while the session runs, and at session start. Other people's issues and comments are ignored. No label is needed; the `note` label (created) excludes an issue. Rules are in COORDINATOR_PROMPT.md "GitHub issues". The coordinator prompt's stale ci_then_push default (scratchy) is corrected to none.
