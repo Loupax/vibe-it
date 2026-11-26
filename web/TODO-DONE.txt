@@ -30,3 +30,10 @@
       /issues/760 -> /pull/760). The host's `url` event gets an optional `original` (the navigation entry's original_url,
       only when non-empty and different); the shell stores it per buffer (Keys + Buffer, cleared on every url event) and
       link_click matches `url == link || original == link`, still exact. Full spec and decisions: issue #762.
+
+=== from TODO.txt: --- (no header)
+- [x] C-CLIPTYPES DONE ac60537 #766 [M] (issue #764; user, 2026-11-26: "B") A screenshot copied with `grim | wl-copy` pastes the old
+      text into a page: the C6 bridge is text only. On Wayland carry every MIME type both ways by passing fds (wl_data_device
+      and primary selection) in a new src/desktop_selection.rs thread (as ime.rs `mod desktop`), with a private marker type
+      against loops; the shell's own text uses keep copypasta (own-selection short-circuit for reads); sync_from_desktop
+      becomes X11-only; X11 stays text only. Full spec and decisions: issue #764.
