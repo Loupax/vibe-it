@@ -659,6 +659,8 @@ pub struct Keys {
     pub(crate) script_chain: usize,
     /// The page's URL as the host reported it (register `%`).
     pub url: String,
+    /// The URL the page was requested as before redirects (the host's `url` event), if it differs.
+    pub original_url: Option<String>,
     /// The page's title as the host reported it ("" when none yet; `:bookmarkAdd` stores it).
     pub title: String,
     /// `:help`'s page.
@@ -764,6 +766,7 @@ impl Keys {
             cmd_failed: false,
             script_chain: 0,
             url: String::new(),
+            original_url: None,
             title: String::new(),
             help_url,
             search: SearchState::default(),

@@ -141,6 +141,14 @@ fn entry_kind(browser: Option<&Browser>) -> LoadKind {
         .unwrap_or(LoadKind::New)
 }
 
+/// The URL the page on screen was requested as before redirects (the visible navigation entry's
+/// original URL), only when it is not empty and differs from `url`.
+fn original_url(browser: Option<&Browser>, url: &str) -> Option<String> {
+    let e = browser?.host()?.visible_navigation_entry()?;
+    let o = CefString::from(&e.original_url()).to_string();
+    (!o.is_empty() && o != url).then_some(o)
+}
+
 /// Every page of the host, which one is shown, and the bookkeeping of `new-tab` and `quit`.
 #[derive(Default)]
 struct Pages {
@@ -571,7 +579,8 @@ wrap_display_handler! {
                 return;
             };
             if changed {
-                emit(Event::Url { tab: id, url });
+                let original = original_url(browser.as_deref(), &url);
+                emit(Event::Url { tab: id, url, original });
             }
             if same_doc {
                 same_document(id);
@@ -970,7 +979,8 @@ wrap_load_handler! {
                 k
             });
             if let Some(url) = new_url {
-                emit(Event::Url { tab: id, url });
+                let original = original_url(browser.as_deref(), &url);
+                emit(Event::Url { tab: id, url, original });
             }
             load_event(id, LoadPhase::End, status, kind, error);
         }

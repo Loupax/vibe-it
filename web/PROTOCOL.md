@@ -132,7 +132,7 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | `hello` | `{"event":"hello","protocol":1,"engine":"cef"}` |
 | `tab-created <id>` | `{"event":"tab-created","tab":1}`; the answer to `new-tab`: `{"event":"tab-created","tab":4,"req":3}`; a popup: `{"event":"tab-created","tab":5,"opener":4,"cause":"popup"}` |
 | `tab-closed <id>` | `{"event":"tab-closed","tab":1}` |
-| `url <id> <url>` | `{"event":"url","tab":1,"url":"https://example.com/"}` |
+| `url <id> <url>` | `{"event":"url","tab":1,"url":"https://example.com/"}`; after a redirect: `{"event":"url","tab":1,"url":"https://a.example/pull/7","original":"https://a.example/issues/7"}` (text form `url 1 https://a.example/pull/7 (from https://a.example/issues/7)`) |
 | `title <id> <text>` | `{"event":"title","tab":1,"title":"Example Domain"}` |
 | `load <id> start\|end <status> <kind>` | `{"event":"load","tab":1,"phase":"end","status":200,"kind":"new"}`, optional `"error":"ERR_ABORTED"` |
 | `load-error <id> <code> <text>` | `{"event":"load-error","tab":1,"code":-105,"name":"ERR_NAME_NOT_RESOLVED","text":"ERR_NAME_NOT_RESOLVED"}` |
@@ -180,6 +180,11 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
   `crashed`, `popup-blocked`, `notify`) carries the page's `tab`; hidden pages send theirs too.
 - `url`: the main frame's URL, sent when it changes (also for same-document
   navigations). For every load, the new `url` comes **before** its `load end`.
+  `original` (optional, C-FOCUSEXISTING-REDIRECT): the URL the page now shown was requested as before
+  redirects (the visible navigation entry's original URL). Absent when it is empty or equal to `url`, i.e.
+  when there were no redirects. A later `url` event replaces the earlier one's value; an event without
+  `original` means there is none. Redirects done by the page itself (`location = ...`, `<meta refresh>`)
+  are new navigations and set none.
 - `title`: sent when the title changes (not repeated for the same text).
 - `load`: main-frame loads only; every `start` is followed by one `end` of the same
   kind.

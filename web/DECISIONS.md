@@ -2,6 +2,33 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-26 `focusExisting` also matches the URL a buffer's page was requested as (C-FOCUSEXISTING-REDIRECT)
+
+User (issue #762), seen live: with `web.buffers.focusExisting = true`, clicking the same `target=_blank` link
+twice opened two buffers. The journal:
+
+```
+[web-host-cef] event: blank-link 4 https://github.com/Loupax/vibe-it/issues/760
+[web] command: {"cmd":"new-tab","req":5,"url":"https://github.com/Loupax/vibe-it/issues/760"}
+...
+[web-host-cef] event: url 6 https://github.com/Loupax/vibe-it/pull/760
+```
+
+GitHub redirects `/issues/760` to `/pull/760`; the first buffer showed `/pull/760`, which is not the link's
+`/issues/760` byte for byte. Everything worked as designed; the match never saw the URL the buffer was asked
+to load.
+
+- **Still an exact match, no normalization**, but a link is matched against **two** URLs of each buffer: its
+  current URL, and the **original URL of the page it shows now** (the URL requested before any redirects;
+  CEF's `NavigationEntry::original_url()`, per navigation entry).
+- **The original belongs to the page on screen.** Navigating elsewhere makes a new entry, so the old original
+  stops matching: a link never sends you to a buffer that has moved on. Not matched: older history entries
+  (back/forward pages), redirects done by the page's own JavaScript or `<meta refresh>` (new navigations).
+- **How**: the host's `url` event gets an optional `original` (only when non-empty and different from `url`);
+  the shell keeps the last one per buffer (every `url` event sets it, to none too) and `link_click` tests
+  `url` or `original`. Not exposed to scripts (`web.buffers.list()` is unchanged). Spec: PROTOCOL.md, KEYS.md
+  T170, SCRIPTING.md.
+
 ## 2026-11-26 `web.buffers.focusExisting`: a `_blank` link to an open page shows its buffer (C-FOCUSEXISTING)
 
 User (issue #759): "catch clicks to links, and if I already have a buffer open to them, focus on that buffer
@@ -16,7 +43,8 @@ as an option."
   handoff, no `:new`.
 - **Middle-click is the way around it**: it always opens a new buffer, as before (C-MIDCLICK, T105).
 - **Exact URL match only**: the link's absolute URL equals a buffer's current URL byte for byte. No fragment,
-  query or trailing-slash normalization; a redirected buffer (http→https) does not match. Accepted.
+  query or trailing-slash normalization; a redirected buffer (http→https) does not match by its current URL alone. Accepted; amended 2026-11-26
+  by "C-FOCUSEXISTING-REDIRECT" above: the URL the page was requested as matches too.
 - **Several matches: the first in `:ls` order** (the lowest number). **The current buffer matches too**: then
   nothing opens, only the message. A switch is `:b N`'s (the old buffer becomes the alternate). The bar says
   `already open: [N] TITLE`.

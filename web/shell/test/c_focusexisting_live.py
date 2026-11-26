@@ -17,6 +17,8 @@ Session 1, init.js `web.buffers.focusExisting = true;`:
   - the B#x link: a new buffer (exact URL only);
   - the link to A itself (target=_BLANK): only the message, `already open: [1] fe A`;
   - a middle-click on the B link: a new buffer (`open-link`), the setting is ignored;
+  - the link to /fe-redir (a 302 to fe-b.html?r=1; C-FOCUSEXISTING-REDIRECT): a new buffer 5 whose `url` event
+    carries `original` = the link's URL; back to buffer 1 and a second click: buffer 5 is shown, `already open`;
   - the rel=opener link: Chromium's popup path as before (`tab-created` with `opener`, window.opener kept).
 Session 2, init.js without the setting: a click on the B link twice opens two new buffers.
 Exit 0 when every step passed. Needs what test/live.py needs, and PIL."""
@@ -43,7 +45,20 @@ WEB = live.WEB
 Fail = live.Fail
 RED, BLUE = (255, 0, 0), (0, 0, 255)
 # Page coordinates (fe-a.html) of the link centres.
-AT = {"tob": (190, 72), "tobx": (190, 172), "toa": (190, 272), "opener": (190, 372)}
+AT = {"tob": (190, 72), "tobx": (190, 172), "toa": (190, 272), "opener": (190, 372), "redir": (190, 472)}
+
+
+class RedirPages(live.Pages):
+    """test/pages plus /fe-redir: a 302 to fe-b.html?r=1 (C-FOCUSEXISTING-REDIRECT)."""
+
+    def do_GET(self):
+        if self.path == "/fe-redir":
+            self.send_response(302)
+            self.send_header("Location", "/fe-b.html?r=1")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        super().do_GET()
 
 
 def main():
@@ -60,7 +75,7 @@ def main():
     nest_env = dict(os.environ, WAYLAND_DISPLAY=wl)
 
     page_log = open(os.path.join(out, "pages.log"), "w", buffering=1)
-    srv = live.Server(("127.0.0.1", 0), functools.partial(live.Pages, directory=os.path.join(HERE, "pages"), log=page_log))
+    srv = live.Server(("127.0.0.1", 0), functools.partial(RedirPages, directory=os.path.join(HERE, "pages"), log=page_log))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{srv.server_address[1]}"
     url_a, url_b = f"{base}/fe-a.html", f"{base}/fe-b.html"
@@ -152,6 +167,8 @@ def session(a, out, name, init, wl, nest_env, url_a, url_b, results, steps):
         def ctx():
             return {"log": log, "step": step, "inject": inject, "click": click, "bar": bar, "current": current,
                     "no_new_page": no_new_page, "shows": shows, "buffers": buffers, "url_a": url_a, "url_b": url_b,
+                    "url_redir": url_a.rsplit("/", 1)[0] + "/fe-redir",
+                    "url_redir_final": url_a.rsplit("/", 1)[0] + "/fe-b.html?r=1",
                     "back_to_1": back_to_1, "keys_for": keys_for}
 
         # The nest keeps the pointer where the last run left it: a click there without a motion first
@@ -261,6 +278,32 @@ def steps_on(c):
 
     c["step"]("T105 a middle-click ignores the setting", middle)
 
+    def redirect():
+        # C-FOCUSEXISTING-REDIRECT: /fe-redir answers 302 to /fe-b.html?r=1; the buffer shows the target, and
+        # the host's `url` event carries the requested URL as `original`.
+        k = log.mark()
+        click("redir")
+        blank_event(c, k, c["url_redir"])
+        m = log.wait(r'host event: \{"event":"tab-created","tab":(\d+),"req":\d+\}', k, 15)
+        buffers.append(5)
+        current(k, 5, 5)
+        log.wait(r'host event: \{"event":"url","tab":' + m.group(1) + r',"url":"' + re.escape(c["url_redir_final"])
+                 + r'","original":"' + re.escape(c["url_redir"]) + '"', k, 15)
+        log.wait(r'host event: \{"event":"title","tab":' + m.group(1) + r',"title":"fe B opener=no"', k, 15)
+        c["shows"](BLUE, "b-redir.png")
+        c["back_to_1"]()
+        k = log.mark()
+        click("redir")
+        blank_event(c, k, c["url_redir"])
+        current(k, 5, 5)
+        bar(k, r"NORMAL \| already open: \[5\] fe B opener=no")
+        c["no_new_page"](k, "the second click on the redirecting link")
+        c["shows"](BLUE, "b-redir-switched.png")
+        c["back_to_1"]()
+        return "302 link: `url` carried original; the second click switched to buffer 5, no new page"
+
+    c["step"]("T170 redirect: a buffer matches the URL its page was requested as", redirect)
+
     def opener():
         k = log.mark()
         click("opener")
@@ -268,8 +311,8 @@ def steps_on(c):
         log.wait(r'host event: \{"event":"title","tab":' + m.group(1) + r',"title":"fe B opener=yes"', k, 15)
         if any('"event":"blank-link"' in l for l in log.lines[k:]):
             raise Fail("a rel=opener link sent blank-link")
-        buffers.append(5)
-        current(k, 5, 5)
+        buffers.append(6)
+        current(k, 6, 6)
         return f"rel=opener: Chromium's popup (tab {m.group(1)}, window.opener kept), not blank-link"
 
     c["step"]("T94 a rel=opener target=_blank link stays a popup", opener)

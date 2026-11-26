@@ -8,7 +8,7 @@ use std::time::Duration;
 use crate::buffers::TabCreated;
 use crate::config::SCRIPT_BUDGET_MS;
 use crate::keys::*;
-use crate::protocol::Command;
+use crate::protocol::{Command, Event};
 use crate::script::init_files;
 
 const BUDGET: Duration = Duration::from_millis(SCRIPT_BUDGET_MS);
@@ -267,4 +267,97 @@ fn t170_source_puts_the_setting_back_to_false() {
     c.init(ON);
     k.source();
     assert!(k.scripts.as_ref().unwrap().focus_existing());
+}
+
+// C-FOCUSEXISTING-REDIRECT: a buffer also matches the URL its page was requested as before redirects.
+
+fn url_event(tab: u64, url: &str, original: Option<&str>) -> Event {
+    Event::Url {
+        tab,
+        url: url.into(),
+        original: original.map(str::to_string),
+    }
+}
+
+#[test]
+fn t170_redirect_a_background_buffer_matches_its_original_url() {
+    let mut k = two_buffers(ON);
+    // Buffer 1 is in the background; its `url` event arrives with the original.
+    assert!(k.page_event(1, &url_event(1, "https://a.test/pull/7", Some("https://a.test/issues/7"))));
+    assert!(k.link_click(2, "https://a.test/issues/7", true));
+    assert_eq!(k.buffers.list.len(), 2, "no new buffer");
+    assert_eq!(k.buffers.current, 1);
+    assert_eq!(k.buffers.alternate, Some(2));
+    assert_eq!(k.message, "already open: [1] Page one");
+    assert!(new_tab_urls(&k).is_empty());
+    // The current URL still matches too.
+    let mut k = two_buffers(ON);
+    assert!(k.page_event(1, &url_event(1, "https://a.test/pull/7", Some("https://a.test/issues/7"))));
+    assert!(k.link_click(2, "https://a.test/pull/7", true));
+    assert_eq!(k.buffers.current, 1);
+}
+
+#[test]
+fn t170_redirect_the_current_buffer_matches_only_the_message() {
+    let mut k = two_buffers(ON);
+    assert!(!k.page_event(2, &url_event(2, "https://blue.example/b", Some("https://blue.example/a"))));
+    k.original_url = Some("https://blue.example/a".into()); // what state.rs does on the event
+    assert!(k.link_click(2, "https://blue.example/a", true));
+    assert_eq!(k.buffers.list.len(), 2);
+    assert_eq!(k.buffers.current, 2);
+    assert_eq!(k.buffers.alternate, Some(1));
+    assert!(k.effects.is_empty(), "{:?}", k.effects);
+    assert_eq!(k.message, "already open: [2] Blue page");
+}
+
+#[test]
+fn t170_redirect_a_later_url_event_without_original_clears_it() {
+    let mut k = two_buffers(ON);
+    assert!(k.page_event(1, &url_event(1, "https://a.test/pull/7", Some("https://a.test/issues/7"))));
+    assert!(k.page_event(1, &url_event(1, "https://a.test/next", None)));
+    assert!(k.link_click(2, "https://a.test/issues/7", true));
+    assert_new_buffer(&k, "https://a.test/issues/7");
+    // The current buffer: the live value is replaced the same way.
+    let mut k = two_buffers(ON);
+    k.original_url = Some("https://blue.example/a".into());
+    k.original_url = None;
+    assert!(k.link_click(2, "https://blue.example/a", true));
+    assert_new_buffer(&k, "https://blue.example/a");
+}
+
+#[test]
+fn t170_redirect_switching_away_and_back_keeps_the_original() {
+    let mut k = two_buffers(ON);
+    k.original_url = Some("https://blue.example/a".into());
+    k.switch_to(1);
+    assert_eq!(k.original_url, None);
+    assert_eq!(k.buffers.get(2).unwrap().original_url.as_deref(), Some("https://blue.example/a"));
+    k.switch_to(2);
+    assert_eq!(k.original_url.as_deref(), Some("https://blue.example/a"));
+    k.effects.clear();
+    assert!(k.link_click(2, "https://blue.example/a", true));
+    assert_eq!(k.message, "already open: [2] Blue page");
+    assert_eq!(k.buffers.list.len(), 2);
+}
+
+#[test]
+fn t170_redirect_the_first_in_ls_order_wins() {
+    let mut k = two_buffers(ON);
+    // Buffer 1 matches by its original URL, buffer 3 by its current URL; 1 comes first.
+    assert!(k.page_event(1, &url_event(1, "https://a.test/x", Some("https://a.test/target"))));
+    k.open_buffer("https://c.test/");
+    assert_eq!(k.buffers.tab_created(3, Some(2)), TabCreated::Buffer(3));
+    k.url = "https://a.test/target".into();
+    k.effects.clear();
+    assert!(k.link_click(3, "https://a.test/target", true));
+    assert_eq!(k.buffers.current, 1);
+    assert_eq!(k.message, "already open: [1] Page one");
+}
+
+#[test]
+fn t105_redirect_a_middle_click_still_opens_a_new_buffer() {
+    let mut k = two_buffers(ON);
+    assert!(k.page_event(1, &url_event(1, "https://a.test/pull/7", Some("https://a.test/issues/7"))));
+    assert!(k.link_click(2, "https://a.test/issues/7", false));
+    assert_new_buffer(&k, "https://a.test/issues/7");
 }
