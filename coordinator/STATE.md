@@ -688,3 +688,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-26 issues #762, #764 filed and started
 - C-FOCUSEXISTING-REDIRECT (#762, Sonnet) and C-CLIPTYPES (#764, Opus) filed in 114928c7; both started in parallel (buffers/protocol/host vs clipboard/selection: separate areas).
+
+## 2026-11-26 #765 C-FOCUSEXISTING-REDIRECT merged (5613eeb), closes #762
+- url event gains optional original; Buffer/Keys original_url; link_click matches url or original. Shell 540, host 45, py 22; live 10/10 incl. a 302. Installed 20261126-154352-fc0ea731. C-CLIPTYPES still running.
