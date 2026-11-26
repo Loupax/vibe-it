@@ -691,3 +691,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-26 #765 C-FOCUSEXISTING-REDIRECT merged (5613eeb), closes #762
 - url event gains optional original; Buffer/Keys original_url; link_click matches url or original. Shell 540, host 45, py 22; live 10/10 incl. a 302. Installed 20261126-154352-fc0ea731. C-CLIPTYPES still running.
+
+## 2026-11-26 #766 C-CLIPTYPES merged (ac60537), closes #764
+- Wayland: every MIME type both ways by fd (desktop_selection.rs thread, marker type against loops), clipboard + primary; X11 text only. smithay 0.7 compositor-set selections do not call new_selection (no bounce). Shell 547 tests; live Wayland 13/13 (5/13 on main), --x11 8/8. Installed 20261126-155505-6cdd317b. Owed: real-desktop screenshot paste. No agents running.
