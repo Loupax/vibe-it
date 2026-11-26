@@ -697,3 +697,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-26 issue #767 -> C-SCRIPT-URL
 - Filed (98be35f5), commented, Opus agent started. web:url + web:api built-in modules.
+
+## 2026-11-26 #768 C-SCRIPT-URL merged (a0e7e93), closes #767
+- web:url + web:api native modules; stack locations skip web: frames. 571 tests. Binary +58 KB. Installed 20261126-174641-e8850044. Agent worktree was locked by this session (pid of the coordinator); removed with -f -f after checking it was clean. Scripting guide v11. No agents running.
