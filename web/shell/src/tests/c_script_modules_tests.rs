@@ -15,12 +15,12 @@ const BUDGET: Duration = Duration::from_millis(SCRIPT_BUDGET_MS);
 
 /// A config directory of its own (`XDG_CONFIG_HOME`), removed by name at the end. Paths are the
 /// real ones (symlinks resolved), as error messages name modules by their real path.
-struct Config {
+pub(super) struct Config {
     dir: PathBuf,
 }
 
 impl Config {
-    fn new(name: &str) -> Config {
+    pub(super) fn new(name: &str) -> Config {
         let dir = std::env::temp_dir().join(format!("web-c-modules-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("web")).unwrap();
@@ -30,19 +30,19 @@ impl Config {
     }
 
     /// `$XDG_CONFIG_HOME/web/<rel>`.
-    fn web(&self, rel: &str) -> PathBuf {
+    pub(super) fn web(&self, rel: &str) -> PathBuf {
         self.dir.join("web").join(rel)
     }
 
     /// Writes `web/<rel>` (making its folders).
-    fn write(&self, rel: &str, src: &str) {
+    pub(super) fn write(&self, rel: &str, src: &str) {
         let p = self.web(rel);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, src).unwrap();
     }
 
     /// A shell started with `--profile profile`, its first tab existing.
-    fn shell(&self, profile: &str) -> Keys {
+    pub(super) fn shell(&self, profile: &str) -> Keys {
         let home = self.dir.display().to_string();
         let files = init_files(&move |k| (k == "XDG_CONFIG_HOME").then(|| home.clone()), profile);
         let mut k = Keys::new(None, String::new(), None);
@@ -60,7 +60,7 @@ impl Drop for Config {
 }
 
 /// Runs `:name` and gives the bar's message.
-fn run(k: &mut Keys, name: &str) -> String {
+pub(super) fn run(k: &mut Keys, name: &str) -> String {
     type_line(k, name);
     k.message.clone()
 }

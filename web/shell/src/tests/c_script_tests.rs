@@ -28,7 +28,7 @@ pub(super) fn type_line(k: &mut Keys, line: &str) {
     press(k, KeyInput::sym(Keysym::Return));
 }
 
-fn sent(k: &mut Keys) -> Vec<Command> {
+pub(super) fn sent(k: &mut Keys) -> Vec<Command> {
     std::mem::take(&mut k.effects)
         .into_iter()
         .filter_map(|e| match e {
@@ -283,6 +283,13 @@ fn c_script_only_web_is_exposed() {
     assert!(k.message.starts_with("init.js:8: "), "{}", k.message);
     let k = shell(r#"web.on("load", () => {});"#);
     assert!(k.message.contains("web.on: unknown event"), "{}", k.message);
+    // C-SCRIPT-URL: importing a built-in adds no global (`URL` is an import only).
+    let k = shell(
+        r#"import { URL as U } from "web:url";
+        import * as api from "web:api";
+        if (typeof U !== "function" || typeof URL !== "undefined" || "URL" in globalThis) throw new Error("URL global");"#,
+    );
+    assert_eq!(k.message, "");
     // C-SCRIPT-MODULES: the file is a module, so `import` parses; with no file behind the text there is
     // nothing to import from, so a static import is the file's error and a dynamic one rejects (promise
     // jobs run under the budget right after the call). Imports that work: c_script_modules_tests.rs.

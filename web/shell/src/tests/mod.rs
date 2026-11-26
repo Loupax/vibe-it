@@ -34,6 +34,7 @@ mod c_script_map_tests;
 mod c_script_mem_tests;
 mod c_script_modules_tests;
 mod c_script_tests;
+mod c_script_url_tests;
 mod c_source_tests;
 mod completion_tests;
 mod history_tests;

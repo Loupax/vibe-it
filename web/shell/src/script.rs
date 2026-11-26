@@ -4,7 +4,8 @@
 //! `init.js`, evaluated as an ES module (always strict). C-SCRIPT-MODULES: it imports other modules
 //! through our own resolver and loader (`ModuleDirs`, SCRIPTING.md "Modules"), confined to
 //! `$XDG_CONFIG_HOME/web/`. The only thing a script sees is the global `web`: `web.cmd`,
-//! `web.command`, `web.map` (C-SCRIPT-MAP), `web.on("ready")`.
+//! `web.command`, `web.map` (C-SCRIPT-MAP), `web.on("ready")`. C-SCRIPT-URL: the built-in modules
+//! `web:api` (the same `web`) and `web:url` (`URL`) are imported, never globals.
 //!
 //! Re-entrancy: no JS function ever holds a borrow of the shell. `web.cmd(line)` only appends the
 //! line to a queue (a `RefCell` borrowed for the push and nothing else); after each call into JS
@@ -25,9 +26,11 @@ use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use rquickjs::context::EvalOptions;
 use rquickjs::loader::{ImportAttributes, Loader, Resolver};
+use rquickjs::module::{Declarations, Exports, ModuleDef};
 use rquickjs::promise::PromiseState;
-use rquickjs::{Context, Ctx, Exception, Function, Module, Object, Persistent, Promise, Runtime, Value};
+use rquickjs::{Context, Ctx, Exception, Function, JsLifetime, Module, Object, Persistent, Promise, Runtime, Value};
 
 use crate::buffers::BufferInfo;
 use crate::config::{SCRIPT_BUDGET_MS, SCRIPT_CHAIN_MAX, SCRIPT_DEPTH_MAX, SCRIPT_MEMORY_MAX, SCRIPT_MODULE_MAX};
@@ -177,17 +180,188 @@ struct WebModules(Rc<ModuleDirs>);
 
 impl Resolver for WebModules {
     fn resolve<'js>(&mut self, ctx: &Ctx<'js>, base: &str, name: &str, _: Option<ImportAttributes<'js>>) -> rquickjs::Result<String> {
-        self.0
-            .resolve(base, name)
-            .map_err(|why| Exception::throw_message(ctx, &format!("import {name:?}: {why}")))
+        // C-SCRIPT-URL: `web:` names are checked before any file rule (they work with no config
+        // directory, and no file can shadow one). The module's name is the specifier itself, so
+        // QuickJS loads it once per runtime and every importer gets the same objects.
+        let resolved = if name.starts_with(BUILTIN_PREFIX) {
+            match BUILTIN_MODULES.contains(&name) {
+                true => Ok(name.to_string()),
+                false => Err("no such built-in module".to_string()),
+            }
+        } else {
+            self.0.resolve(base, name)
+        };
+        resolved.map_err(|why| Exception::throw_message(ctx, &format!("import {name:?}: {why}")))
     }
 }
 
 impl Loader for WebModules {
     fn load<'js>(&mut self, ctx: &Ctx<'js>, name: &str, _: Option<ImportAttributes<'js>>) -> rquickjs::Result<Module<'js>> {
+        // A built-in is made from what is compiled in: no file is read. (A file's name is its absolute
+        // path, so it never starts with `web:`.)
+        match name {
+            "web:api" => return Module::declare_def::<WebApiModule, _>(ctx.clone(), name),
+            "web:url" => return Module::declare_def::<WebUrlModule, _>(ctx.clone(), name),
+            _ => {}
+        }
         let source = read_script(Path::new(name)).map_err(|e| Exception::throw_message(ctx, &format!("import {name}: {e}")))?;
         Module::declare(ctx.clone(), name, source)
     }
+}
+
+/// C-SCRIPT-URL: the reserved prefix of the built-in modules (SCRIPTING.md "Modules").
+const BUILTIN_PREFIX: &str = "web:";
+/// Every built-in module; any other `web:` name is refused (names are case-sensitive).
+const BUILTIN_MODULES: [&str; 2] = ["web:api", "web:url"];
+
+/// The original `web` object, kept in the context's userdata by `install_web` so `web:api` gives it
+/// back whatever a script did to `globalThis.web`. Removed in `Scripts::drop`.
+struct WebObject<'js>(Object<'js>);
+
+// SAFETY: the only `'js` value is the `Object<'js>`; `Changed` swaps exactly that lifetime.
+unsafe impl<'js> JsLifetime<'js> for WebObject<'js> {
+    type Changed<'to> = WebObject<'to>;
+}
+
+/// The `web` object `install_web` made.
+fn web_object<'js>(ctx: &Ctx<'js>) -> rquickjs::Result<Object<'js>> {
+    match ctx.userdata::<WebObject>() {
+        Some(w) => Ok(w.0.clone()),
+        None => Err(Exception::throw_internal(ctx, "web:api: no web object")),
+    }
+}
+
+/// `web:api`: `web` as the default export and one named export per key of `web` (read from the
+/// object itself, so a key added to `web` later is exported too).
+struct WebApiModule;
+
+impl ModuleDef for WebApiModule {
+    fn declare<'js>(decl: &Declarations<'js>) -> rquickjs::Result<()> {
+        let web = web_object(decl.module().ctx())?;
+        decl.declare("default")?;
+        for key in web.keys::<String>() {
+            decl.declare(key?)?;
+        }
+        Ok(())
+    }
+
+    fn evaluate<'js>(ctx: &Ctx<'js>, exports: &Exports<'js>) -> rquickjs::Result<()> {
+        let web = web_object(ctx)?;
+        for key in web.keys::<String>() {
+            let key = key?;
+            exports.export(key.as_str(), web.get::<_, Value>(key.as_str())?)?;
+        }
+        exports.export("default", web)?;
+        Ok(())
+    }
+}
+
+/// `web:url`: the named export `URL` (no default export).
+struct WebUrlModule;
+
+impl ModuleDef for WebUrlModule {
+    fn declare<'js>(decl: &Declarations<'js>) -> rquickjs::Result<()> {
+        decl.declare("URL")?;
+        Ok(())
+    }
+
+    fn evaluate<'js>(ctx: &Ctx<'js>, exports: &Exports<'js>) -> rquickjs::Result<()> {
+        let parse = Function::new(
+            ctx.clone(),
+            |ctx: Ctx<'js>, input: String, base: Option<String>| -> rquickjs::Result<Value<'js>> {
+                let Some(parts) = url_parts(&input, base.as_deref()) else {
+                    return Ok(Value::new_null(ctx));
+                };
+                let o = Object::new(ctx.clone())?;
+                for (k, v) in parts {
+                    o.set(k, v)?;
+                }
+                Ok(o.into_value())
+            },
+        )?;
+        // Compiled under the name `web:url`: its stack frames are the built-in's (`stack_location`
+        // skips them), and the factory is an expression, so nothing is left on the global object.
+        let mut opts = EvalOptions::default();
+        opts.strict = true;
+        opts.filename = Some("web:url".to_string());
+        let factory: Function = ctx.eval_with_options(URL_JS, opts)?;
+        let class: Value = factory.call((parse,))?;
+        exports.export("URL", class)?;
+        Ok(())
+    }
+}
+
+/// The `URL` class around the native parser (`url_parts`): parsed once in the constructor, enumerable
+/// getters only, prototype and constructor frozen.
+const URL_JS: &str = r#"(parse) => {
+  const arg = (v) => (v === undefined ? undefined : String(v));
+  class URL {
+    #p;
+    constructor(input, base) {
+      const p = parse(String(input), arg(base));
+      if (p === null) throw new TypeError("Invalid URL: " + String(input));
+      this.#p = p;
+    }
+    get href() { return this.#p.href; }
+    get protocol() { return this.#p.protocol; }
+    get username() { return this.#p.username; }
+    get password() { return this.#p.password; }
+    get host() { return this.#p.host; }
+    get hostname() { return this.#p.hostname; }
+    get port() { return this.#p.port; }
+    get origin() { return this.#p.origin; }
+    get pathname() { return this.#p.pathname; }
+    get search() { return this.#p.search; }
+    get hash() { return this.#p.hash; }
+    toString() { return this.#p.href; }
+    toJSON() { return this.#p.href; }
+    static canParse(input, base) {
+      try { return parse(String(input), arg(base)) !== null; } catch { return false; }
+    }
+    static parse(input, base) {
+      try { return new URL(input, base); } catch { return null; }
+    }
+  }
+  for (const k of ["href", "protocol", "username", "password", "host", "hostname", "port", "origin", "pathname", "search", "hash"]) {
+    const d = Object.getOwnPropertyDescriptor(URL.prototype, k);
+    d.enumerable = true;
+    Object.defineProperty(URL.prototype, k, d);
+  }
+  Object.freeze(URL.prototype);
+  Object.freeze(URL);
+  return URL;
+}"#;
+
+/// C-SCRIPT-URL: `input` parsed (against `base` when given) by the `url` crate, the WHATWG parser the
+/// shell uses, as the `URL` getters' values (SCRIPTING.md "web:url"). None when either does not parse.
+pub fn url_parts(input: &str, base: Option<&str>) -> Option<Vec<(&'static str, String)>> {
+    let base = match base {
+        Some(b) => Some(url::Url::parse(b).ok()?),
+        None => None,
+    };
+    let u = url::Url::options().base_url(base.as_ref()).parse(input).ok()?;
+    let hostname = u.host_str().unwrap_or("").to_string();
+    let port = u.port().map(|p| p.to_string()).unwrap_or_default();
+    let host = if port.is_empty() {
+        hostname.clone()
+    } else {
+        format!("{hostname}:{port}")
+    };
+    // WHATWG: an empty query or fragment gives "" (`https://a.test/?` has no search).
+    let prefixed = |sign: &str, v: Option<&str>| v.filter(|v| !v.is_empty()).map(|v| format!("{sign}{v}")).unwrap_or_default();
+    Some(vec![
+        ("href", u.as_str().to_string()),
+        ("protocol", format!("{}:", u.scheme())),
+        ("username", u.username().to_string()),
+        ("password", u.password().unwrap_or("").to_string()),
+        ("hostname", hostname),
+        ("port", port),
+        ("host", host),
+        ("origin", u.origin().ascii_serialization()),
+        ("pathname", u.path().to_string()),
+        ("search", prefixed("?", u.query())),
+        ("hash", prefixed("#", u.fragment())),
+    ])
 }
 
 /// An error out of a script: what the status bar shows (`init.js:LINE: message`) and the full
@@ -316,6 +490,9 @@ impl Drop for Scripts {
     fn drop(&mut self) {
         // Persistent values must go before the runtime does.
         self.module_promise.borrow_mut().take();
+        self.ctx.with(|ctx| {
+            let _ = ctx.remove_userdata::<WebObject>();
+        });
         let mut r = self.reg.borrow_mut();
         // Lines still waiting for `ready` hold promise resolvers: they go with the runtime (`:source`
         // drops a pending promise without a word).
@@ -829,6 +1006,10 @@ fn install_web<'js>(ctx: &Ctx<'js>, reg: &Rc<RefCell<Registry>>) -> rquickjs::Re
     }
     // Nothing else: `web` itself is frozen so a script cannot mistake an addition for an API.
     freeze.call::<_, Value>((web.clone(),))?;
+    // C-SCRIPT-URL: the same object is `web:api`'s default export, whatever happens to the global.
+    if ctx.store_userdata(WebObject(web.clone())).is_err() {
+        return Err(Exception::throw_internal(ctx, "web:api: cannot keep the web object"));
+    }
     ctx.globals().set("web", web)?;
     Ok(())
 }
@@ -904,7 +1085,7 @@ fn value_text(v: &Value) -> String {
 }
 
 /// The first `FILE:LINE` in a QuickJS stack (`    at f (init.js:3:5)`, `    at init.js:3:5`);
-/// frames without one (`(native)`) are skipped.
+/// frames without one (`(native)`) and frames in a built-in module (`web:url`) are skipped.
 pub fn stack_location(stack: &str) -> Option<String> {
     for line in stack.lines() {
         let Some(rest) = line.trim_start().strip_prefix("at ") else {
@@ -920,6 +1101,9 @@ pub fn stack_location(stack: &str) -> Option<String> {
         };
         let digits = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit());
         match parts.next() {
+            // C-SCRIPT-URL: a frame in a built-in module (`web:url`) is skipped too, so an error
+            // thrown inside one (`new URL("x")`) is shown at the user's line that called it.
+            Some(file) if file.starts_with(BUILTIN_PREFIX) => {}
             Some(file) if digits(a) && digits(b) && !file.is_empty() => return Some(format!("{file}:{b}")),
             None if digits(a) && !b.is_empty() => return Some(format!("{b}:{a}")),
             _ => {}
