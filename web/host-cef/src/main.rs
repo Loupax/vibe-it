@@ -50,6 +50,7 @@ mod notify;
 mod page;
 mod protocol;
 mod renderer;
+mod term;
 
 use protocol::{host_options, normalize_argv};
 
@@ -214,6 +215,8 @@ fn main() {
         );
         std::process::exit(3)
     }
+    // After initialize, so ours replaces any SIGTERM handler Chromium installs (C-CLOSE-POLITE).
+    term::install();
     control::start_reader();
     run_message_loop();
     shutdown();

@@ -96,7 +96,10 @@ pub enum Command {
     FocusField {
         which: FieldWhich,
     },
-    /// Closes every page, then the host exits.
+    /// C-CLOSE-POLITE: closes every page politely (each runs `beforeunload`; a page whose user
+    /// chose to stay stays open); the host exits once the last page has closed.
+    CloseAll,
+    /// Closes every page without waiting for `beforeunload` answers, then the host exits.
     Quit,
 }
 
@@ -826,6 +829,7 @@ mod tests {
             (r#"{"cmd":"caret","on":true}"#, Command::Caret { on: true }),
             (r#"{"cmd":"caret","on":false}"#, Command::Caret { on: false }),
             (r#"{"cmd":"quit"}"#, Command::Quit),
+            (r#"{"cmd":"close-all"}"#, Command::CloseAll),
         ];
         for (line, want) in cases {
             assert_eq!(parse_command(line).unwrap(), want, "{line}");
@@ -876,6 +880,7 @@ mod tests {
     #[test]
     fn tolerates_whitespace_and_unknown_fields() {
         assert_eq!(parse_command("  {\"cmd\":\"quit\",\"x\":1}\n").unwrap(), Command::Quit);
+        assert_eq!(parse_command("{\"cmd\":\"close-all\",\"x\":1}").unwrap(), Command::CloseAll);
     }
 
     #[test]

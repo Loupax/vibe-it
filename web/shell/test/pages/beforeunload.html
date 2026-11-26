@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>beforeunload</title>
+<style>
+  body { font: 16px sans-serif; margin: 0; padding: 16px; }
+  input { font: inherit; width: 90%; padding: 8px; }
+</style>
+</head>
+<body>
+<!-- C-CLOSE-POLITE (issue #757): a page that asks before it is closed. Chromium shows the
+     "Leave site?" dialog only after the user has interacted with the page (click or type). -->
+<h1>beforeunload test page</h1>
+<p>Click into the field (or type in it), then close web: the page asks "Leave site?".</p>
+<input id="f" autocomplete="off" placeholder="click here first">
+<script>
+  addEventListener('beforeunload', e => { e.preventDefault(); e.returnValue = ''; });
+  const f = document.getElementById('f');
+  f.addEventListener('focus', () => { document.title = 'beforeunload: focused'; });
+  f.addEventListener('input', () => { document.title = 'beforeunload: typed ' + f.value; });
+</script>
+</body>
+</html>

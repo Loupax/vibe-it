@@ -133,7 +133,7 @@ videos), then single pages. <code>https://</code>, <code>http://</code> and
 <tr><td><code>:echo text</code></td><td>Show <em>text</em> in the status bar (the rest of the line as typed) and in the log. A script uses it as <code>web.cmd("echo " + x)</code>; it stays until the next key, even across a page load</td></tr>
 <tr><td><code>:source</code></td><td>Run your profile's <code>init.js</code> again, clean (the modules it imports are read again): commands and mappings it defined are dropped first, <code>ready</code> handlers are not run again. The bar says <code>sourced 1 file(s)</code> (<code>0</code> when there is no <code>init.js</code>); an error shows as at start (and stays until the next key). Not callable from a script</td></tr>
 <tr><td><code>:help</code></td><td>Show this page</td></tr>
-<tr><td><code>:q</code> or <code>:quit</code></td><td>On this help page, go back to the page before it; otherwise close web</td></tr>
+<tr><td><code>:q</code> or <code>:quit</code></td><td>On this help page, go back to the page before it; otherwise close web. Like the window's close button and Ctrl-C in the terminal, it lets each page confirm ("Leave site?"); a page you stay on stays open. SIGTERM closes without waiting for pages</td></tr>
 </table>
 <p><code>Ctrl</code>+<code>v</code>, <code>Ctrl</code>+<code>Shift</code>+<code>v</code>
 and <code>Shift</code>+<code>Insert</code> paste the clipboard into the command

@@ -1174,6 +1174,7 @@ version = "0.0.0"
 dependencies = [
  "cef",
  "cef-dll-sys",
+ "libc",
  "serde",
  "serde_json",
 ]

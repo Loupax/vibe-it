@@ -35,8 +35,13 @@ host-cef it is in CI (it needs only libxkbcommon to link).
 - **Fullscreen**: when the page asks (`requestFullscreen`), the shell window goes
   fullscreen on the desktop and the page gets all of it (no bar). Leaving fullscreen
   from the page (Esc) or from the desktop's window manager both end it.
-- **Lifetime**: closing the shell window, SIGTERM or SIGINT send `quit` to the host;
-  the shell exits when the host has (killing it after 5 s). If the host exits on its
+- **Lifetime** (C-CLOSE-POLITE): the window's X button, `:q`/`:quit` and SIGINT (Ctrl-C)
+  close politely: the shell sends `close-all`, so each page may confirm with its
+  `beforeunload` dialog; a page whose user chooses "Stay" stays open (with its buffer) and
+  web keeps running, the others close. SIGTERM closes without waiting: the shell forwards
+  it as SIGTERM to the host, which closes every page without asking and ends within about
+  2 s at most. In every case the shell exits only when the host has, with the host's
+  exit status; it never kills the host on a timer. If the host exits on its
   own, the shell exits too.
 
 ## What C3 adds (KEYS.md)
