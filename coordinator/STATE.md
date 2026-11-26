@@ -685,3 +685,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-26 issue #763 applied: only `ready` issues are requests
 - Cherry-picked 38cfbebc from claude/awesome-ride-mnulad onto main (COORDINATOR_PROMPT.md). Hourly job recreated with --label ready. Issues #762 and #764 are labelled ready: filed next.
+
+## 2026-11-26 issues #762, #764 filed and started
+- C-FOCUSEXISTING-REDIRECT (#762, Sonnet) and C-CLIPTYPES (#764, Opus) filed in 114928c7; both started in parallel (buffers/protocol/host vs clipboard/selection: separate areas).
