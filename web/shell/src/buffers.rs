@@ -525,6 +525,23 @@ impl Keys {
         self.message = format!("buffer {num} closed by the page");
     }
 
+    /// A `tab-closed` from the host (C-CLOSE-POLITE). The buffer of a page that closed goes
+    /// (`tab_gone`), also while the shell is `closing` (a polite close: the buffers whose page
+    /// stayed are kept). The one exception: while closing, the only buffer left is not killed,
+    /// since that would open an `about:blank` buffer and send `new-tab` to a host that is exiting.
+    /// Returns whether a buffer went.
+    pub fn tab_closed(&mut self, tab: u64, closing: bool) -> bool {
+        if !self.buffers.list.iter().any(|b| b.tab == Some(tab)) {
+            // Killed by the shell (`:bufferKill`): its buffer is already gone.
+            return false;
+        }
+        if closing && self.buffers.list.len() == 1 {
+            return false;
+        }
+        self.tab_gone(tab);
+        true
+    }
+
     /// `:bufferDescribe [text]`: the current buffer's description; no text clears it.
     pub fn buffer_describe(&mut self, args: &[&str]) {
         let text = args.join(" ");

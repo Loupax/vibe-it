@@ -32,8 +32,12 @@ is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page command
   in a run, not contiguous (forget-site's hidden browser takes one too). The shell's buffer numbers
   are its own.
 - **Closing.** `close-tab` closes one page; closing the last page does **not** end the host (the shell
-  opens an `about:blank` page first, KEYS.md T82). `quit` closes every page and the host exits when
-  the last is gone. Without `--control` (standalone) the host exits when its last page closes.
+  opens an `about:blank` page first, KEYS.md T82). `close-all` (C-CLOSE-POLITE) asks every page to
+  close politely: each may confirm with `beforeunload`, a page whose user stays stays open, and the
+  host exits once the last page has closed. `quit` (and SIGTERM to the host) is forced: every page
+  closes without asking the user (the host answers `beforeunload` itself) and the host exits within
+  about 2 s at most. Without
+  `--control` (standalone) the host exits when its last page closes.
 - **Popups are pages** (C-POPUPS, "Popups" below): a `window.open` or `target=_blank` with a user
   gesture becomes a new page (`tab-created` with `opener`); one without a gesture is blocked and
   reported (`popup-blocked`), and `popup-open` opens it later.
@@ -110,7 +114,8 @@ is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page command
 | `blur-field` | `{"cmd":"blur-field","tab":4}` | C-AUTOFOCUS: blur the page's focused text field (in the frame of the last `editable-focused true`, else the main frame); the page keeps it as its last field. Answered by `field-result` (`op` `blur`; `ok` false when no field had the focus). The page's blur handlers run |
 | `focus-field last\|first` | `{"cmd":"focus-field","which":"last"}` | C-AUTOFOCUS: focus the last text field focused in the document (`last`: in the frame of the last `editable-focused true`, else the main frame; only if still connected, rendered, not disabled or read-only) or the first visible one (`first`: main frame; input text/search/url/tel/email/password/number, textarea, contenteditable; the first in the viewport, else the first in the document). Answered by `field-result` (`ok`: a field has the focus now) |
 | `popup-open <id> <n>` | `{"cmd":"popup-open","tab":1,"popup":7}` | open blocked popup `n` of page `id` ("Popups"); answered by a `tab-created` with `opener` (`cause` `popup-open` or `popup-fresh`); an unknown page or popup (already opened, or forgotten at a new document): `error` |
-| `quit` | `{"cmd":"quit"}` | close **every** page (no `beforeunload` prompt) and exit when the last is gone |
+| `close-all` | `{"cmd":"close-all"}` | C-CLOSE-POLITE: close **every** page politely: each runs its `beforeunload` (CEF `CloseBrowser(false)`), so a page may show its "Leave site?" dialog; a page whose user chooses to stay stays open and the host keeps running normally (`new-tab` etc. still work). `tab-closed` is sent for each page that closes; the host exits after the last one has closed. Sent again, it asks the remaining pages again |
+| `quit` | `{"cmd":"quit"}` | close **every** page, forced (CEF `CloseBrowser(true)`). CEF 156 still runs `beforeunload` then and would show the dialog: the host answers it "Leave" itself while quitting (`beforeunload answered Leave without a dialog`). If a page still has not closed 2 s later (a dialog that was already on screen), the host ends anyway (`quit: N page(s) did not close; ending anyway`, then it exits with status 0 without CEF's shutdown). **SIGTERM to the host is the same as `quit`** (it logs `SIGTERM: forced quit`) |
 
 **`tab` on page commands.** `open`, `back`, `forward`, `reload`, `stop`, `find`, `find-clear`,
 `blur-field`, `focus-field` and `zoom` take an optional `"tab":<id>` (`{"cmd":"reload","tab":4}`): they act on that page, shown or
@@ -160,7 +165,7 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
   frame's origin (`null` when opaque). The host caps them (title 200, body 500, tag 100, origin 200
   characters; a cut one ends with `…`), turns control characters (newlines) into spaces, and
   rate-limits per page (a burst of 5, then one every 2 s; the rest is dropped, logged once per run).
-- `tab-closed`: once per page, when its browser has closed (`close-tab`, `quit`).
+- `tab-closed`: once per page, when its browser has closed (`close-tab`, `close-all`, `quit`).
 - Every page event (`url`, `title`, `load`, `load-error`, `editable-focused`, `find-result`,
   `crashed`, `popup-blocked`, `notify`) carries the page's `tab`; hidden pages send theirs too.
 - `url`: the main frame's URL, sent when it changes (also for same-document

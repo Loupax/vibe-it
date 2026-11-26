@@ -351,7 +351,7 @@ fn main() {
         control: None,
         forget_clients: Vec::new(),
         host: None,
-        quit_deadline: None,
+        closing: false,
         exit_code: 0,
         bar: statusbar::Bar::new(),
         pick_overlay: picker::Overlay::new(),
@@ -396,7 +396,11 @@ fn main() {
         .unwrap_or_else(|e| fail(format!("signals: {e}")));
     event_loop
         .handle()
-        .insert_source(signals, |ev, _, state| state.quit(&format!("{:?}", ev.signal())))
+        // C-CLOSE-POLITE: SIGTERM is forced (forwarded to the host), SIGINT (Ctrl-C) polite.
+        .insert_source(signals, |ev, _, state| match ev.signal() {
+            calloop::signals::Signal::SIGTERM => state.terminate("SIGTERM"),
+            s => state.close_politely(&format!("{s:?}")),
+        })
         .unwrap();
 
     event_loop
@@ -423,7 +427,7 @@ fn main() {
                 state.redraw();
             }
             WinitEvent::Redraw => state.render(),
-            WinitEvent::CloseRequested => state.quit("shell window closed"),
+            WinitEvent::CloseRequested => state.close_politely("shell window closed"),
         })
         .unwrap();
     event_loop

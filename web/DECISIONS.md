@@ -2,6 +2,30 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-26 Closing web: polite by default, SIGTERM forced, the shell never kills the host (C-CLOSE-POLITE)
+
+User (issue #757): closing web with X on a page with `beforeunload`, choosing "Stay on page", closed web
+anyway (the shell's 5 s deadline SIGKILLed the host).
+
+- **Polite: the window's X button, `:q`/`:quit` (the help page's `:q` still goes back) and SIGINT
+  (Ctrl-C).** The shell sends the new `close-all`; the host calls `close_browser(0)` on every page, so
+  each may ask with its `beforeunload` dialog. **Follow Chrome: each page decides for itself:** a page
+  whose user chooses "Stay" stays open (its buffer too) and web keeps running; the others close. The
+  close is not aborted as a whole. Another X / `:q` / Ctrl-C asks the remaining pages again.
+- **Forced: SIGTERM only.** The shell forwards it to the host as SIGTERM; the host (`term.rs`, a
+  self-pipe handler installed after CEF's initialize) logs `SIGTERM: forced quit` and runs `quit`:
+  `close_browser(1)` on every page. CEF 156 still runs `beforeunload` on a forced close and shows
+  the dialog (seen in the headless nest), so **while quitting the host answers `beforeunload`
+  "Leave" itself** (a JS dialog handler; beyond the issue's text, which only had a timer). A page
+  still open 2 s later (a dialog that was already on screen) makes the host exit anyway with status
+  0, without CEF's shutdown: with Chrome-style browsers `quit_message_loop` waits for every browser
+  window, so the timer's `quit_message_loop` alone cannot end the loop.
+- **The shell exits only when the host exits**, with the host's exit status (0 stays 0); the 5 s
+  SIGKILL is gone. A host that exits unasked still makes the shell exit with at least 1.
+- **Unchanged:** the host's forced quit when the shell closes the control socket.
+- **Accepted edge case:** after a cancelled polite close, if the page left later closes by itself
+  (`window.close()`), the host may exit (and web with it). No code for this.
+
 ## 2026-11-25 `web.cmd` returns a promise with the command's result (C-CMDRESULT)
 
 User: "I think it's better to know if the command failed so we can handle this properly."

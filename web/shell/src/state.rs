@@ -5,7 +5,7 @@
 
 use std::os::unix::net::UnixStream;
 use std::process::Child;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::utils::{on_commit_buffer_handler, with_renderer_surface_state};
@@ -124,7 +124,9 @@ pub struct State {
     /// `web --forget-site` clients waiting for their `forgot` (site as sent, the client's socket).
     pub forget_clients: Vec<(String, UnixStream)>,
     pub host: Option<Child>,
-    pub quit_deadline: Option<Instant>,
+    /// C-CLOSE-POLITE: a close was asked (`close_politely` or `terminate`). It stays set after a
+    /// cancelled polite close; it only changes `tab-closed` handling and the exit code.
+    pub closing: bool,
     pub exit_code: i32,
     /// The status bar's pixels (C3).
     pub bar: crate::statusbar::Bar,
@@ -612,9 +614,8 @@ impl State {
             Event::TabClosed { tab } => {
                 self.pairing.tab_closed(tab);
                 self.visits.remove(&tab);
-                if self.quit_deadline.is_none() && self.keys.buffers.list.iter().any(|b| b.tab == Some(tab)) {
-                    // Not killed by the shell: the page closed itself.
-                    self.keys.tab_gone(tab);
+                // Not killed by the shell: the page closed itself, or a polite close closed it.
+                if self.keys.tab_closed(tab, self.closing) {
                     self.apply_key_effects(0);
                 }
                 self.sync_page();
@@ -763,14 +764,29 @@ impl State {
         }
     }
 
-    /// Asks the host to quit; the shell exits when it has (or kills it after 5 s).
-    pub fn quit(&mut self, why: &str) {
-        if self.quit_deadline.is_some() {
-            return;
+    /// C-CLOSE-POLITE: the window's X, `:q`, SIGINT. Asks the host to close every page politely
+    /// (`close-all`: each page may confirm with `beforeunload`); the shell exits when the host has.
+    /// Sent again on every call, so pages whose user chose to stay are asked again.
+    pub fn close_politely(&mut self, why: &str) {
+        self.log(&format!("closing politely: {why}"));
+        self.closing = true;
+        self.send(Command::CloseAll);
+    }
+
+    /// C-CLOSE-POLITE: SIGTERM. Forwards SIGTERM to the host (a forced quit: it closes every page
+    /// without waiting for `beforeunload` answers); the shell exits when the host has. Never SIGKILL.
+    pub fn terminate(&mut self, why: &str) {
+        self.log(&format!("terminating: {why}"));
+        self.closing = true;
+        match &self.host {
+            Some(child) => {
+                // SAFETY: kill(2) on our own child's pid (not reaped yet: `host` is still Some).
+                unsafe {
+                    libc::kill(child.id() as libc::pid_t, libc::SIGTERM);
+                }
+            }
+            None => self.loop_signal.stop(),
         }
-        self.log(&format!("quitting: {why}"));
-        self.send(Command::Quit);
-        self.quit_deadline = Some(Instant::now() + Duration::from_secs(5));
     }
 
     /// Called from a timer: stops the loop once the host has exited.
@@ -782,25 +798,15 @@ impl State {
         match child.try_wait() {
             Ok(Some(status)) => {
                 self.log(&format!("engine host exited: {status}"));
-                if self.quit_deadline.is_none() && status.code() == Some(3) {
+                if !self.closing && status.code() == Some(3) {
                     // C-SINGLE: the host's initialize failed (its message is on stderr above).
                     self.log("the engine host could not start: its profile is in use or unusable (message above)");
                 }
-                self.exit_code = if self.quit_deadline.is_some() {
-                    0
-                } else {
-                    status.code().unwrap_or(1).max(1)
-                };
+                self.exit_code = exit_code_for(self.closing, status.code());
                 self.host = None;
                 self.loop_signal.stop();
             }
-            Ok(None) => {
-                if self.quit_deadline.is_some_and(|d| Instant::now() > d) {
-                    let _ = child.kill();
-                    let pid = child.id();
-                    self.log(&format!("engine host {pid} did not quit; killed it"));
-                }
-            }
+            Ok(None) => {}
             Err(e) => {
                 self.log(&format!("engine host: {e}"));
                 self.host = None;
@@ -1207,4 +1213,15 @@ smithay::delegate_presentation!(State);
 fn reply_to(mut client: UnixStream, line: &str) {
     use std::io::Write;
     let _ = client.write_all(format!("{}\n", line.trim_end()).as_bytes());
+}
+
+/// The shell's exit status once the host has exited with `code` (None: killed by a signal).
+/// After a close the shell asked for (C-CLOSE-POLITE) it is the host's own status (0 stays 0); a
+/// host that exits unasked is an error, so never 0 then.
+pub fn exit_code_for(closing: bool, code: Option<i32>) -> i32 {
+    if closing {
+        code.unwrap_or(1)
+    } else {
+        code.unwrap_or(1).max(1)
+    }
 }

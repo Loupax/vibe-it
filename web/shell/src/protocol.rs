@@ -216,6 +216,10 @@ pub enum Command {
     FocusField {
         which: FieldWhich,
     },
+    /// C-CLOSE-POLITE: close every page politely (each page may ask with `beforeunload`; a page
+    /// whose user stays stays open); the host exits after the last one has closed.
+    CloseAll,
+    /// Close every page without waiting for `beforeunload` answers; the host exits.
     Quit,
 }
 
@@ -495,6 +499,14 @@ mod tests {
     }
 
     #[test]
+    fn close_all_is_one_json_line() {
+        let l = Command::CloseAll.line();
+        assert!(l.ends_with('\n'));
+        let v: serde_json::Value = serde_json::from_str(l.trim()).unwrap();
+        assert_eq!(v["cmd"], "close-all");
+    }
+
+    #[test]
     fn c3_commands_match_protocol_md() {
         let cases = [
             (
@@ -557,6 +569,7 @@ mod tests {
                 r#"{"cmd":"forget-site","site":"https://a.example/"}"#,
             ),
             (Command::Quit, r#"{"cmd":"quit"}"#),
+            (Command::CloseAll, r#"{"cmd":"close-all"}"#),
         ];
         for (cmd, want) in cases {
             assert_eq!(cmd.line(), format!("{want}\n"));

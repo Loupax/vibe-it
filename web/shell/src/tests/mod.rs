@@ -13,6 +13,7 @@ mod c_autofocus_tests;
 mod c_barrepeat_tests;
 mod c_bell_tests;
 mod c_bookmarks_tests;
+mod c_close_polite_tests;
 mod c_cmdhist_tests;
 mod c_editurl_tests;
 mod c_enter_tests;

@@ -285,7 +285,7 @@ impl State {
                         self.keys.message = "web: wheel scrolling needs the pointer over the page".into();
                     }
                 }
-                Effect::Quit => self.quit(":q"),
+                Effect::Quit => self.close_politely(":q"),
                 Effect::OpenExternal(url) => {
                     self.keys.message = crate::external::open(&url, crate::config::EXTERNAL_BROWSER);
                 }

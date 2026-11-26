@@ -149,6 +149,9 @@ struct Pages {
     shown: Option<TabId>,
     /// `quit` was asked: the host exits when the last page has closed.
     quitting: bool,
+    /// C-CLOSE-POLITE: `close-all` was asked: the host quits once the last page has closed. Not
+    /// `quitting`: a page whose user stayed keeps the host fully working (`new-tab`, popups).
+    closing_all: bool,
     /// Pages created by the host whose browser is not announced yet: the view and how it came
     /// (`new-tab`'s `req`, or the opener of a popup).
     pending: Vec<(BrowserView, Origin)>,
@@ -461,6 +464,10 @@ wrap_client! {
         }
         fn command_handler(&self) -> Option<CommandHandler> {
             Some(HostCommandHandler::new())
+        }
+        // C-CLOSE-POLITE: a forced quit answers `beforeunload` itself; otherwise Chrome's dialog.
+        fn jsdialog_handler(&self) -> Option<JsdialogHandler> {
+            Some(HostJsdialogHandler::new())
         }
         // C-BELL: notification prompts are denied at once (notify.rs); others keep Chrome's handling.
         fn permission_handler(&self) -> Option<PermissionHandler> {
@@ -814,12 +821,12 @@ wrap_life_span_handler! {
 
         fn on_before_close(&self, browser: Option<&mut Browser>) {
             let Some(id) = page_of(&browser) else { return };
-            let (left, quitting) = with_pages(|ps| {
+            let (left, quitting, closing_all) = with_pages(|ps| {
                 ps.pages.remove(&id);
                 if ps.shown == Some(id) {
                     ps.shown = None;
                 }
-                (ps.pages.len(), ps.quitting)
+                (ps.pages.len(), ps.quitting, ps.closing_all)
             });
             crate::notify::forget_tab(id);
             emit(Event::TabClosed { tab: id });
@@ -828,6 +835,11 @@ wrap_life_span_handler! {
             if left == 0 && (quitting || !crate::control::connected()) {
                 log!("tab {id} closed, no page left: quitting");
                 quit_message_loop();
+            } else if left == 0 && closing_all {
+                // C-CLOSE-POLITE: every page left after `close-all`; quit() (forget::shutdown, no
+                // page left) ends the message loop.
+                log!("tab {id} closed, no page left after close-all: quitting");
+                quit();
             } else {
                 log!("tab {id} closed, {left} left");
             }
@@ -1238,23 +1250,110 @@ fn set_caret_browsing(on: bool) -> bool {
     ok != 0 && now == Some(on)
 }
 
-/// `quit`: closes every page (no beforeunload prompts); on_before_close quits the message
-/// loop when the last one is gone.
+/// The hosts of every page that has a browser.
+fn page_hosts(ps: &Pages) -> Vec<BrowserHost> {
+    ps.pages
+        .values()
+        .filter_map(|p| p.browser.as_ref().and_then(|b| b.host()))
+        .collect()
+}
+
+/// How long `quit` waits for its pages to close before it ends the message loop anyway.
+const QUIT_GRACE_MS: i64 = 2000;
+
+/// `quit` (also SIGTERM, and the shell closing the control socket): closes every page with
+/// `close_browser(1)`, forced. CEF 156 still runs the pages' `beforeunload` then and would show
+/// the "Leave site?" dialog (seen live, C-CLOSE-POLITE): `HostJsdialogHandler` answers it "Leave"
+/// itself while quitting. A dialog already on screen (from a `close-all`) is not asked again, so
+/// whatever happens the host ends `QUIT_GRACE_MS` later (`QuitGraceTask`); normally
+/// on_before_close ends the message loop when the last page is gone. A second call does nothing.
 pub fn quit() {
-    crate::forget::shutdown(Box::new(|| {}));
-    let hosts = with_pages(|ps| {
+    let Some(hosts) = with_pages(|ps| {
+        if ps.quitting {
+            return None;
+        }
         ps.quitting = true;
-        ps.pages
-            .values()
-            .filter_map(|p| p.browser.as_ref().and_then(|b| b.host()))
-            .collect::<Vec<_>>()
-    });
+        Some(page_hosts(ps))
+    }) else {
+        return;
+    };
+    crate::forget::shutdown(Box::new(|| {}));
     if hosts.is_empty() {
         return quit_message_loop();
     }
     log!("quit: closing {} page(s)", hosts.len());
     for h in hosts {
         h.close_browser(1);
+    }
+    post_delayed_task(ThreadId::UI, Some(&mut QuitGraceTask::new()), QUIT_GRACE_MS);
+}
+
+wrap_task! {
+    struct QuitGraceTask {}
+
+    impl Task {
+        fn execute(&self) {
+            let left = with_pages(|ps| ps.pages.len());
+            if left > 0 {
+                log!("quit: {left} page(s) did not close; ending anyway");
+                quit_message_loop();
+                // With Chrome-style browsers CefQuitMessageLoop only drops CEF's keep-alive and
+                // waits for every browser window to go (libcef main_runner.cc
+                // HandleMainMessageLoopQuit; seen live: the loop kept running with the dialog up),
+                // so the message loop would never end: exit without CEF's shutdown. The helper
+                // processes end when their browser process is gone.
+                log!("quit: exiting without CEF shutdown");
+                std::process::exit(0);
+            }
+        }
+    }
+}
+
+wrap_jsdialog_handler! {
+    struct HostJsdialogHandler {}
+
+    impl JsdialogHandler {
+        /// C-CLOSE-POLITE: while quitting (forced: `quit`, SIGTERM) the host answers "Leave"
+        /// itself, without a dialog; otherwise (`close-all`, a navigation) Chrome's own dialog asks.
+        fn on_before_unload_dialog(
+            &self,
+            browser: Option<&mut Browser>,
+            _message_text: Option<&CefString>,
+            _is_reload: ::std::os::raw::c_int,
+            callback: Option<&mut JsdialogCallback>,
+        ) -> ::std::os::raw::c_int {
+            if !with_pages(|ps| ps.quitting) {
+                return 0;
+            }
+            let Some(cb) = callback else { return 0 };
+            let id = browser.map(|b| b.identifier()).unwrap_or(0);
+            log!("quit: tab {id}: beforeunload answered Leave without a dialog");
+            cb.cont(1, Some(&CefString::from("")));
+            1
+        }
+    }
+}
+
+/// `close-all` (C-CLOSE-POLITE: the shell's window X, `:q`, SIGINT): closes every page with
+/// `close_browser(0)`, so each runs its `beforeunload`; a page whose user chose to stay simply
+/// stays open (Chrome: each page decides for itself). on_before_close quits once the last page
+/// is gone.
+pub fn close_all_politely() {
+    let Some(hosts) = with_pages(|ps| {
+        if ps.quitting {
+            return None;
+        }
+        ps.closing_all = true;
+        Some(page_hosts(ps))
+    }) else {
+        return;
+    };
+    if hosts.is_empty() {
+        return quit();
+    }
+    log!("close-all: asking {} page(s) to close", hosts.len());
+    for h in hosts {
+        h.close_browser(0);
     }
 }
 
@@ -1289,6 +1388,7 @@ pub fn run_command(line: &str) {
     };
     match cmd {
         Command::Quit => return quit(),
+        Command::CloseAll => return close_all_politely(),
         // Needs no page (also with --no-window).
         Command::ForgetSite { site } => return crate::forget::forget_site(site),
         // A profile setting: needs no page.
@@ -1425,6 +1525,7 @@ pub fn run_command(line: &str) {
             Err(message) => emit(Event::Error { message }),
         },
         Command::Quit
+        | Command::CloseAll
         | Command::ForgetSite { .. }
         | Command::Caret { .. }
         | Command::NewTab { .. }

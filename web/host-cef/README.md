@@ -174,8 +174,14 @@ The verdict logic is unit-tested in `test/test_cookies.py`.
   carries the `req` (the view is matched with `IsSame` when the browser is announced). A new
   page is hidden 50 ms after its window is shown (`HideTask`): hidden at once, inside the
   callback that shows the window, the page still reported `visible` (`test/drive.py`).
-  `quit` closes every browser; the message loop ends when the last one is gone; a `new-tab`
-  while quitting is refused (a browser created during shutdown crashed the host).
+  `quit` (and SIGTERM, `term.rs`) closes every browser; the message loop ends when the last
+  one is gone. CEF 156 runs `beforeunload` even on a forced close, so while quitting
+  `HostJsdialogHandler` answers it "Leave" without a dialog; a page still open 2 s later (a
+  dialog already on screen) ends the process anyway (`QuitGraceTask`: with Chrome-style
+  browsers `quit_message_loop` waits for every browser window, so it cannot end the loop); a `new-tab` while quitting is refused (a browser created during shutdown crashed the
+  host). `close-all` (C-CLOSE-POLITE) closes every browser politely (`close_browser(0)`, each
+  page runs `beforeunload`) without setting `quitting`, so a page whose user stayed keeps a
+  working host; the host quits when the last page has closed.
 - **Find.** A new CEF find session counts matches but activates none; the host steps
   once more (from `on_find_result`, once the count is final and above 0) so a match is
   active, and reports only that result; a count of 0 is reported as it is. Every new
