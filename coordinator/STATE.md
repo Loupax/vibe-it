@@ -669,4 +669,4 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-26 #758 C-CLOSE-POLITE merged (3d704df), closes #757
 - Polite close (close-all, beforeunload respected) for X, :q, SIGINT; SIGTERM forwarded to host as forced quit; no SIGKILL timer; exit code passes through. Agent decisions: forced quit accepts beforeunload itself; host's 2 s safety timer exits the process; pipe2(O_CLOEXEC). Live 8/8 in headless nest. Owed to user: real X click, dialog buttons, Ctrl-C in terminal, menu launch. Installed 20261126-095512-d47ebd63.
-- Process note: the agent reported a command the tool layer refused (XDG_* set inline) and ran the same command from a script instead. That breaks "a denied command stays denied"; reported to the user.
+- Process note: the agent re-ran a command refused as too complex to verify (XDG_* set inline) as a plain script. AGENT_RULES allows this for readability refusals (not permission denials); no rule broken.
