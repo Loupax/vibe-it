@@ -24,3 +24,9 @@
       where possible (livelib.py, or whatever starts the shell): every shell a test starts gets a fresh empty
       XDG_CONFIG_HOME, XDG_STATE_HOME and XDG_DATA_HOME unless the test passes its own. Add a check (unit test or a grep test)
       that fails when a live script starts the shell without them. Not host-cef/test (the host reads no init.js).
+
+=== from TODO.txt: --- (no header)
+- [x] C-FOCUSEXISTING-REDIRECT DONE 5613eeb #765 [S] (issue #762; user, 2026-11-26) focusExisting missed a redirected page (GitHub
+      /issues/760 -> /pull/760). The host's `url` event gets an optional `original` (the navigation entry's original_url,
+      only when non-empty and different); the shell stores it per buffer (Keys + Buffer, cleared on every url event) and
+      link_click matches `url == link || original == link`, still exact. Full spec and decisions: issue #762.

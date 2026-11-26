@@ -545,10 +545,6 @@ stop early on a hard failure.
       `await web.cmd("b app.slack.com")` falling back to `new`), DECISIONS.md. Tests: ok true/false for a good line,
       an unknown command, `:b nomatch`, a user command that throws; order of several awaited lines; promise ignored
       = no unhandled rejection; `:source` while a promise is pending drops it without error.
-- [ ] [WIP] C-FOCUSEXISTING-REDIRECT [S] (issue #762; user, 2026-11-26) focusExisting missed a redirected page (GitHub
-      /issues/760 -> /pull/760). The host's `url` event gets an optional `original` (the navigation entry's original_url,
-      only when non-empty and different); the shell stores it per buffer (Keys + Buffer, cleared on every url event) and
-      link_click matches `url == link || original == link`, still exact. Full spec and decisions: issue #762.
 - [ ] [WIP] C-CLIPTYPES [M] (issue #764; user, 2026-11-26: "B") A screenshot copied with `grim | wl-copy` pastes the old
       text into a page: the C6 bridge is text only. On Wayland carry every MIME type both ways by passing fds (wl_data_device
       and primary selection) in a new src/desktop_selection.rs thread (as ime.rs `mod desktop`), with a private marker type
