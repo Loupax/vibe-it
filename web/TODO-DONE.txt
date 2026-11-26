@@ -37,3 +37,10 @@
       and primary selection) in a new src/desktop_selection.rs thread (as ime.rs `mod desktop`), with a private marker type
       against loops; the shell's own text uses keep copypasta (own-selection short-circuit for reads); sync_from_desktop
       becomes X11-only; X11 stays text only. Full spec and decisions: issue #764.
+
+=== from TODO.txt: --- (no header)
+- [x] C-SCRIPT-URL DONE a0e7e93 #768 [S/M] (issue #767; user, 2026-11-26: "it has to be global? can't we make it importable?") Built-in
+      script modules under a reserved `web:` prefix, resolved before any file rule: `web:url` (a read-only WHATWG `URL`
+      class backed by the shell's `url` crate: getters, toString/toJSON, URL.canParse/URL.parse, TypeError on bad input,
+      frozen) and `web:api` (default export = the original `web` object, named exports per key). No new globals; the `web`
+      global is unchanged; bare "url" stays a file import. Full spec and decisions: issue #767.
