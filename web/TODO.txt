@@ -710,7 +710,7 @@ stop early on a hard failure.
 - [ ] C-DL (from C1 #668) Downloads, JS dialogs and permission prompts as protocol events (today:
       downloads save without asking to <profile>/downloads; dialogs/prompts are the engine default).
       One item each when picked up; download directory and UI need the user's say.
-- [ ] C-FILEPICK [M] (user, 2026-11-26: "File forms seem to not be working. I can select a file, but after that it appears as
+- [ ] [WIP] C-FILEPICK [M] (user, 2026-11-26: "File forms seem to not be working. I can select a file, but after that it appears as
       if the browser never selected the thing"; "I want the browser to work on all my systems with minimal deviation")
       `<input type=file>`: the chooser opens, a file is picked, and the input still shows "No file chosen"
       (no `change`/`input` event; nothing in cef.log or stderr). INVESTIGATION (Opus, not yet reproduced; the headless nest
