@@ -694,3 +694,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-26 #766 C-CLIPTYPES merged (ac60537), closes #764
 - Wayland: every MIME type both ways by fd (desktop_selection.rs thread, marker type against loops), clipboard + primary; X11 text only. smithay 0.7 compositor-set selections do not call new_selection (no bounce). Shell 547 tests; live Wayland 13/13 (5/13 on main), --x11 8/8. Installed 20261126-155505-6cdd317b. Owed: real-desktop screenshot paste. No agents running.
+
+## 2026-11-26 issue #767 -> C-SCRIPT-URL
+- Filed (98be35f5), commented, Opus agent started. web:url + web:api built-in modules.
