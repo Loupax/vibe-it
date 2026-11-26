@@ -30,6 +30,11 @@ for b in "$WEB" "$HOST"; do
 done
 rm -rf "$OUT"
 mkdir -p "$OUT"
+# Empty config/state/data homes: the shells must not read the user's real init.js (C-LIVE-XDG).
+XDG_TMP=$(mktemp -d "${TMPDIR:-/tmp}/wxdg-XXXXXX")
+trap 'rm -rf "$XDG_TMP"' EXIT
+export XDG_CONFIG_HOME=$XDG_TMP/c XDG_STATE_HOME=$XDG_TMP/s XDG_DATA_HOME=$XDG_TMP/d
+mkdir -p "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_DATA_HOME"
 bench() { python3 "$HERE/c6c_bench.py" --web "$WEB" --host-bin "$HOST" --wayland "$WAYLAND_DISPLAY" "$@"; }
 echo "== 1. does the page hand dmabufs? ($(uptime))"
 line=$(bench --out "$OUT/check" --modes scroll --wayland-debug | tail -1)

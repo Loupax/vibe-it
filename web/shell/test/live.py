@@ -23,6 +23,7 @@ coordinates stay logical: the output's logical size is grim's pixels over the ne
 (nest.sh's registry), and pixel checks on screenshots multiply by it."""
 
 import argparse
+import atexit
 import functools
 import http.server
 import os
@@ -33,6 +34,7 @@ import socketserver
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -40,6 +42,24 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SHELL = os.path.dirname(HERE)
 WEB = os.path.dirname(SHELL)
 BAR_BG = (24, 24, 24)
+
+
+def isolate_xdg():
+    """C-LIVE-XDG: every shell a live script starts must not read the user's real init.js, history or
+    profile. Importing this module gives the process (so every `dict(os.environ, ...)` the scripts build for
+    the shell) fresh, empty XDG_CONFIG_HOME, XDG_STATE_HOME and XDG_DATA_HOME under a short temp dir, removed
+    at exit. A script that sets its own (dict(os.environ, XDG_CONFIG_HOME=...)) still wins. Idempotent."""
+    if os.environ.get("LIVE_XDG_ISOLATED"):
+        return
+    root = tempfile.mkdtemp(prefix="wxdg-")
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    for var, sub in (("XDG_CONFIG_HOME", "c"), ("XDG_STATE_HOME", "s"), ("XDG_DATA_HOME", "d")):
+        os.environ[var] = os.path.join(root, sub)
+        os.makedirs(os.environ[var], mode=0o700)
+    os.environ["LIVE_XDG_ISOLATED"] = "1"
+
+
+isolate_xdg()
 
 
 class Fail(Exception):
