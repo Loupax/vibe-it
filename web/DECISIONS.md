@@ -2,6 +2,38 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-26 Every clipboard type between the desktop and the page on Wayland (C-CLIPTYPES)
+
+The bug (issue #764, seen by the user): screenshots taken with a dwl keybinding,
+
+    area=$(slurp) && grim -g "$area" - | wl-copy
+
+paste as the image into Chrome, but pasting into a page in `web` gives the **previous clipboard text**.
+C6 carried text only: the shell read the desktop's clipboard as text through smithay-clipboard, which
+fails on an image-only clipboard; that was taken for an empty clipboard, so the page kept its old
+selection and pasted it.
+
+User's choice among the options: **"B"**: on Wayland, carry **every MIME type** both ways, without the
+shell reading the data. This reverses C6's "text only" (the shell README's "The clipboard", KEYS.md
+"Paste") for Wayland.
+
+- **Desktop → page**: the page is offered exactly the types the desktop's selection offers; when the page
+  reads one, its fd goes to the desktop's offer (`receive`). The page's selection follows the desktop's
+  `selection` events (sent on every focus gain), so there is no sync before a paste key any more.
+- **Page → desktop**: the desktop is offered exactly the page's types; when a desktop client reads one, its
+  fd goes to the page. Only while the shell window has the desktop's keyboard focus (a selection needs a
+  recent input serial); otherwise the log says it is not carried.
+- Both the clipboard and the primary selection (the latter when the desktop has
+  `zwp_primary_selection_device_manager_v1`). Middle-click paste into the page stays unsupported
+  (2026-11-23).
+- Every source the shell sets on the desktop also offers `application/x-web-shell-own`, so the page's own
+  selection coming back is not carried to the page again; the page never sees that type.
+- **X11 stays text only**, exactly as before, and so does a Wayland desktop without `wl_data_device_manager`.
+- The shell's own text uses (`yy`, `:let @+ = ...`, `@+`, paste into the `:` and `/` lines) still go
+  through smithay-clipboard; while the desktop's clipboard is the page's own, they read the page's text
+  from memory (asking the desktop would wait for the shell itself). The `+` register stays text.
+- No size cap: the bytes never pass through the shell. Drag and drop is not carried.
+
 ## 2026-11-26 `focusExisting` also matches the URL a buffer's page was requested as (C-FOCUSEXISTING-REDIRECT)
 
 User (issue #762), seen live: with `web.buffers.focusExisting = true`, clicking the same `target=_blank` link

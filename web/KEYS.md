@@ -290,11 +290,14 @@ set per command, like bash's `complete`:
 
 ## Paste
 
-**web:** built (C6). The `:` and `/` lines read the desktop's clipboard directly (the shell
-window is a client of the desktop: smithay-clipboard on Wayland, x11-clipboard on X11). In
-INPUT the paste keys go to the page; just before they do, the shell offers the page the
-desktop's clipboard if it changed since it was last carried across (same before a middle
-click, for the primary selection). An unreadable clipboard changes nothing and says nothing.
+**web:** built (C6). The `:` and `/` lines read the desktop's clipboard directly, as text (the
+shell window is a client of the desktop: smithay-clipboard on Wayland, x11-clipboard on X11); a
+clipboard without text (an image) pastes nothing there. In INPUT the paste keys go to the page.
+On Wayland the page's clipboard always holds the desktop's, with every type (an image too;
+C-CLIPTYPES, DECISIONS.md 2026-11-26). On X11 (text only), just before a paste key reaches the
+page the shell offers it the desktop's text if it changed since it was last carried across
+(same before a middle click, for the primary selection). An unreadable clipboard changes
+nothing and says nothing.
 
 Every status-bar mode you type into (today COMMAND and SEARCH; user, 2026-11-20) takes a
 paste: Ctrl-v, Ctrl-Shift-v (terminal habit) and Shift-Insert insert the system
@@ -304,7 +307,8 @@ in a newline, and the bar is one line). An empty or unreadable clipboard changes
 nothing. The clipboard is the Wayland one (scratchy is a Wayland window; item QPASTE1).
 **web:** the shell is both a client of the host display (whose clipboard is "the system
 clipboard") and the compositor of the engine host; it bridges the two, so a copy in the
-page reaches the host clipboard and a paste in the page reads it (C6, text only; the
+page reaches the host clipboard and a paste in the page reads it (C6; every type on Wayland,
+C-CLIPTYPES; text only on X11; the
 primary selection is bridged too: a selection in the page becomes the desktop's primary.
 Middle-click paste inside the page does nothing: CEF does not do it, even for its own
 selection).
@@ -321,7 +325,8 @@ system clipboard is the register `+`.
 | `+` | the system clipboard (Wayland, as in "Paste") | yes |
 
 **web (C3, C6):** `%` is the URL of the host's last `url` event. `+` is the desktop's
-clipboard (C6), read and written directly by the shell, so `:let @+ = @%` and `yy` work in
+clipboard as text (C6; it stays text even where the page's clipboard carries every type,
+C-CLIPTYPES), read and written directly by the shell, so `:let @+ = @%` and `yy` work in
 any mode the page is in; `@+` is readable (`:let @+ = @+` says `web: the clipboard is
 empty` for an empty one). Messages start with `web:` instead of `scratchy:` (`Copied to
 clipboard` stays). `:let @+ = <JS expression>` (QREG2) is not carried (usage line). `*`

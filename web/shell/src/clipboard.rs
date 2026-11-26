@@ -7,12 +7,14 @@
 //! own connection (core wl_data_device and zwp_primary_selection, which every Wayland desktop
 //! has; data-control, which arboard / wl-clipboard-rs use, is missing on GNOME), on X11
 //! through x11-clipboard (CLIPBOARD and PRIMARY). Both come through `copypasta`, as in
-//! alacritty. Text only: an image or a file list copied on either side is not carried.
+//! alacritty. On X11 this is the whole bridge, text only. On Wayland (C-CLIPTYPES) the page's
+//! selections follow the desktop's with every type (`desktop_selection.rs`), and this is used
+//! only for the shell's own text reads and writes (`yy`, `@+`, paste into the `:` and `/` lines).
 //!
 //! The clipboard libraries block, so they run on a worker thread; the compositor waits for an
 //! answer at most `WAIT`, so a desktop clipboard owner that never answers cannot freeze it.
 
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 /// Which selection: the clipboard (Ctrl-C / Ctrl-V, register `+`) or the primary selection
@@ -72,10 +74,23 @@ enum Req {
     Write(Which, String, mpsc::Sender<Result<(), String>>),
 }
 
+/// C-CLIPTYPES: per selection (clipboard, primary), `Some(text)` while the desktop's selection is
+/// the page's own, carried there by the shell (`desktop_selection.rs`); `text` is the page's copy as
+/// text ("" when it has none, or before it has been read).
+pub type Own = Arc<Mutex<[Option<String>; 2]>>;
+
+fn index(which: Which) -> usize {
+    match which {
+        Which::Clipboard => 0,
+        Which::Primary => 1,
+    }
+}
+
 /// The desktop's clipboard, served by a worker thread. Cheap to clone.
 #[derive(Clone)]
 pub struct Desktop {
     tx: mpsc::Sender<Req>,
+    own: Own,
 }
 
 type Provider = Box<dyn copypasta::ClipboardProvider>;
@@ -119,6 +134,23 @@ pub fn block_quit_signals() {
 }
 
 impl Desktop {
+    /// C-CLIPTYPES: the page's text while the desktop's `which` is the page's own selection.
+    pub fn own(&self, which: Which) -> Option<String> {
+        self.own.lock().unwrap_or_else(|e| e.into_inner())[index(which)].clone()
+    }
+
+    /// C-CLIPTYPES: records whether the desktop's `which` is the page's own selection (and its text).
+    pub fn set_own(&self, which: Which, text: Option<String>) {
+        self.own.lock().unwrap_or_else(|e| e.into_inner())[index(which)] = text;
+    }
+
+    /// A Desktop whose worker is gone (tests: every request to the desktop fails).
+    #[cfg(test)]
+    pub fn unconnected() -> Desktop {
+        let (tx, _) = mpsc::channel::<Req>();
+        Desktop { tx, own: Own::default() }
+    }
+
     pub fn start(kind: DesktopKind) -> Desktop {
         let (tx, rx) = mpsc::channel::<Req>();
         let spawned = std::thread::Builder::new().name("web-clipboard".into()).spawn(move || {
@@ -159,12 +191,17 @@ impl Desktop {
         if let Err(e) = spawned {
             eprintln!("web: clipboard thread: {e}");
         }
-        Desktop { tx }
+        Desktop { tx, own: Own::default() }
     }
 }
 
 impl SystemClipboard for Desktop {
     fn read(&mut self, which: Which) -> Result<String, String> {
+        // C-CLIPTYPES: the desktop would ask the page's selection through the shell's own source,
+        // whose `send` is served on the main thread, the one waiting here: answer from memory.
+        if let Some(text) = self.own(which) {
+            return Ok(text);
+        }
         let (reply, rx) = mpsc::channel();
         self.tx
             .send(Req::Read(which, reply))
@@ -174,6 +211,8 @@ impl SystemClipboard for Desktop {
     }
 
     fn write(&mut self, which: Which, text: &str) -> Result<(), String> {
+        // smithay-clipboard's source replaces the page's on the desktop (its `cancelled` comes later).
+        self.set_own(which, None);
         let (reply, rx) = mpsc::channel();
         self.tx
             .send(Req::Write(which, text.to_string(), reply))

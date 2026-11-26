@@ -14,4 +14,22 @@
   const show = () => { document.title = "c6 v=" + t.value.replace(/\n/g, "|"); };
   t.addEventListener("input", show);
   show();
+  // C-CLIPTYPES: a copy in the field offers text/plain and text/html (the selection in <b>).
+  t.addEventListener("copy", (e) => {
+    const sel = t.value.substring(t.selectionStart, t.selectionEnd);
+    e.clipboardData.setData("text/plain", sel);
+    e.clipboardData.setData("text/html", "<b>" + sel + "</b>");
+    e.preventDefault();
+  });
+  // C-CLIPTYPES: a paste without text (an image) is reported in the title:
+  // "c6 paste types=<clipboardData.types> file=<type>:<size> v=<the field's value>".
+  t.addEventListener("paste", (e) => {
+    const types = Array.from(e.clipboardData.types);
+    const files = Array.from(e.clipboardData.files);
+    if (!files.length && types.includes("text/plain")) return;
+    const file = files.length ? files[0].type + ":" + files[0].size : "none";
+    setTimeout(() => {
+      document.title = "c6 paste types=" + types.join(",") + " file=" + file + " v=" + t.value.replace(/\n/g, "|");
+    }, 50);
+  });
 </script>
