@@ -156,7 +156,7 @@ fn map_timeout_replays_the_pending_keys_as_without_the_mapping() {
     // j tapped and released while it waits: on the timeout it scrolls (down and up at once).
     tap(&mut k, KeyInput::ch('j'), t);
     assert!(effects(&mut k).is_empty());
-    assert_eq!(k.map_tick(ms(t, 999)), Some(Duration::from_millis(1)), "not yet");
+    assert_eq!(k.map_tick(ms(t, MAP_TIMEOUT_MS - 1)), Some(Duration::from_millis(1)), "not yet");
     assert!(effects(&mut k).is_empty());
     assert_eq!(k.map_tick(t + TIMEOUT), None);
     assert_eq!(
@@ -195,7 +195,7 @@ fn map_timeout_replays_the_pending_keys_as_without_the_mapping() {
     );
     // jk in time runs the mapping, no scrolling.
     tap(&mut k, KeyInput::ch('j'), t);
-    tap(&mut k, KeyInput::ch('k'), ms(t, 999));
+    tap(&mut k, KeyInput::ch('k'), ms(t, MAP_TIMEOUT_MS - 1));
     assert_eq!(effects(&mut k), vec![RELOAD]);
 }
 
@@ -527,7 +527,7 @@ fn taps(s: &str, start: u64, gap: u64) -> Vec<(KeyInput, bool, u64)> {
 
 #[test]
 fn map_no_regression_gg_gi_yy_g_other() {
-    for gap in [5, 400, MAP_TIMEOUT_MS + 1, 3000] {
+    for gap in [5, 100, 400, MAP_TIMEOUT_MS + 1, 3000] {
         for s in ["gg", "gi", "yy", "gj", "gxg", "gyy", "ygg", "g:", "g/", "jjk", "hl", "G", "nN"] {
             same_with_and_without_mappings(&taps(s, 0, gap));
         }

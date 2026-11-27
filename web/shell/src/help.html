@@ -80,7 +80,7 @@ maps keys in this mode, in vim's notation (<code>"gh"</code>, <code>"&lt;C-x&gt;
 without the final <code>&lt;CR&gt;</code>, <code>web.map("n", "ge", ":go ")</code> opens the command
 line with that text typed. A mapping wins over the keys above (even <code>:</code>, as in vim; Esc
 cannot be mapped). While the keys typed are the start of a longer mapping, web waits up to
-<code>MAP_TIMEOUT_MS</code> (1 s) for the next one, then handles them as without the mapping.
+<code>web.settings.mapTimeout</code> (250 ms by default) for the next one, then handles them as without the mapping.
 The URL copy that used to be built in is a mapping now:
 <code>web.map("n", "yy", ":let @+ = @%&lt;CR&gt;")</code> (a lone <code>y</code> then yanks after the wait).</p>
 

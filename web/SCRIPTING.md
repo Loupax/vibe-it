@@ -117,7 +117,7 @@ Everything lives on one global object, `web`.
 
 `web` is also the default export of the built-in module `web:api` (2026-11-26, user; C-SCRIPT-URL),
 with one named export per key of `web` (`bookmarks`, `buffers`, `cmd`, `command`, `history`, `map`,
-`on`). It is the very same object (`===` the global) and the same values, not a copy: commands, mappings
+`on`, `settings`). It is the very same object (`===` the global) and the same values, not a copy: commands, mappings
 and settings made through either are the same. The global is a plain writable property, so a script can
 overwrite or delete it (`globalThis.web = null`) for every module; the import always gives the original
 back (user: "We should still be able to import it in case the user overwrites it and wants to
@@ -184,7 +184,7 @@ command and run a command use the exact same interface"):
   user, so it reaches the line's own behaviour (completion; the URL fill-in of `:go ` and the
   other URL commands, TODO.txt C-EDITURL). `web.map("n", "ge", ":go ")`.
 - `web.map("n", "yy", ":let @+ = @%<CR>")`: the URL copy that used to be built in (removed
-  2026-11-27, C-YANK; a lone `y` is `:yank`, which then waits `MAP_TIMEOUT_MS` before it yanks).
+  2026-11-27, C-YANK; a lone `y` is `:yank`, which then waits the mapping timeout before it yanks).
 
 Nothing else is a key in `rhs`: `<CR>` only at the very end, `<lt>` is a literal `<`, and
 any other `<...>` or a `<CR>` before the end is an error when the mapping is made (more than
@@ -195,7 +195,7 @@ A user mapping takes precedence over a built-in binding or sequence (config.rs `
 
 `keys` notation (vim's): a character stands for itself (`"gh"`, `"G"`); `<C-x>` is Ctrl
 with `x`; `<lt>` is `<`. Any length. While the keys typed so far are a prefix of a longer
-mapping, the shell waits up to `MAP_TIMEOUT_MS` (config.rs, as vim's `timeoutlen`) for the
+mapping, the shell waits up to `web.settings.mapTimeout` ms (default 250; vim's `timeoutlen`) for the
 next key; on a timeout or a key that matches nothing, the pending keys are handled as
 they would have been without the mapping. Other keys (`<A-...>`, `<Space>`, arrows, ...)
 come when a mapping needs them.
@@ -255,6 +255,30 @@ web.buffers.focusExisting = true;
   `window.open`, forms, `:new`, `:go` and a `web URL` from outside never look for an open buffer.
 - Only `true` or `false`; any other value is a script error and the setting keeps its value. `:source` puts
   it back to `false` before it runs the files again.
+
+### `web.settings` (2026-11-27, user; C-MAPTIMEOUT)
+
+`web.settings` is for settings that belong to no source (a source's own settings stay on its object:
+`web.history.deleteConfirmation`, `web.buffers.focusExisting`). It is frozen: no new keys.
+`Object.keys(web.settings)` is `["mapTimeout"]`.
+
+#### `web.settings.mapTimeout`
+
+Milliseconds the shell waits for the next key while the keys typed are the start of a longer `web.map`
+mapping (vim's `timeoutlen`). Default `250` (`MAP_TIMEOUT_MS` in config.rs; vim's is 1000). The getter returns
+the current value, the default included.
+
+```js
+web.settings.mapTimeout = 400;   // wait up to 400 ms for the rest of a mapping
+web.settings.mapTimeout;         // 400
+```
+
+- An integer from 1 to 10000; anything else (a string, `1.5`, `0`, `-1`, `20000`, `NaN`, `Infinity`,
+  `null`) throws `TypeError` "web.settings.mapTimeout must be an integer from 1 to 10000 (milliseconds)" and
+  the setting keeps its value. 0 is refused: a mapping sharing a prefix with a shorter one could then never
+  be typed.
+- It takes effect on the next wait that starts after the assignment; a wait already running keeps its deadline.
+- `:source` puts it back to 250 before it runs the files again. With no `init.js` the default applies.
 
 ### `web.buffers.list()` (2026-11-25, user; C-SCRIPT-BUFLIST)
 

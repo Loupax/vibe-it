@@ -160,7 +160,7 @@ impl crate::state::State {
     }
 
     /// C-SCRIPT-MAP: after a key event, starts the timer that ends the wait for the rest of a user
-    /// mapping (`MAP_TIMEOUT_MS`); the pending keys are then handled as without it. One timer at a
+    /// mapping (the mapping timeout, `web.settings.mapTimeout`, default `MAP_TIMEOUT_MS`); the pending keys are then handled as without it. One timer at a
     /// time; it follows a deadline moved by later keys and ends itself when nothing waits.
     pub fn arm_map_timer(&mut self) {
         use smithay::reexports::calloop::timer::{TimeoutAction, Timer};

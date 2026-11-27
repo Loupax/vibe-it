@@ -273,14 +273,15 @@ fn c_script_only_web_is_exposed() {
         if (typeof std !== "undefined" || typeof os !== "undefined" || typeof setTimeout !== "undefined"
             || typeof require !== "undefined" || typeof print !== "undefined") throw new Error("leak");
         const keys = Object.keys(web).sort().join(",");
-        if (keys !== "bookmarks,buffers,cmd,command,history,map,on") throw new Error(keys);
+        if (keys !== "bookmarks,buffers,cmd,command,history,map,on,settings") throw new Error(keys);
         const bk = Object.keys(web.buffers).sort().join(",");
         if (bk !== "deleteConfirmation,focusExisting,list") throw new Error(bk);
+        if (Object.keys(web.settings).join() !== "mapTimeout") throw new Error("settings");
         web.extra = 1;
         "#,
     );
     // `web` is frozen: the assignment throws in strict mode, after the checks passed.
-    assert!(k.message.starts_with("init.js:8: "), "{}", k.message);
+    assert!(k.message.starts_with("init.js:9: "), "{}", k.message);
     let k = shell(r#"web.on("load", () => {});"#);
     assert!(k.message.contains("web.on: unknown event"), "{}", k.message);
     // C-SCRIPT-URL: importing a built-in adds no global (`URL` is an import only).
