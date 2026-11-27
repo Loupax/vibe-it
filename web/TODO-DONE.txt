@@ -91,3 +91,9 @@
       only source of truth") New `:bufferAlternate` (Keys::buffer_alternate, usage error with arguments); the built-in
       Ctrl-^ / Ctrl-6 bindings and Action::AlternateBuffer are removed; users map it:
       web.map("n", "<C-^>", ":bufferAlternate<CR>"). Docs name the command instead of the key. Full spec: issue #770.
+
+=== from TODO.txt: --- (no header)
+- [x] C-YANK DONE 3c57ac5 #774 [S] (issue #771; user, 2026-11-27: "I want to introduce a yank command, so I can copy selections from normal
+      mode") `:yank` and `y` copy the page's current selection (focused frame; an
+      input/textarea's selected part; never a password field) to `+` via a new `selection` command/event (the text never
+      in the log); the built-in `yy` is removed (users map `yy` to `:let @+ = @%<CR>`). Full spec and decisions: issue #771.
