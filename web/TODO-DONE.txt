@@ -97,3 +97,9 @@
       mode") `:yank` and `y` copy the page's current selection (focused frame; an
       input/textarea's selected part; never a password field) to `+` via a new `selection` command/event (the text never
       in the log); the built-in `yy` is removed (users map `yy` to `:let @+ = @%<CR>`). Full spec and decisions: issue #771.
+
+=== from TODO.txt: --- (no header)
+- [x] C-MAPTIMEOUT DONE 01ae084 #776 [XS] [WIP] (issue #772; user, 2026-11-27: "expose it via web.settings.mapTimeout and set a default of 250ms")
+      `web.settings.mapTimeout` (integer 1..10000 ms, else TypeError; default 250 = MAP_TIMEOUT_MS, was 1000), a new
+      frozen `web.settings` object for settings of no source; :source resets it; takes effect on the next wait. Shell only.
+      Docs: SCRIPTING.md, KEYS.md T118, help.html, DECISIONS.md. Full spec and tests: issue #772. Before C-ESCHOLD.

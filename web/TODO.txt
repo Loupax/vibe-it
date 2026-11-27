@@ -545,10 +545,6 @@ stop early on a hard failure.
       `await web.cmd("b app.slack.com")` falling back to `new`), DECISIONS.md. Tests: ok true/false for a good line,
       an unknown command, `:b nomatch`, a user command that throws; order of several awaited lines; promise ignored
       = no unhandled rejection; `:source` while a promise is pending drops it without error.
-- [ ] C-MAPTIMEOUT [XS] [WIP] (issue #772; user, 2026-11-27: "expose it via web.settings.mapTimeout and set a default of 250ms")
-      `web.settings.mapTimeout` (integer 1..10000 ms, else TypeError; default 250 = MAP_TIMEOUT_MS, was 1000), a new
-      frozen `web.settings` object for settings of no source; :source resets it; takes effect on the next wait. Shell only.
-      Docs: SCRIPTING.md, KEYS.md T118, help.html, DECISIONS.md. Full spec and tests: issue #772. Before C-ESCHOLD.
 - [ ] C-ESCHOLD [S] (after C-MAPTIMEOUT, #772) (issue #775; user, 2026-11-27: "Let's go with A")
       In INPUT the first Esc is held, not sent: Esc Esc within the mapping timeout -> NORMAL and the page sees neither (Drive,
       Workday); another key or the timeout sends the held Esc first, then the key (in order, via effects + held); focus loss
