@@ -31,9 +31,11 @@ instead: <code>:</code> followed by what you typed.</p>
 <li><b>INPUT</b>: every key goes to the page, and the page and the browser do
 what they always do with it (text fields, <code>Tab</code>, arrows and
 <code>PageDown</code> scrolling, shortcuts). web's own keys below do nothing here.</li>
-<li>Press <code>Esc</code> twice quickly (within 300 ms) to go to
-<b>NORMAL</b>. The first <code>Esc</code> reaches the page as usual (it may
-close a dialog or leave a text field); the second one never does.</li>
+<li>Press <code>Esc</code> twice quickly (within
+<code>web.settings.mapTimeout</code>, 250 ms) to go to
+<b>NORMAL</b>. The first <code>Esc</code> is held back: if no second one
+follows in time, the page gets it (a quarter second late); the page gets
+neither <code>Esc</code> of the pair.</li>
 <li><b>NORMAL</b> (the mode at start): keys are web's and the page gets no
 key events, except <code>Enter</code>. Press <code>i</code> to go back to INPUT. A text field you
 focus (a click, <code>Enter</code> on a button that opens one, <code>g</code> <code>i</code>)

@@ -14,8 +14,7 @@ use smithay::input::keyboard::{Keysym, ModifiersState};
 
 use crate::completion::{compute_ghost, CompleteCache, ExtResult, ExtSink, Ghost};
 use crate::config::{
-    ScrollInput, BINDINGS, CLICK_FOCUS_MS, ESC_ESC_MS, KEY_REPEAT_DELAY_MS, KEY_REPEAT_RATE, KEY_SEQUENCES, MAP_TIMEOUT_MS, SCROLL_INPUTS,
-    START_MODE,
+    ScrollInput, BINDINGS, CLICK_FOCUS_MS, KEY_REPEAT_DELAY_MS, KEY_REPEAT_RATE, KEY_SEQUENCES, MAP_TIMEOUT_MS, SCROLL_INPUTS, START_MODE,
 };
 use crate::protocol::{Command, FieldWhich, FindDir};
 
@@ -115,27 +114,24 @@ pub enum VimMode {
     Pick,
 }
 
-/// The Esc Esc recogniser's state (KEYS.md ESC1). `Esc1(t)` = one Esc seen at `t`.
+/// The Esc Esc recogniser's state (KEYS.md ESC1). `Esc1`: a plain Esc was pressed in INPUT and is held
+/// back from the page (T1) until a second Esc (T2), another key (T4) or `deadline` (T3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EscState {
     Idle,
-    Esc1(Instant),
+    Esc1 {
+        /// The key code of the held Esc (as `Keys::key` got it).
+        code: u32,
+        /// When the wait ends: the press time plus the mapping timeout.
+        deadline: Instant,
+        /// The Esc key was already released (T4b).
+        released: bool,
+    },
 }
 
-/// KEYS.md T1-T4. Given the state, a key PRESS (`repeat` = OS auto-repeat) and the time
-/// now, returns the new state and whether this press completes Esc Esc (enter NORMAL; the
-/// caller must not deliver this press to the page). Only a plain Esc (no Ctrl/Alt/Super)
-/// counts; a repeat or any other key resets to `Idle`; an Esc later than `ESC_ESC_MS`
-/// after the first starts over (T3). The timeout is checked lazily here, no timer.
-pub fn resolve_esc_esc(state: EscState, key: &KeyInput, repeat: bool, now: Instant) -> (EscState, bool) {
-    let plain_esc = key.is(Keysym::Escape) && !key.ctrl && !key.alt && !key.logo;
-    if !plain_esc || repeat {
-        return (EscState::Idle, false);
-    }
-    match state {
-        EscState::Esc1(t) if now.saturating_duration_since(t) <= Duration::from_millis(ESC_ESC_MS) => (EscState::Idle, true),
-        _ => (EscState::Esc1(now), false),
-    }
+/// Whether the press is a plain Esc: no Ctrl, Alt or Super (Shift is allowed).
+fn is_plain_esc(key: &KeyInput) -> bool {
+    key.is(Keysym::Escape) && !key.ctrl && !key.alt && !key.logo
 }
 
 /// What a NORMAL binding does (kept apart from `resolve_binding` so that stays pure).
@@ -801,7 +797,15 @@ impl Keys {
     /// One key event (`code`: the key's code, any numbering as long as press and release
     /// agree). Returns whether the page gets it.
     pub fn key(&mut self, code: u32, pressed: bool, key: &KeyInput, now: Instant) -> bool {
+        // T3: an Esc held past its deadline goes to the page before anything else, even with no timer tick.
+        self.flush_esc_if_due(now);
         if !pressed {
+            // T4b: the held Esc's release waits with it.
+            if let EscState::Esc1 { code: c, released, .. } = &mut self.esc {
+                if *c == code {
+                    *released = true;
+                }
+            }
             self.down.remove(&code);
             if self.repeating.as_ref().is_some_and(|r| r.code == code) {
                 self.repeating = None;
@@ -923,15 +927,72 @@ impl Keys {
                 }
                 false
             }
-            KeyMode::Input => {
-                let (st, enter) = resolve_esc_esc(self.esc, key, repeat, now);
-                self.esc = st;
-                if enter {
-                    self.set_key_mode(KeyMode::Normal);
-                    return false;
-                }
-                true
+            KeyMode::Input => self.input_key(code, key, repeat, now),
+        }
+    }
+
+    /// The mapping timeout in ms (`web.settings.mapTimeout`, default `MAP_TIMEOUT_MS`): how long keys wait
+    /// for the rest of a mapping in NORMAL, and how long the first Esc waits for a second in INPUT.
+    fn map_timeout_ms(&self) -> u64 {
+        self.scripts.as_ref().map_or(MAP_TIMEOUT_MS, |s| s.map_timeout())
+    }
+
+    /// A key press in INPUT (T1-T5). `code` is the xkb key code (evdev + 8). The first plain Esc is held
+    /// back from the page (T1); a second one in time enters NORMAL and the page sees neither (T2); any
+    /// other key sends the held Esc first, then itself (T4). A wait that ran out is flushed first (T3).
+    fn input_key(&mut self, code: u32, key: &KeyInput, repeat: bool, now: Instant) -> bool {
+        self.flush_esc_if_due(now);
+        if let EscState::Esc1 { code: held, .. } = self.esc {
+            if code == held && repeat {
+                // The held Esc's own OS repeat: still waiting.
+                return false;
             }
+            if is_plain_esc(key) && !repeat {
+                self.set_key_mode(KeyMode::Normal);
+                return false;
+            }
+            if repeat {
+                // A key already down (given to the page earlier) repeats: not a new key.
+                return true;
+            }
+            // T4: the held Esc first, then this key, in that order. Effects run after smithay has
+            // forwarded what this returns true for, so this key goes as an effect too, and its release
+            // is sent through `held`.
+            self.send_held_esc();
+            let k = code.saturating_sub(8);
+            self.effects.push(Effect::KeyDown(k));
+            self.held.push((code, k));
+            return false;
+        }
+        if is_plain_esc(key) && !repeat {
+            self.esc = EscState::Esc1 {
+                code,
+                deadline: now + Duration::from_millis(self.map_timeout_ms()),
+                released: false,
+            };
+            return false;
+        }
+        true
+    }
+
+    /// T3/T4: sends the held Esc to the page as effects (its press, and its release when the key was
+    /// already released). Still down: its later physical release is sent through `held`.
+    fn send_held_esc(&mut self) {
+        let EscState::Esc1 { code, released, .. } = self.esc else { return };
+        self.esc = EscState::Idle;
+        let k = code.saturating_sub(8);
+        self.effects.push(Effect::KeyDown(k));
+        if released {
+            self.effects.push(Effect::KeyUp(k));
+        } else {
+            self.held.push((code, k));
+        }
+    }
+
+    /// T3: the held Esc's wait is over: the page gets it now.
+    fn flush_esc_if_due(&mut self, now: Instant) {
+        if matches!(self.esc, EscState::Esc1 { deadline, .. } if now >= deadline) {
+            self.send_held_esc();
         }
     }
 
@@ -1021,8 +1082,7 @@ impl Keys {
             };
             match step {
                 MapStep::Wait => {
-                    self.map_deadline =
-                        Some(now + Duration::from_millis(self.scripts.as_ref().map_or(MAP_TIMEOUT_MS, |s| s.map_timeout())));
+                    self.map_deadline = Some(now + Duration::from_millis(self.map_timeout_ms()));
                     break;
                 }
                 MapStep::Fire { index, len } => {
@@ -1081,17 +1141,25 @@ impl Keys {
 
     /// Whether keys wait for a mapping, and for how long (the compositor's timer).
     pub fn map_wait(&self, now: Instant) -> Option<Duration> {
-        self.map_deadline.map(|d| d.saturating_duration_since(now))
+        let esc = match self.esc {
+            EscState::Esc1 { deadline, .. } => Some(deadline),
+            EscState::Idle => None,
+        };
+        [self.map_deadline, esc]
+            .into_iter()
+            .flatten()
+            .min()
+            .map(|d| d.saturating_duration_since(now))
     }
 
     /// The compositor's mapping timer: when the wait has run out, the pending keys are handled as
-    /// without the longer mapping. Returns the wait left, None when nothing waits any more.
+    /// without the longer mapping, and a held Esc goes to the page (T3). Returns the wait left, None
+    /// when nothing waits any more.
     pub fn map_tick(&mut self, now: Instant) -> Option<Duration> {
-        let d = self.map_deadline?;
-        if now < d {
-            return Some(d - now);
+        self.flush_esc_if_due(now);
+        if self.map_deadline.is_some_and(|d| now >= d) {
+            self.flush_map_pending(now);
         }
-        self.flush_map_pending(now);
         self.map_wait(now)
     }
 

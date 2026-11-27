@@ -277,6 +277,8 @@ web.settings.mapTimeout;         // 400
   `null`) throws `TypeError` "web.settings.mapTimeout must be an integer from 1 to 10000 (milliseconds)" and
   the setting keeps its value. 0 is refused: a mapping sharing a prefix with a shorter one could then never
   be typed.
+- It is also how long the first Esc waits for a second one in INPUT (KEYS.md T1-T4, C-ESCHOLD): Esc Esc within
+  it enters NORMAL, a lone Esc reaches the page this late.
 - It takes effect on the next wait that starts after the assignment; a wait already running keeps its deadline.
 - `:source` puts it back to 250 before it runs the files again. With no `init.js` the default applies.
 

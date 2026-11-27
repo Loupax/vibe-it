@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use smithay::input::keyboard::Keysym;
 
-use crate::config::{evdev, ScrollInput, BINDINGS, ESC_ESC_MS, KEY_SEQUENCES, SCROLL_INPUTS};
+use crate::config::{evdev, ScrollInput, BINDINGS, KEY_SEQUENCES, SCROLL_INPUTS};
 use crate::keys::*;
 use crate::protocol::Command;
 use crate::registers::{let_message, parse_let, CLIPBOARD_UNREACHABLE, LET_USAGE};
@@ -62,61 +62,152 @@ fn input_mode() -> Keys {
 
 // ---------- T1-T5: INPUT and ESC1 ----------
 
-#[test]
-fn keys_t01_t02_esc_esc_within_300ms_enters() {
-    let t = Instant::now();
-    let (s, enter) = resolve_esc_esc(EscState::Idle, &esc(), false, t);
-    assert_eq!((s, enter), (EscState::Esc1(t), false));
-    let (s, enter) = resolve_esc_esc(s, &esc(), false, ms(t, ESC_ESC_MS));
-    assert_eq!((s, enter), (EscState::Idle, true));
+/// The Effect code of a test key: tests use the keysym as the key code, `Keys` sends `code - 8` (evdev).
+fn ev(k: &KeyInput) -> u32 {
+    code(k) - 8
 }
 
-#[test]
-fn keys_t03_slow_second_esc_is_a_new_first_esc() {
-    let t = Instant::now();
-    let (s, _) = resolve_esc_esc(EscState::Idle, &esc(), false, t);
-    let late = ms(t, ESC_ESC_MS + 1);
-    let (s, enter) = resolve_esc_esc(s, &esc(), false, late);
-    assert_eq!((s, enter), (EscState::Esc1(late), false));
-    let (_, enter) = resolve_esc_esc(s, &esc(), false, ms(late, 10));
-    assert!(enter);
-}
+/// The default mapping timeout, the Esc wait.
+const WAIT: u64 = crate::config::MAP_TIMEOUT_MS;
 
 #[test]
-fn keys_t04_other_key_or_repeat_or_modified_esc_resets() {
+fn keys_t01_t02_esc_esc_within_the_timeout_enters_and_the_page_sees_neither() {
     let t = Instant::now();
-    let armed = EscState::Esc1(t);
-    assert_eq!(
-        resolve_esc_esc(armed, &KeyInput::ch('a'), false, ms(t, 10)),
-        (EscState::Idle, false)
-    );
-    assert_eq!(resolve_esc_esc(armed, &esc(), true, ms(t, 10)), (EscState::Idle, false));
-    assert_eq!(resolve_esc_esc(armed, &esc().ctrl(), false, ms(t, 10)), (EscState::Idle, false));
-    assert_eq!(resolve_esc_esc(armed, &esc().alt(), false, ms(t, 10)), (EscState::Idle, false));
-    // Shift is allowed (only Ctrl, Alt and Super disqualify).
-    assert_eq!(resolve_esc_esc(armed, &esc().shift(), false, ms(t, 10)), (EscState::Idle, true));
-    // In the key model: Esc, `a`, Esc is no Esc Esc.
     let mut k = input_mode();
-    assert!(press(&mut k, esc(), t));
-    release(&mut k, esc(), t);
-    tap(&mut k, KeyInput::ch('a'), ms(t, 50));
-    assert!(press(&mut k, esc(), ms(t, 100)), "a new first Esc reaches the page");
+    assert!(!press(&mut k, esc(), t), "T1: the first Esc is held back");
+    assert!(!release(&mut k, esc(), ms(t, 20)));
+    assert_eq!(k.key_mode, KeyMode::Input, "ESC1 shows as INPUT");
+    assert_eq!(k.bar_view().mode, "INPUT");
+    assert!(!press(&mut k, esc(), ms(t, WAIT - 1)), "T2");
+    assert!(!release(&mut k, esc(), ms(t, WAIT)));
+    assert_eq!(k.key_mode, KeyMode::Normal);
+    assert!(effects(&mut k).is_empty(), "no Esc effect at all");
+    // Nothing left to send later.
+    k.map_tick(ms(t, 5 * WAIT));
+    assert!(effects(&mut k).is_empty());
+}
+
+#[test]
+fn keys_t03_timer_sends_the_held_esc_press_and_release() {
+    let t = Instant::now();
+    let mut k = input_mode();
+    assert!(!press(&mut k, esc(), t));
+    assert!(!release(&mut k, esc(), ms(t, 30)));
+    assert_eq!(k.map_wait(ms(t, 100)), Some(Duration::from_millis(WAIT - 100)));
+    assert_eq!(k.map_tick(ms(t, WAIT - 1)), Some(Duration::from_millis(1)));
+    assert!(effects(&mut k).is_empty(), "not yet");
+    assert_eq!(k.map_tick(ms(t, WAIT)), None);
+    assert_eq!(effects(&mut k), vec![Effect::KeyDown(ev(&esc())), Effect::KeyUp(ev(&esc()))]);
+    assert_eq!(k.key_mode, KeyMode::Input);
+    assert!(k.held().is_empty());
+}
+
+#[test]
+fn keys_t03_t34_esc_held_down_past_the_deadline_sends_the_press_then_the_release() {
+    let t = Instant::now();
+    let mut k = input_mode();
+    assert!(!press(&mut k, esc(), t));
+    k.map_tick(ms(t, WAIT));
+    assert_eq!(effects(&mut k), vec![Effect::KeyDown(ev(&esc()))]);
+    assert!(!release(&mut k, esc(), ms(t, 2 * WAIT)), "the physical release is not forwarded");
+    assert_eq!(effects(&mut k), vec![Effect::KeyUp(ev(&esc()))]);
+}
+
+#[test]
+fn keys_t01_os_repeat_of_the_held_esc_is_not_a_second_esc() {
+    let t = Instant::now();
+    let mut k = input_mode();
+    assert!(!press(&mut k, esc(), t));
+    assert!(!press(&mut k, esc(), ms(t, 50)), "repeat: swallowed");
+    assert_eq!(k.key_mode, KeyMode::Input);
+    assert!(effects(&mut k).is_empty());
+}
+
+#[test]
+fn keys_t04_other_key_sends_the_held_esc_first_then_itself() {
+    let t = Instant::now();
+    let mut k = input_mode();
+    let a = KeyInput::ch('a');
+    assert!(!press(&mut k, esc(), t));
+    assert!(!release(&mut k, esc(), ms(t, 20)));
+    assert!(!press(&mut k, a, ms(t, 50)), "the live key goes as an effect, after the Esc");
+    assert_eq!(
+        effects(&mut k),
+        vec![Effect::KeyDown(ev(&esc())), Effect::KeyUp(ev(&esc())), Effect::KeyDown(ev(&a))]
+    );
+    assert!(!release(&mut k, a, ms(t, 80)));
+    assert_eq!(effects(&mut k), vec![Effect::KeyUp(ev(&a))]);
+    assert_eq!(
+        tap(&mut k, KeyInput::ch('b'), ms(t, 90)),
+        (true, true),
+        "the next key goes the normal way"
+    );
+    assert!(effects(&mut k).is_empty());
+    assert!(k.held().is_empty());
     assert_eq!(k.key_mode, KeyMode::Input);
 }
 
 #[test]
-fn keys_t01_t02_t34_first_esc_reaches_the_page_second_and_its_release_do_not() {
+fn keys_t04_esc_still_down_when_another_key_comes_is_released_later() {
     let t = Instant::now();
     let mut k = input_mode();
-    assert_eq!(tap(&mut k, esc(), t), (true, true), "T1: the page gets the first Esc");
-    assert_eq!(k.key_mode, KeyMode::Input, "ESC1 shows as INPUT");
-    assert_eq!(k.bar_view().mode, "INPUT");
-    assert_eq!(
-        tap(&mut k, esc(), ms(t, 120)),
-        (false, false),
-        "T2 + T34: neither press nor release"
-    );
+    let a = KeyInput::ch('a');
+    press(&mut k, esc(), t);
+    assert!(!press(&mut k, a, ms(t, 50)));
+    assert_eq!(effects(&mut k), vec![Effect::KeyDown(ev(&esc())), Effect::KeyDown(ev(&a))]);
+    assert!(!release(&mut k, esc(), ms(t, 60)));
+    assert_eq!(effects(&mut k), vec![Effect::KeyUp(ev(&esc()))]);
+    // Focus loss releases what is still down in the page.
+    k.release_all();
+    assert_eq!(effects(&mut k), vec![Effect::KeyUp(ev(&a))]);
+}
+
+#[test]
+fn keys_t03_a_key_after_the_deadline_flushes_the_esc_without_a_timer_tick() {
+    let t = Instant::now();
+    let mut k = input_mode();
+    let a = KeyInput::ch('a');
+    press(&mut k, esc(), t);
+    release(&mut k, esc(), ms(t, 10));
+    assert!(press(&mut k, a, ms(t, WAIT + 5)), "a normal key now (forwarded by the filter)");
+    assert_eq!(effects(&mut k), vec![Effect::KeyDown(ev(&esc())), Effect::KeyUp(ev(&esc()))]);
+    assert!(k.held().is_empty());
+}
+
+#[test]
+fn keys_t01_modified_esc_is_delivered_at_once() {
+    let t = Instant::now();
+    let mut logo = esc();
+    logo.logo = true;
+    for key in [esc().ctrl(), esc().alt(), logo] {
+        let mut k = input_mode();
+        assert_eq!(tap(&mut k, key, t), (true, true), "{key:?}");
+        assert!(effects(&mut k).is_empty());
+        assert_eq!(k.map_wait(t), None);
+    }
+}
+
+#[test]
+fn keys_t02_shift_esc_counts_as_esc() {
+    let t = Instant::now();
+    let mut k = input_mode();
+    assert!(!press(&mut k, esc().shift(), t));
+    release(&mut k, esc().shift(), ms(t, 5));
+    assert!(!press(&mut k, esc(), ms(t, 10)));
     assert_eq!(k.key_mode, KeyMode::Normal);
+}
+
+#[test]
+fn keys_t04c_focus_loss_drops_the_held_esc() {
+    let t = Instant::now();
+    let mut k = input_mode();
+    press(&mut k, esc(), t);
+    let (pressed, _ours) = k.release_all();
+    assert!(pressed.is_empty(), "the page never saw the Esc");
+    k.map_tick(ms(t, 5 * WAIT));
+    assert!(effects(&mut k).is_empty());
+    assert_eq!(k.map_wait(t), None);
+    assert_eq!(k.key_mode, KeyMode::Input);
 }
 
 #[test]

@@ -162,3 +162,18 @@ fn web_api_exports_settings() {
     type_line(&mut k, "V");
     assert_eq!(k.message, "true", "{:?}", logs(&k));
 }
+
+/// C-ESCHOLD (KEYS.md T1-T3, issue #775): the first Esc in INPUT waits `web.settings.mapTimeout`.
+#[test]
+fn the_esc_wait_in_input_follows_the_setting() {
+    let t = Instant::now();
+    let mut k = shell("web.settings.mapTimeout = 600;");
+    k.set_key_mode(KeyMode::Input);
+    let esc = KeyInput::sym(smithay::input::keyboard::Keysym::Escape);
+    assert!(!k.key(esc.sym.raw(), true, &esc, t));
+    assert_eq!(k.map_wait(t), ms_d(600));
+    assert_eq!(k.map_tick(ms(t, 599)), ms_d(1));
+    assert!(effects(&mut k).is_empty());
+    k.map_tick(ms(t, 600));
+    assert_eq!(effects(&mut k), vec![Effect::KeyDown(esc.sym.raw() - 8)]);
+}

@@ -46,8 +46,8 @@ home-row mods, e.g. a Corne where Ctrl is a held `a`, or a tap-hold Caps Lock).
 | COMMAND | `:` + the command | one line | the status-bar line editor |
 | PICK | `>` + the filter; the list over the page shows `PICK` | one line + a list | the status-bar line editor and the picker's keys (C-PICK, "Picker") |
 
-Two short-lived helper states hold the timing rules: **ESC1** (in INPUT, one Esc seen,
-waiting for a second) and **G** (in NORMAL, one `g` seen, waiting for a second). The
+Two short-lived helper states hold the timing rules: **ESC1** (in INPUT, one Esc seen and held
+back from the page, waiting for a second) and **G** (in NORMAL, one `g` seen, waiting for a second). The
 status bar shows their parent mode. *(QREG1 planned a third, **Y**, one `y` seen; C-YANK made `y`
 one key, so there is none.)*
 
@@ -60,9 +60,9 @@ one key, so there is none.)*
 ```mermaid
 stateDiagram-v2
     [*] --> INPUT
-    INPUT --> ESC1: Esc (page gets it)
-    ESC1 --> NORMAL: Esc within 300 ms (page does not get it)
-    ESC1 --> INPUT: other key or too late (page gets the key)
+    INPUT --> ESC1: Esc (held, page does not get it yet)
+    ESC1 --> NORMAL: Esc within the map timeout (page gets neither)
+    ESC1 --> INPUT: other key or timeout (page gets the held Esc, then the key)
     NORMAL --> INPUT: i, gi, or a click into a text field or select
     NORMAL --> SEARCH: /
     NORMAL --> COMMAND: :
@@ -80,22 +80,25 @@ stateDiagram-v2
 ## Transition table
 
 "Esc" means Escape with no Ctrl, Alt or Super held. "Key repeat" is an OS auto-repeat
-event (`repeat: true`). `ESC_ESC_MS` = 300, a const next to `resolve_binding` (dwm
-`config.h` style: a QMK user can swap the trigger for F13 in one line). Each row is
+event (`repeat: true`). The Esc Esc wait is the mapping timeout, `web.settings.mapTimeout` (default 250 ms,
+`MAP_TIMEOUT_MS`; C-ESCHOLD). Each row is
 meant to become at least one test; tests name the row (`keys_t07_...`).
 
 ### INPUT and ESC1
 
 | # | From | Event | Guard | To | Effect |
 |---|---|---|---|---|---|
-| T1 | INPUT | Esc press | not a repeat | ESC1 | deliver to the page as usual (it may close a modal, blur a text field); remember the time |
-| T2 | ESC1 | Esc press | within `ESC_ESC_MS` of T1, not a repeat | NORMAL | NOT delivered to the page. Counts even if the page cancelled the first Esc *(proposed, P3)* |
-| T3 | ESC1 | Esc press | later than `ESC_ESC_MS` | ESC1 | treat as a new first Esc (T1), new time |
-| T4 | ESC1 | any other key press, or an Esc repeat | none | INPUT | handle the key as in INPUT (T5) |
+| T1 | INPUT | Esc press | not a repeat | ESC1 | **web (C-ESCHOLD, 2026-11-27): NOT delivered.** The shell remembers the Esc's key code and the deadline (now + the mapping timeout). Ctrl-Esc, Alt-Esc and Super-Esc are no Esc here: delivered at once (T5). The Esc's own OS repeat is swallowed |
+| T2 | ESC1 | Esc press | before the deadline, not a repeat | NORMAL | neither Esc reaches the page (the first was never sent, so there is nothing to undo). When the Esc Esc leaves a text field, the field keeps the focus: the page never saw an Esc that could blur it |
+| T3 | ESC1 | the deadline passes (the mapping timer fires, or the next key or release comes later than the deadline) | none | INPUT | the held Esc is sent to the page now: press, plus release if the key was already released. If the key is still down, the engine repeats it itself and the physical release sends the release later |
+| T4 | ESC1 | any other key press before the deadline | none | INPUT | the held Esc is sent first (press, plus release if already released), then this key, in that order. Only this one key goes as an effect (smithay forwards a key the filter accepts before the effects run, which would put it ahead of the Esc), and its release is sent through the held-key list; every key after it goes the normal way (T5) |
+| T4b | ESC1 | release of the held Esc | before the deadline | ESC1 | nothing reaches the page yet; remembered, so T3/T4 send press and release |
+| T4c | ESC1 | focus loss (`release_all`), or any mode change (`set_key_mode`) | none | idle | the held Esc is dropped: the page never saw it, so no key is stuck |
 | T5 | INPUT | any other key press/release | none | INPUT | forwarded to the host window; the engine does the rest (page handlers, text fields, selects, media, Tab focus, its own scroll keys). scratchy's bindings are never consulted. **web:** scratchy's own order list is gone, the engine owns it |
 
-The ESC1 timeout is checked lazily, from the time stamp, when the next key arrives; no
-timer is needed. The pure function is `resolve_esc_esc(state, key, repeat, now)`.
+The ESC1 wait ends on the mapping timer (`Keys::map_wait` / `map_tick`, the one timer the NORMAL
+mapping wait uses); every key event also checks the deadline first, so it holds without the timer.
+A lone Esc in INPUT therefore reaches the page up to the map timeout late (accepted, user).
 **web:** smithay's winit backend drops the OS key repeats, so the shell sees one press per
 key; a press of a key already down is treated as a repeat (`Keys::key`).
 
@@ -168,8 +171,8 @@ Numbers are not reused.
 | T30 | any | other mouse input | none | same | goes to the page as today |
 | T31 | any | navigation (any cause: `:go`, `h`/`l`, a followed link or click, page script) | none | same | highlights and the current match cleared; the kept query stays (`n` on the new page searches again); an open SEARCH/COMMAND line stays open. **web:** cleared on the host's `load start` of a cross-document load (the host drops its session itself and the shell forgets the index and `[i/N]`); same-document navigations (a `#fragment`, `history.pushState`) get no load callbacks, so the host's `load start ... same-document` is the signal: the shell sends `find-clear` and forgets the index and `[i/N]` (C5-FRAG). A `find-result` is matched to its `find` by id; one nobody asked for (CEF's stale `0 0` at a load start) is ignored (C5-STALE) |
 | T32 | NORMAL, G, SEARCH, COMMAND, PICK | page script focuses an element (`el.focus()`, `autofocus`), or a background buffer's page focuses one | the element is editable and the user did not cause it (T29's window) | same | **changed 2026-11-24 (user, C-AUTOFOCUS):** "moving to INPUT mode when input elements get focus confuses me [...] I'm thinking of not changing modes on autofocus, but should make sure that once I hit i, the autofocused input gets focus"; "include gi too". The mode stays (an open line or the picker is no longer cancelled), and the shell asks the host to blur the field and remember it ("parked", `blur-field`), so NORMAL's scroll keys, which are real arrow/PageDown keys to whatever has focus (T13), scroll the page; `i` focuses it again (T6). Refocus guard: at most one blur per buffer per `CLICK_FOCUS_MS`; a page that takes the focus back after that keeps it (and NORMAL stays). The blur runs the page's own blur handlers (seen live: a "required" validation message appears; suggestion lists would close). In INPUT nothing happens (the user is typing; the page may move its focus). (2026-11-23, replaced: any editable focus switched to INPUT.) No auto-return on blur: a blur (`editable-focused false`), focus of a non-editable element and a popup the page opens without a user click change nothing. **web:** `Keys::editable_focused` -> `FocusOutcome::Parked` / `Kept`; the buffer's `parked` and `blurred_at` |
-| T33 | NORMAL, G, SEARCH, COMMAND, PICK | key release | none | same | not delivered to the page *(proposed, P2)*. **web:** a release goes to the page exactly when its press did: a key pressed in INPUT and released after Esc Esc is released in the page too (no stuck keys); a press in NORMAL is never followed by a release in the page (T34). When the shell window loses the desktop's keyboard focus (C-FOCUSKEYS: smithay's winit backend drops winit's synthetic releases) the shell releases, in the page, every key whose press it delivered and has no release for, and forgets what it saw held; a physical release that comes after the refocus is then not delivered (T33 still holds). The held modifiers are the desktop's (C3-SHIFTSYNC): its `wl_keyboard.modifiers` (X11: XKB StateNotify) set the seat's modifier state while no key is down, so a Shift held at focus-in or set by a modifiers event alone still makes `;` a `:` and `g` a `G`; the page is told of it only in INPUT |
-| T34 | INPUT | release of a key whose press was NOT delivered to the page (the `i` of T6, the second Esc of T2) | none | INPUT | not delivered either, so the page never sees a `keyup` without its `keydown` |
+| T33 | NORMAL, G, SEARCH, COMMAND, PICK | key release | none | same | not delivered to the page *(proposed, P2)*. **web:** a release goes to the page exactly when its press did: a key pressed in INPUT and released after Esc Esc is released in the page too (no stuck keys); the held Esc of T1 gets its release in the page only if its press was sent (T3/T4), and is dropped with both on focus loss (T4c); a press in NORMAL is never followed by a release in the page (T34). When the shell window loses the desktop's keyboard focus (C-FOCUSKEYS: smithay's winit backend drops winit's synthetic releases) the shell releases, in the page, every key whose press it delivered and has no release for, and forgets what it saw held; a physical release that comes after the refocus is then not delivered (T33 still holds). The held modifiers are the desktop's (C3-SHIFTSYNC): its `wl_keyboard.modifiers` (X11: XKB StateNotify) set the seat's modifier state while no key is down, so a Shift held at focus-in or set by a modifiers event alone still makes `;` a `:` and `g` a `G`; the page is told of it only in INPUT |
+| T34 | INPUT | release of a key whose press was NOT delivered to the page (the `i` of T6, either Esc of T2, a held Esc dropped by T4c) | none | INPUT | not delivered either, so the page never sees a `keyup` without its `keydown` |
 
 ## Accesskey (QWPT7c)
 
@@ -364,7 +367,7 @@ A keyboard way to make a selection (visual mode) is out of scope (C5-ENTER / QCU
 
 Everything a user may want to change lives in **one file, `src/config.rs`**, in the dwm
 `config.h` spirit: edit, rebuild (user, 2026-11-20). That includes the key bindings
-(today the `match` in `resolve_binding`), `ESC_ESC_MS`, `COMPLETERS`, the
+(today the `match` in `resolve_binding`), `COMPLETERS`, the
 history settings and the scroll steps. Moving the existing knobs there is its own
 refactoring item (QCONF1, no behaviour change) and comes first; every later item adds
 its knobs there. Exception (user, 2026-11-20): the tracker block/allow lists stay in
@@ -697,6 +700,10 @@ Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked ou
 
 ## Decision log
 
+- 2026-11-27 (user, C-ESCHOLD): "Let's go with A": the first Esc in INPUT is held; the page gets it only if
+  no second Esc follows. "I think we already have a configuration item for the buffer between motion keys,
+  can't we use that?": the wait is the mapping timeout; `ESC_ESC_MS` is gone. On Esc Esc out of a text field
+  the field keeps the focus: "yes that's fine". T1-T4c above; DECISIONS.md "The first Esc in INPUT is held".
 - 2026-11-27 (user, C-MAPTIMEOUT): "the delay is a whole second by default?", then "expose it via
   web.settings.mapTimeout and set a default of 250ms". T118's wait is `web.settings.mapTimeout`
   (integer 1..10000 ms, default 250 = `MAP_TIMEOUT_MS`; was 1000). Takes effect on the next wait.

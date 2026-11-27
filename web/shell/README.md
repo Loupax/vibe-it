@@ -54,7 +54,7 @@ host-cef it is in CI (it needs only libxkbcommon to link).
   to the page exactly when its press did. Starts in NORMAL.
 - **Settings** in `src/config.rs` (dwm `config.h`: edit and rebuild): `BINDINGS`,
   `KEY_SEQUENCES`, `SCROLL_INPUTS` (what each scroll binding sends the page: a key held
-  while the binding is held, or wheel steps), `ESC_ESC_MS`, `START_MODE`,
+  while the binding is held, or wheel steps), `START_MODE`,
   `CLICK_FOCUS_MS`, the bar's sizes and colours, `COMPLETERS`, history.
 - **Scrolling** is real input: `j` presses Down in the page window until `j` is released
   (the engine repeats it), `G` End, `gg` Home, Ctrl-d PageDown, ...

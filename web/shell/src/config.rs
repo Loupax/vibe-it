@@ -195,10 +195,6 @@ pub const SCROLL_INPUTS: &[ScrollInput] = &[
 
 // ---------- modes ----------
 
-/// Esc Esc: the second Esc must come within this many ms of the first (INPUT -> NORMAL).
-/// A QMK user can swap the trigger for F13 by editing `resolve_esc_esc`'s key test.
-pub const ESC_ESC_MS: u64 = 300;
-
 /// The key mode a fresh window starts in (user 2026-11-21, scratchy QKEYS5: NORMAL).
 /// Navigations keep the current mode; a click into a text control still switches to INPUT.
 pub const START_MODE: KeyMode = KeyMode::Normal;
@@ -375,5 +371,6 @@ pub const SCRIPT_MODULE_MAX: u64 = 1024 * 1024;
 /// waits `web.settings.mapTimeout` milliseconds for the next key (vim's `timeoutlen`); then the keys are
 /// handled as without the mapping (or a shorter mapping they complete runs). With no mapping sharing a
 /// prefix with what is typed, nothing waits. This constant is the default of `web.settings.mapTimeout`
-/// (C-MAPTIMEOUT): vim's default is 1000, web's is 250 (user, 2026-11-27).
+/// (C-MAPTIMEOUT): vim's default is 1000, web's is 250 (user, 2026-11-27). The same setting is how long the
+/// first Esc waits for a second one in INPUT (C-ESCHOLD, KEYS.md T1-T4).
 pub const MAP_TIMEOUT_MS: u64 = 250;
