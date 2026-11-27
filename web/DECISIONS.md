@@ -2,6 +2,16 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-27 Ctrl-^ is the command `:bufferAlternate`; no built-in key (C-BUFALT)
+
+Issue #770. User, 2026-11-27: "Create a github issue for exposing this as a command so I can customize it.
+Remove it from the built-in Ctrl-^ hotkey so the init file is the only source of truth. I'll edit my file
+when the feature lands."
+
+- **`:bufferAlternate`** shows the previously shown buffer (behaviour unchanged, KEYS.md T84). No alias.
+- **The built-in Ctrl-^ / Ctrl-6 rows are gone.** Unmapped, the keys do nothing in NORMAL. `init.js` is the
+  only source: `web.map("n", "<C-^>", ":bufferAlternate<CR>");`.
+
 ## 2026-11-26 Built-in modules `web:url` and `web:api` (C-SCRIPT-URL)
 
 Issue #767. A mapping that jumps to the first Slack buffer, whatever its path, has to read the hostname of

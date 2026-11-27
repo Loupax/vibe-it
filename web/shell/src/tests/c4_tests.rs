@@ -247,24 +247,26 @@ fn c4_t77_buffer_list_is_a_picker_over_the_buffers() {
 }
 
 #[test]
-fn c4_t84_ctrl_caret_shows_the_previous_buffer() {
+fn c4_t84_buffer_alternate_shows_the_previous_buffer() {
     let mut k = two_buffers();
-    press(&mut k, KeyInput::ch('^').ctrl());
+    let fx = run(&mut k, "bufferAlternate");
     assert_eq!(k.buffers.current, 1);
-    assert_eq!(sends(&k.effects), vec![Command::ShowTab { tab: 1 }]);
-    k.effects.clear();
-    // Ctrl-6 (vim's other spelling) too, back to 2.
-    press(&mut k, KeyInput::ch('6').ctrl());
+    assert_eq!(sends(&fx), vec![Command::ShowTab { tab: 1 }]);
+    // It flips: back to 2.
+    run(&mut k, "bufferAlternate");
     assert_eq!(k.buffers.current, 2);
     let mut one = Keys::new(None, String::new(), None);
     one.buffers.tab_created(1, None);
-    press(&mut one, KeyInput::ch('^').ctrl());
+    run(&mut one, "bufferAlternate");
     assert_eq!(one.message, "web: no alternate buffer");
-    // Not in INPUT: the page gets it.
     let mut k = two_buffers();
-    k.set_key_mode(KeyMode::Input);
-    let key = KeyInput::ch('^').ctrl();
-    assert!(k.key(key.sym.raw(), true, &key, Instant::now()));
+    run(&mut k, "bufferAlternate 3");
+    assert_eq!(k.message, "web: usage: :bufferAlternate");
+    assert_eq!(k.buffers.current, 2);
+    // No built-in key any more (#770): Ctrl-^ and Ctrl-6 fall through in NORMAL.
+    press(&mut k, KeyInput::ch('^').ctrl());
+    assert_eq!(k.buffers.current, 2);
+    press(&mut k, KeyInput::ch('6').ctrl());
     assert_eq!(k.buffers.current, 2);
 }
 
@@ -388,7 +390,15 @@ fn c4_t90_the_ghost_offers_long_names_an_alias_runs_as_typed() {
     for a in COMMAND_ALIASES {
         assert!(!COMMAND_NAMES.contains(a), "{a} is offered");
     }
-    for n in ["bufferList", "buffer", "bufferNext", "bufferPrev", "bufferKill", "bufferDescribe"] {
+    for n in [
+        "bufferAlternate",
+        "bufferList",
+        "buffer",
+        "bufferNext",
+        "bufferPrev",
+        "bufferKill",
+        "bufferDescribe",
+    ] {
         assert!(COMMAND_NAMES.contains(&n), "{n}");
     }
     let cache = CompleteCache::new(None);

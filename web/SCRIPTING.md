@@ -236,7 +236,7 @@ itself (user, 2026-11-25).
 link) whose absolute URL is, byte for byte, the current URL of an open buffer, or the URL its page was requested
 as before redirects, shows that buffer instead of
 opening a new one (KEYS.md T170): the first such buffer in `:ls` order, switched to as `:b N` does (the one
-left becomes the alternate, Ctrl-^ returns), and the bar says `already open: [N] TITLE`. When that buffer is
+left becomes the alternate, `:bufferAlternate` returns), and the bar says `already open: [N] TITLE`. When that buffer is
 the one on screen nothing switches; only the message shows. No other match: a new buffer, as with the
 setting off.
 
@@ -261,7 +261,7 @@ The open buffers, in `:ls` order (by number), as a new array of plain objects:
 | `number` | the shell's number (`:b N`) |
 | `url`, `title`, `description` | strings (`description` is `:bufferDescribe`'s, `""` when none) |
 | `current` | the buffer shown |
-| `alternate` | the buffer Ctrl-^ goes to |
+| `alternate` | the buffer `:bufferAlternate` goes to |
 | `loading`, `crashed` | booleans |
 | `unread` | how many notifications came while it was not shown |
 
