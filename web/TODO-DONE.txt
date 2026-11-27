@@ -103,3 +103,10 @@
       `web.settings.mapTimeout` (integer 1..10000 ms, else TypeError; default 250 = MAP_TIMEOUT_MS, was 1000), a new
       frozen `web.settings` object for settings of no source; :source resets it; takes effect on the next wait. Shell only.
       Docs: SCRIPTING.md, KEYS.md T118, help.html, DECISIONS.md. Full spec and tests: issue #772. Before C-ESCHOLD.
+
+=== from TODO.txt: --- (no header)
+- [x] C-ESCHOLD DONE f176b74 #777 [S] [WIP] (after C-MAPTIMEOUT, #772, done) (issue #775; user, 2026-11-27: "Let's go with A")
+      In INPUT the first Esc is held, not sent: Esc Esc within the mapping timeout -> NORMAL and the page sees neither (Drive,
+      Workday); another key or the timeout sends the held Esc first, then the key (in order, via effects + held); focus loss
+      drops it. ESC_ESC_MS removed; the wait is the mapping timeout. Starts only after #772 merges (default 250 ms), as the
+      issue says. Full spec and decisions: issue #775.
