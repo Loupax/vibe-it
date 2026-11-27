@@ -75,7 +75,7 @@ fn own_selection_is_read_from_memory_without_asking_the_desktop() {
 fn a_write_ends_the_own_selection() {
     let mut d = Desktop::unconnected();
     d.set_own(Which::Clipboard, Some("page text".into()));
-    // `yy`: smithay-clipboard's source replaces the page's on the desktop.
+    // `:let @+ = @%`: smithay-clipboard's source replaces the page's on the desktop.
     let _ = d.write(Which::Clipboard, "https://example.org/");
     assert_eq!(d.own(Which::Clipboard), None);
 }

@@ -17,7 +17,7 @@ fn keys() -> Keys {
 }
 
 /// A shell with `src` loaded as init.js; the load's log lines are dropped.
-fn shell(src: &str) -> Keys {
+pub(super) fn shell(src: &str) -> Keys {
     let mut k = keys();
     k.load_script_source("init.js", src, BUDGET);
     k.url = "https://a.test/".into();
@@ -25,7 +25,7 @@ fn shell(src: &str) -> Keys {
     k
 }
 
-fn ms(t: Instant, n: u64) -> Instant {
+pub(super) fn ms(t: Instant, n: u64) -> Instant {
     t + Duration::from_millis(n)
 }
 
@@ -48,7 +48,7 @@ fn tap_str(k: &mut Keys, s: &str, t: Instant) {
 }
 
 /// The effects so far, the log lines left out.
-fn effects(k: &mut Keys) -> Vec<Effect> {
+pub(super) fn effects(k: &mut Keys) -> Vec<Effect> {
     std::mem::take(&mut k.effects)
         .into_iter()
         .filter(|e| !matches!(e, Effect::Log(_)))
@@ -445,12 +445,14 @@ fn map_only_in_normal_not_in_lines_or_input() {
 
 // ---------- no regression: the built-in keys with and without mappings ----------
 
-/// Mappings that the test streams below never complete. `gZ` and `yQ` share their first key with a
-/// built-in sequence, so a `g` or `y` waits for the mapping and is replayed (a key that does
+/// Mappings that the test streams below never complete. `gZ` and `@Q` share their first key with a
+/// built-in sequence, so a `g` or `@` waits for the mapping and is replayed (a key that does
 /// something on its own, `j` say, would be delayed by such a mapping by design: covered above).
+/// C-YANK: `y` does something on its own now (it yanks), so `yQ` became `@Q`; a `y` mapping
+/// delaying `y` is covered in c_yank_tests.rs.
 const UNRELATED: &str = r#"
     web.map("n", "gZ", ":refresh<CR>");
-    web.map("n", "yQ", ":refresh<CR>");
+    web.map("n", "@Q", ":refresh<CR>");
     web.map("n", "Q", ":refresh<CR>");
     web.map("n", "<C-x>", ":refresh<CR>");
     web.map("n", "zz", ":go ");

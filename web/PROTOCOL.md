@@ -113,13 +113,14 @@ is v0 plus `new-tab`, `show-tab`, `close-tab`, an optional `tab` on page command
 | `close-tab <id>` | `{"cmd":"close-tab","tab":4}` | close page `id` (no `beforeunload` prompt); answered by `tab-closed`; unknown id: `error`. Closing the last page does NOT end the host |
 | `blur-field` | `{"cmd":"blur-field","tab":4}` | C-AUTOFOCUS: blur the page's focused text field (in the frame of the last `editable-focused true`, else the main frame); the page keeps it as its last field. Answered by `field-result` (`op` `blur`; `ok` false when no field had the focus). The page's blur handlers run |
 | `focus-field last\|first` | `{"cmd":"focus-field","which":"last"}` | C-AUTOFOCUS: focus the last text field focused in the document (`last`: in the frame of the last `editable-focused true`, else the main frame; only if still connected, rendered, not disabled or read-only) or the first visible one (`first`: main frame; input text/search/url/tel/email/password/number, textarea, contenteditable; the first in the viewport, else the first in the document). Answered by `field-result` (`ok`: a field has the focus now) |
+| `selection <req>` | `{"cmd":"selection","tab":4,"req":7}` | C-YANK: the page's selected text. Answered by a `selection` event with the same `req`. The frame asked is the page's **focused frame** (CEF `CefBrowser::GetFocusedFrame`), else the main frame. No frame at all: a `selection` event with empty `text` at once ("Selection (C-YANK)") |
 | `popup-open <id> <n>` | `{"cmd":"popup-open","tab":1,"popup":7}` | open blocked popup `n` of page `id` ("Popups"); answered by a `tab-created` with `opener` (`cause` `popup-open` or `popup-fresh`); an unknown page or popup (already opened, or forgotten at a new document): `error` |
 | `file-dialog-result <id> <path>...` | `{"cmd":"file-dialog-result","id":3,"paths":["/home/u/a.png"]}` | C-FILEPICK: the answer to a `file-dialog` event; no `paths` (or an empty list) = cancelled. Needs no page and takes no `tab`. An unknown or already ended `id` is ignored (logged) |
 | `close-all` | `{"cmd":"close-all"}` | C-CLOSE-POLITE: close **every** page politely: each runs its `beforeunload` (CEF `CloseBrowser(false)`), so a page may show its "Leave site?" dialog; a page whose user chooses to stay stays open and the host keeps running normally (`new-tab` etc. still work). `tab-closed` is sent for each page that closes; the host exits after the last one has closed. Sent again, it asks the remaining pages again |
 | `quit` | `{"cmd":"quit"}` | close **every** page, forced (CEF `CloseBrowser(true)`). CEF 156 still runs `beforeunload` then and would show the dialog: the host answers it "Leave" itself while quitting (`beforeunload answered Leave without a dialog`). If a page still has not closed 2 s later (a dialog that was already on screen), the host ends anyway (`quit: N page(s) did not close; ending anyway`, then it exits with status 0 without CEF's shutdown). **SIGTERM to the host is the same as `quit`** (it logs `SIGTERM: forced quit`) |
 
 **`tab` on page commands.** `open`, `back`, `forward`, `reload`, `stop`, `find`, `find-clear`,
-`blur-field`, `focus-field` and `zoom` take an optional `"tab":<id>` (`{"cmd":"reload","tab":4}`): they act on that page, shown or
+`blur-field`, `focus-field`, `selection` and `zoom` take an optional `"tab":<id>` (`{"cmd":"reload","tab":4}`): they act on that page, shown or
 hidden; without it on the shown page. An unknown `tab` is an `error`. `forget-site` and `caret` are
 host-wide.
 
@@ -139,6 +140,7 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
 | `load-error <id> <code> <text>` | `{"event":"load-error","tab":1,"code":-105,"name":"ERR_NAME_NOT_RESOLVED","text":"ERR_NAME_NOT_RESOLVED"}` |
 | `editable-focused <id> true\|false` | `{"event":"editable-focused","tab":1,"focused":true}` |
 | `field-result <id> <op> <ok>` | `{"event":"field-result","tab":1,"op":"last","ok":true}` |
+| `selection <tab> <req> <n> chars` | `{"event":"selection","tab":4,"req":7,"text":"..."}` (the text form never holds the text, "Selection (C-YANK)") |
 | `find-result <tab> <id> <i> <n>` | `{"event":"find-result","tab":1,"id":7,"index":2,"count":5}`, optional `"wrapped":true` (only after `screen_top`: no match at or below the top of the screen, `index` is the first match) |
 | `crashed <id>` | `{"event":"crashed","tab":1,"reason":"TS_PROCESS_CRASHED (exit code 139)"}` |
 | `popup-blocked <id> <n> <url>` | `{"event":"popup-blocked","tab":1,"popup":7,"url":"https://idp.example/auth","name":"login","frame":"sub","features":"popup,width=400,height=300"}` |
@@ -234,6 +236,29 @@ unknown `cmd`, missing field, zoom out of range) gets an `error` event.
   `load ... same-document` by sending `find-clear` (C5-FRAG).
 - `crashed`: the page's renderer process died (crash, killed, out of memory). It concerns
   that page only; the page stays; `open` or `reload` loads it again in a new renderer.
+
+## Selection (C-YANK)
+
+`selection <req>` asks a page for its selected text (KEYS.md T54, `:yank`); the `selection` event
+with the same `req` answers it, once.
+
+- **Frame:** the page's focused frame (an iframe the user clicked into), else its main frame. A
+  selection spanning frames gives the focused frame's part only; text in closed shadow roots is not
+  seen.
+- **Text:** in that frame, the focused element (through open shadow roots), if it is an `<input>` or
+  `<textarea>` with a non-empty selection: its selected part (`value.slice(selectionStart,
+  selectionEnd)`); an `<input type="password">` gives `""` (Chromium does not copy from password
+  fields either). Otherwise the document's selection as `String(getSelection())` (newlines kept),
+  `""` when there is none; any exception `""`. Chromium keeps a find's active match selected after
+  `find-clear`, so `/foo` Esc then `selection` gives the match. No size cap (the shell's line reader
+  has no line-length limit; the JSON line escapes newlines, so one event stays one line).
+- **Not forgeable:** web-host-cef installs `selection.js` in every frame's main world before any page
+  script. It keeps its own references to `getSelection` and the getters it reads, so a page that
+  replaces `window.getSelection` later does not change the answer, and returns a function only the
+  renderer holds (`selection.rs`), as `field.js` does.
+- **Log:** the text form, which is what the host's log shows (`event_text`), is `selection <tab> <req>
+  <n> chars`, with `n` the text's length in characters, never the text: a copied password or message
+  must not land in a log. The shell logs the same form for the event it receives.
 
 ## forget-site
 

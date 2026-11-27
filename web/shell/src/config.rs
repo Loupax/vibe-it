@@ -84,6 +84,9 @@ pub const BINDINGS: &[Binding] = &[
     bind(Char('h'), Mods::Any, A::HistoryBack),
     bind(Char('l'), Mods::Any, A::HistoryForward),
     bind(Char('G'), Mods::Any, A::Scroll(BOTTOM)),
+    // C-YANK (T54): `:yank`, the page's selection to the clipboard. The built-in `yy` (copy the
+    // URL) was removed 2026-11-27: map it in init.js, `web.map("n", "yy", ":let @+ = @%<CR>")`.
+    bind(Char('y'), Mods::Any, A::Yank),
     bind(Sym(Keysym::Down), Mods::Any, A::Scroll(DOWN)),
     bind(Sym(Keysym::Up), Mods::Any, A::Scroll(UP)),
     bind(Sym(Keysym::Left), Mods::Any, A::Scroll(LEFT)),
@@ -102,7 +105,7 @@ pub const BINDINGS: &[Binding] = &[
 ];
 
 /// A two-key NORMAL sequence: `first` arms, `second` fires `action` (KEYS.md T10-T12,
-/// T54-T56). Any other key clears the pending state and is handled as in NORMAL.
+/// T56). Any other key clears the pending state and is handled as in NORMAL.
 #[derive(Clone, Copy, Debug)]
 pub struct KeySeq {
     pub first: char,
@@ -123,12 +126,6 @@ pub const KEY_SEQUENCES: &[KeySeq] = &[
         first: 'g',
         second: 'i',
         action: Action::FocusField,
-    },
-    // `yy`: copy the URL (`:let @+ = @%`); needs the clipboard (C6), says so until then.
-    KeySeq {
-        first: 'y',
-        second: 'y',
-        action: Action::YankUrl,
     },
     // `@:` (C-REPEAT, vim's contract): run the last `:` line again; `@@` repeats the last `@:`.
     // `@` then any other key is handled as NORMAL handles that key (no other registers).

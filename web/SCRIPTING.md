@@ -3,7 +3,9 @@
 A user's own setup (their commands, their keys, the buffers they start with) lives in a
 JavaScript file read at start, in the spirit of nvim's `init.lua`. It sets up a *profile*,
 not the app: what web is and how it behaves by default stays in `shell/src/config.rs`
-(KEYS.md "Configuration"; DECISIONS.md 2026-11-24 "User scripts").
+(KEYS.md "Configuration"; DECISIONS.md 2026-11-24 "User scripts"). Exceptions, by the user's
+choice: `yy` (copy the URL) and Ctrl-^ (`:bufferAlternate`) are user mappings now, so a profile
+with no `init.js` has neither (DECISIONS.md 2026-11-27).
 
 Rule for this file: **nothing is exposed to scripts unless the user asked for it.** Every
 addition to the API below is a user decision, recorded here with its date.
@@ -181,6 +183,8 @@ command and run a command use the exact same interface"):
 - without it: the `:` line opens with the text typed, cursor at the end, and waits for the
   user, so it reaches the line's own behaviour (completion; the URL fill-in of `:go ` and the
   other URL commands, TODO.txt C-EDITURL). `web.map("n", "ge", ":go ")`.
+- `web.map("n", "yy", ":let @+ = @%<CR>")`: the URL copy that used to be built in (removed
+  2026-11-27, C-YANK; a lone `y` is `:yank`, which then waits `MAP_TIMEOUT_MS` before it yanks).
 
 Nothing else is a key in `rhs`: `<CR>` only at the very end, `<lt>` is a literal `<`, and
 any other `<...>` or a `<CR>` before the end is an error when the mapping is made (more than

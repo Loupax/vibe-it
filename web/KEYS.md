@@ -16,7 +16,7 @@ after a click (T29, T32), and find-in-page (Search).
 Status: **built in web by C3** (`shell/src/keys.rs`, `config.rs`, `completion.rs`,
 `registers.rs`, `statusbar.rs`; tests named after the rows in `shell/src/tests/`, live
 check `shell/test/c3_live.py`), Search built by C5 (`shell/src/tests/search_tests.rs`, live
-check `shell/test/c5_live.py`), clipboard (`@+`, `yy`, paste) built by C6 (`shell/src/tests/c6_tests.rs`, live check `shell/test/c6_live.py`), Enter in NORMAL by C-ENTER (`shell/src/tests/c_enter_tests.rs`, live
+check `shell/test/c5_live.py`), clipboard (`@+`, `:yank`, paste) built by C6 (`shell/src/tests/c6_tests.rs`, live check `shell/test/c6_live.py`), Enter in NORMAL by C-ENTER (`shell/src/tests/c_enter_tests.rs`, live
 check `shell/test/c_enter_live.py`), the picker by C-PICK (`shell/src/picker.rs`, `shell/src/tests/c_pick_tests.rs`,
 live check `shell/test/c_pick_live.py`), buffers by C4 (`shell/src/buffers.rs`, `shell/src/tests/c4_tests.rs`, live check
 `shell/test/c4_live.py`). **This file is the source of truth** for web's keys: when web/TODO.txt and this
@@ -48,7 +48,8 @@ home-row mods, e.g. a Corne where Ctrl is a held `a`, or a tap-hold Caps Lock).
 
 Two short-lived helper states hold the timing rules: **ESC1** (in INPUT, one Esc seen,
 waiting for a second) and **G** (in NORMAL, one `g` seen, waiting for a second). The
-status bar shows their parent mode. *(Planned, QREG1: a third, **Y**, one `y` seen.)*
+status bar shows their parent mode. *(QREG1 planned a third, **Y**, one `y` seen; C-YANK made `y`
+one key, so there is none.)*
 
 - scratchy **starts in NORMAL** (user, 2026-11-21, QKEYS5; D4 said "starts in input mode (for now)"). The
   `START_MODE` knob in `src/config.rs` sets it; a click into a text control still switches to INPUT.
@@ -110,9 +111,9 @@ key; a press of a key already down is treated as a repeat (`Keys::key`).
 | T11 | G | `g` | none | NORMAL | scroll to the top |
 | T12 | G | any other key | none | NORMAL | handle that key as in NORMAL (it may itself be `:`, `/`, `j`, ...; `i` is `gi`, T111) |
 | T111 | G | `i` (`gi`, as Vimium) | none | NORMAL, then INPUT when the focus arrives | **2026-11-24 (user, C-AUTOFOCUS: "include gi too"):** focus the last text field focused in this document (the parked one included) if it is still connected and rendered, else the first visible text field (input text/search/url/tel/email/password/number, textarea, contenteditable; not disabled or read-only; the first in the viewport, else the first in the document). INPUT when a field has the focus (also one that already had it). No field: status bar `gi: no text field on this page`, the mode stays. **web:** `focus-field last`, its `field-result` false -> `focus-field first`; a `KEY_SEQUENCES` row. The first field is looked for in the main frame only (not in iframes or shadow roots) |
-| T54 | NORMAL | `y` | none | Y | nothing |
-| T55 | Y | `y` | not a repeat | NORMAL | copy the URL to the system clipboard, same as `:let @+ = @%` (see "Registers"). **web:** built (C6) |
-| T56 | G or Y | a key that is not the sequence's second key | none | NORMAL | as T12: handled as in NORMAL, so `g` `y` leaves Y pending and `y` `g` leaves G pending |
+| T54 | NORMAL | `y` | not a repeat | NORMAL | `:yank`: copy the page's selection (C-YANK) |
+| T55 | (removed 2026-11-27, C-YANK) | | | | the built-in yy is gone; map it: web.map("n", "yy", ":let @+ = @%<CR>") |
+| T56 | G | a key that is not the sequence's second key | none | NORMAL | as T12: handled as in NORMAL (g y: g is dropped, y yanks) |
 | T57 | INPUT, entered by T29 from a popup | the popup closes (option picked, Esc, click outside; the xdg_popup is destroyed) | the click did not focus a field | the mode before the click | the user's decision (DECISIONS.md, "Popups return to the previous mode"). A click that focused a field (`editable-focused true`) stays INPUT. Nested popups (submenus) are one session: the return happens when the last one closes. A popup with no user click (T32) never changed the mode, so nothing returns. An open `:` or `/` line was cancelled by T29, so the return is plain NORMAL. **web:** `Keys::popup_opened` / `popup_closed`, called from the shell's `new_popup` / `popup_destroyed`; `popup_return` holds the mode, `user_focused_control` (the `editable-focused` path) clears it |
 | T13 | NORMAL | `j` `k` Ctrl-d Ctrl-u `G` Home End | none | NORMAL | scroll (repeats keep scrolling). **web:** done by sending the host window real input (arrow/PageDown/Home/End keys or wheel steps), not through a page API; which event each binding becomes is a `config.rs` table. Built (C3): `SCROLL_INPUTS`; a key row (`ScrollInput::Key`) is pressed in the page window while the bound key is held and released with it, so the engine's own key repeat keeps scrolling; a `ScrollInput::Wheel(n)` row sends wheel steps at the pointer (only over the page). Defaults: `j`/`k`/arrows -> arrow keys, Ctrl-d/Space/PageDown -> PageDown, Ctrl-u/Shift-Space/PageUp -> PageUp (Chromium has no half-page key), `gg`/Home -> Home, `G`/End -> End. A key goes to whatever has the focus. **Changed 2026-11-24 (user, C-AUTOFOCUS):** a field the page focuses itself is blurred (parked, T32), so `j` scrolls the page instead of moving that field's caret. A field the user focused and left with Esc Esc keeps the focus (as before), and so does a field of a page that refocuses on blur (T32's guard): there `j` moves the caret |
 | T14 | NORMAL | `h` `l` | not a repeat | NORMAL | history back / forward (**web:** `back` / `forward` on the control socket) |
@@ -326,7 +327,7 @@ system clipboard is the register `+`.
 
 **web (C3, C6):** `%` is the URL of the host's last `url` event. `+` is the desktop's
 clipboard as text (C6; it stays text even where the page's clipboard carries every type,
-C-CLIPTYPES), read and written directly by the shell, so `:let @+ = @%` and `yy` work in
+C-CLIPTYPES), read and written directly by the shell, so `:let @+ = @%` and `:yank` work in
 any mode the page is in; `@+` is readable (`:let @+ = @+` says `web: the clipboard is
 empty` for an empty one). Messages start with `web:` instead of `scratchy:` (`Copied to
 clipboard` stays). `:let @+ = <JS expression>` (QREG2) is not carried (usage line). `*`
@@ -337,9 +338,25 @@ clipboard` stays). `:let @+ = <JS expression>` (QREG2) is not carried (usage lin
   `scratchy: no URL to copy` (a stdin start page), `scratchy: no register @x`,
   `scratchy: the clipboard is empty`, `scratchy: could not reach the system clipboard`,
   or the usage line for anything else.
-- `yy` in NORMAL is `:let @+ = @%` (T54-T56). Once the page cursor exists, vim parity
-  would make `yy` "yank the cursor's line"; the user chose `yy` = URL anyway (2026-11-21),
-  to be revisited with the cursor design (QCURSOR-D).
+- `:yank` and `y` write the page's selection to `+` (C-YANK); the built-in `yy` was removed
+  2026-11-27, and `web.map("n", "yy", ":let @+ = @%<CR>")` brings it back.
+
+### Yank (C-YANK)
+
+What is copied is whatever the page has selected now: made with the mouse, or the active match
+that `/foo` Esc leaves selected (Chromium keeps it selected when the find ends; vim would not copy
+a search match, the user accepted the difference, 2026-11-27). In a focused `<input>` or
+`<textarea>` it is the field's selected part; a password field gives nothing. The host asks the
+page's focused frame (an iframe clicked into), else its main frame (PROTOCOL.md "Selection").
+A keyboard way to make a selection (visual mode) is out of scope (C5-ENTER / QCURSOR-D).
+
+| # | From | Event | Guard | To | Effect |
+|---|---|---|---|---|---|
+| T183 | COMMAND | `:yank` Enter | no argument | NORMAL | ask the host for the current buffer's selection (`selection`; no buffer page: `web: nothing selected`) |
+| T184 | COMMAND | `:yank <anything>` Enter | an argument | NORMAL | error `web: usage: :yank` (`:yank link` and `:yank image` are reserved for the parked C-CMDS) |
+| T185 | any | the host's `selection` answer | for the current buffer and the latest request | same | non-empty text: written to `+` as is (newlines kept), message `Copied to clipboard`; empty: error `web: nothing selected`; the clipboard cannot be written: error `web: could not reach the system clipboard` |
+| T186 | any | the host's `selection` answer | another buffer, an older request, or after a navigation | same | ignored |
+
 - After QREG1, each its own item: `:let @+ = <JS expression>` (QREG2), `*` (primary selection),
   `"`/`0`/`a`-`z`, `/` (the kept query), `:registers`.
 
@@ -637,9 +654,9 @@ consulted at all); with mappings, keys that start none of them are handled at on
 
 | ID | Mode | Key | Condition | Next | Action |
 |---|---|---|---|---|---|
-| T118 | NORMAL | the keys of a mapping | typed in NORMAL (not in INPUT, the `:`/`/` lines or the picker), each before `MAP_TIMEOUT_MS` (1000, config.rs, vim's `timeoutlen`) after the one before | per rhs | the mapping runs instead of any built-in binding or sequence for those keys (T6-T21, T54-T56, T111: `j`, `gg`, `yy`, even `:`; vim allows that too, so mapping `:` hides the command line unless the rhs opens it, e.g. `web.map("n", ";", ":")`; no guard. Esc cannot be mapped, so Esc Esc, T7 and T28 stay). A modifier key's own press (Shift for the `T` of `gT`) does not break the sequence |
+| T118 | NORMAL | the keys of a mapping | typed in NORMAL (not in INPUT, the `:`/`/` lines or the picker), each before `MAP_TIMEOUT_MS` (1000, config.rs, vim's `timeoutlen`) after the one before | per rhs | the mapping runs instead of any built-in binding or sequence for those keys (T6-T21, T54, T56, T111: `j`, `gg`, `y`, even `:`; vim allows that too, so mapping `:` hides the command line unless the rhs opens it, e.g. `web.map("n", ";", ":")`; no guard. Esc cannot be mapped, so Esc Esc, T7 and T28 stay). A modifier key's own press (Shift for the `T` of `gT`) does not break the sequence. C-YANK: a mapping `yy` (the URL copy that used to be built in) makes a lone `y` wait the mapping timeout before it yanks, and `y` followed by a key that completes no mapping runs `y` (yank) and then that key (`y` `j`: yank, then scroll) |
 | T119 | NORMAL | the keys typed so far | they start a longer mapping | NORMAL (waiting) | nothing yet: wait for the next key, up to `MAP_TIMEOUT_MS` |
-| T120 | NORMAL (waiting) | a key that continues no mapping, or the timeout | - | per keys | the longest mapping the pending keys start with runs, else the first pending key is handled as without mappings (T6-T21: a `j` held all along scrolls until released; a `j` released meanwhile scrolls one step); the keys after it are matched again. A key of a mapping that opened the `:` line goes into the line. A replayed key never reaches the page (only a press handled at once can). A key after a half-typed built-in sequence (`g`, `y`) completes it unmapped, as vim reads the second key of `gg` with mappings off: with `gh` mapped, `gg` still scrolls to the top at once. An OS key repeat ends the wait at once. INPUT (a click into a field) or losing the keyboard focus drops the pending keys |
+| T120 | NORMAL (waiting) | a key that continues no mapping, or the timeout | - | per keys | the longest mapping the pending keys start with runs, else the first pending key is handled as without mappings (T6-T21: a `j` held all along scrolls until released; a `j` released meanwhile scrolls one step); the keys after it are matched again. A key of a mapping that opened the `:` line goes into the line. A replayed key never reaches the page (only a press handled at once can). A key after a half-typed built-in sequence (`g`, `@`) completes it unmapped, as vim reads the second key of `gg` with mappings off: with `gh` mapped, `gg` still scrolls to the top at once. An OS key repeat ends the wait at once. INPUT (a click into a field) or losing the keyboard focus drops the pending keys |
 | T121 | NORMAL | a mapping whose rhs is a `:` line ending in `<CR>` (`<Enter>`, `<Return>`; any case) | - | as the line's command | the line runs as `web.cmd` runs it (T115 for a user command); its error shows in the bar as the command's would |
 | T122 | NORMAL | a mapping whose rhs is a `:` line without `<CR>` | - | COMMAND | the `:` line opens with that text typed, cursor at the end (`":go "`), with its ghost (T45); the URL fill-in of `:go ` (C-EDITURL) applies there once built |
 | T123 | NORMAL | a mapping whose rhs is a function | - | as the function's lines | calls it with no arguments, under `SCRIPT_BUDGET_MS`; the lines it hands to `web.cmd` run after it returns (T115); an exception: `init.js:LINE: message` |
@@ -680,6 +697,13 @@ Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked ou
 
 ## Decision log
 
+- 2026-11-27 (user, C-YANK): "I want to introduce a yank command, so I can copy selections from
+  normal mode." `:yank` and `y` (T54, T183-T186) copy the page's selection to `+`. The built-in
+  `yy` (T55) is removed: "I think we should also remove the built in yy and have it done in js
+  only, since all the functionality is already there"; users map it with
+  `web.map("n", "yy", ":let @+ = @%<CR>")`. This amends the 2026-11-21 line below (`yy` copies the
+  URL); that line stays as history. A search match left selected by `/foo` Esc is copied too (vim
+  would not): "I say accept it." DECISIONS.md "Yank the page's selection".
 - 2026-11-24 (C-SCRIPT-MAP): key mappings (T118-T124). The implementer's choices, not asked:
   `MAP_TIMEOUT_MS` 1000 (vim's `timeoutlen` default); the second key of a half-typed built-in
   sequence is not mapped (vim's rule); modifier presses are ignored by the matcher; an OS repeat ends

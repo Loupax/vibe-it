@@ -23,7 +23,7 @@ C-CLIPTYPES (Wayland only; --x11 runs the text steps): every type is carried. Th
 (an image) in its title as `c6 paste types=... file=<type>:<size> v=<value>`. The extra steps: an
 image-only desktop clipboard (`wl-copy -t image/png`) pastes the image into the page and no old
 text (page or `:` line); a copy in the page lists text/html and the marker type in `wl-paste -l`;
-yy then a paste in the page; the page's primary selection with its types. Run it with a private
+`:let @+ = @%` (the URL copy the built-in `yy` did until C-YANK) then a paste in the page; the page's primary selection with its types. Run it with a private
 D-Bus (`dbus-run-session --config-file=web/tools/notify-probe/private-bus.conf -- ...`)."""
 
 import argparse
@@ -322,15 +322,16 @@ def main():
             return "typed 'page word' in the page, copied it there, Ctrl-v in the `:` line shows it (no 'did not answer')"
         step("page -> `:` line", page_to_line)
 
-        def yy():
+        def let_url():
+            # C-YANK removed the built-in `yy`; its URL copy is the typed line (or a user mapping).
             desk.set("old")
             to_normal()
             k = log.mark()
-            inject("key:y", "wait:100", "key:y", "wait:400")
+            inject(*keys_for(":let @+ = @%"), "key:ret", "wait:400")
             bar(r"NORMAL \| Copied to clipboard", k)
             desk.wait_for(page_url)
-            return f"yy: 'Copied to clipboard', the desktop holds {page_url}"
-        step("T54 T55: yy copies the URL", yy)
+            return f":let @+ = @% typed from NORMAL: 'Copied to clipboard', the desktop holds {page_url}"
+        step("the URL copy: :let @+ = @% (was yy, T55)", let_url)
 
         def let_plus():
             desk.set("old")
@@ -433,18 +434,18 @@ def main():
             step("C-CLIPTYPES page rich copy -> desktop", rich_copy)
 
             def yy_to_page():
-                # 4: yy (smithay-clipboard's own source on the desktop) reaches the page.
+                # 4: the URL copy (smithay-clipboard's own source on the desktop) reaches the page.
                 desk.set("old")
                 to_normal()
-                inject("key:y", "wait:100", "key:y", "wait:400")
+                inject(*keys_for(":let @+ = @%"), "key:ret", "wait:400")
                 desk.wait_for(page_url)
                 into_field()
                 k = log.mark()
                 inject(*chord("c", "a"), *chord("c", "v"))
                 title(page_url, k)
                 log.wait(r"clipboard: the page reads the clipboard as \S+ \(from the desktop\)", k)
-                return f"yy, then Ctrl-A Ctrl-v in the field: it holds {page_url}"
-            step("C-CLIPTYPES yy -> paste in the page", yy_to_page)
+                return f":let @+ = @%, then Ctrl-A Ctrl-v in the field: it holds {page_url}"
+            step("C-CLIPTYPES :let @+ = @% -> paste in the page", yy_to_page)
 
             def primary_types():
                 # 6: the page's primary selection is the shell's source on the desktop (with the marker).

@@ -96,6 +96,11 @@ pub enum Command {
     FocusField {
         which: FieldWhich,
     },
+    /// C-YANK: the page's selected text, in its focused frame (else its main frame). Answered by a
+    /// `selection` event with the same `req`.
+    Selection {
+        req: u64,
+    },
     /// C-CLOSE-POLITE: closes every page politely (each runs `beforeunload`; a page whose user
     /// chose to stay stays open); the host exits once the last page has closed.
     CloseAll,
@@ -323,6 +328,13 @@ pub enum Event {
         op: FieldOp,
         ok: bool,
     },
+    /// C-YANK: the answer to `selection`: the selected text ("" when nothing is selected). Its text
+    /// form shows only the length, never the text (the log must not hold a copied password).
+    Selection {
+        tab: TabId,
+        req: u64,
+        text: String,
+    },
     /// `index`: 1-based active match (0 when there is none), `count`: matches.
     FindResult {
         tab: TabId,
@@ -490,6 +502,7 @@ pub fn event_text(ev: &Event) -> String {
         Event::LoadError { tab, code, name, text } => format!("load-error {tab} {code} {name} {text}"),
         Event::EditableFocused { tab, focused } => format!("editable-focused {tab} {focused}"),
         Event::FieldResult { tab, op, ok } => format!("field-result {tab} {} {ok}", op.name()),
+        Event::Selection { tab, req, text } => format!("selection {tab} {req} {} chars", text.chars().count()),
         Event::FindResult { tab, id, index, count, .. } => format!("find-result {tab} {id} {index} {count}"),
         Event::Crashed { tab, reason } => format!("crashed {tab} ({reason})"),
         Event::Forgot { site, result, failed, .. } => match result {
@@ -916,6 +929,8 @@ mod tests {
                 r#"{"cmd":"focus-field","which":"first"}"#,
                 Command::FocusField { which: FieldWhich::First },
             ),
+            // C-YANK.
+            (r#"{"cmd":"selection","req":7}"#, Command::Selection { req: 7 }),
             (r#"{"cmd":"zoom","factor":1.5}"#, Command::Zoom { factor: 1.5 }),
             (r#"{"cmd":"caret","on":true}"#, Command::Caret { on: true }),
             (r#"{"cmd":"caret","on":false}"#, Command::Caret { on: false }),
@@ -959,6 +974,7 @@ mod tests {
             ),
             (r#"{"cmd":"find-clear","tab":2}"#, Command::FindClear, Some(2)),
             (r#"{"cmd":"blur-field","tab":3}"#, Command::BlurField, Some(3)),
+            (r#"{"cmd":"selection","tab":4,"req":7}"#, Command::Selection { req: 7 }, Some(4)),
             (r#"{"cmd":"back"}"#, Command::Back, None),
         ];
         for (line, want, tab) in cases {
@@ -990,6 +1006,8 @@ mod tests {
             r#"{"cmd":"zoom","factor":"big"}"#,
             r#"{"cmd":"caret"}"#,
             r#"{"cmd":"caret","on":"yes"}"#,
+            r#"{"cmd":"selection"}"#,
+            r#"{"cmd":"selection","req":"7"}"#,
             r#"{"url":"x"}"#,
         ] {
             assert!(parse_command(bad).is_err(), "{bad:?} parsed");
@@ -1124,6 +1142,14 @@ mod tests {
                 r#"{"event":"field-result","tab":2,"op":"first","ok":false}"#,
             ),
             (
+                Event::Selection {
+                    tab: 4,
+                    req: 7,
+                    text: "hello\nw\u{f6}rld \"q\"".into(),
+                },
+                r#"{"event":"selection","tab":4,"req":7,"text":"hello\nwörld \"q\""}"#,
+            ),
+            (
                 Event::FindResult {
                     tab: 1,
                     id: 5,
@@ -1218,6 +1244,14 @@ mod tests {
             }),
             "field-result 2 last true"
         );
+        // C-YANK: the length in characters, never the text.
+        let sel = event_text(&Event::Selection {
+            tab: 4,
+            req: 7,
+            text: "hunter2\nw\u{f6}rld".into(),
+        });
+        assert_eq!(sel, "selection 4 7 13 chars");
+        assert!(!sel.contains("hunter2"));
         assert_eq!(
             event_text(&Event::BlankLink {
                 tab: 2,

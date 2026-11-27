@@ -159,8 +159,8 @@ pub enum Action {
     HistoryBack,
     /// `l` (T14).
     HistoryForward,
-    /// `yy` (T55): `:let @+ = @%`.
-    YankUrl,
+    /// `y` (T54, C-YANK): `:yank`, the page's selection to the clipboard.
+    Yank,
     /// The key press (and its release) goes to the page (T19: Enter; T18 ends an open find first).
     ToPage,
     /// `gi` (C-AUTOFOCUS, as Vimium): focus the last text field of the page, else the first visible
@@ -172,7 +172,7 @@ pub enum Action {
     RepeatRepeat,
 }
 
-/// Whether `action` ignores OS key repeat (T14 `h`/`l` "not a repeat", T55).
+/// Whether `action` ignores OS key repeat (T14 `h`/`l` "not a repeat", T54 `y`).
 pub fn action_ignores_repeat(action: Action) -> bool {
     !matches!(action, Action::Scroll(_) | Action::ToPage)
 }
@@ -185,12 +185,12 @@ pub fn resolve_binding(key: &KeyInput, mode: VimMode) -> Option<Action> {
     BINDINGS.iter().find(|b| b.matches(key)).map(|b| b.action)
 }
 
-/// The pending-key machine of `config::KEY_SEQUENCES` (`gg`, `yy`; KEYS.md T10-T12,
-/// T54-T56): given the pending first key and the key just pressed, returns the action to
+/// The pending-key machine of `config::KEY_SEQUENCES` (`gg`, `gi`, `@:`; KEYS.md T10-T12,
+/// T56): given the pending first key and the key just pressed, returns the action to
 /// run, the new pending key, and whether the key was consumed (so `resolve_binding` must
 /// not also run on it). A first key arms; its second fires the row; any other key clears
-/// the pending state and is handled as in NORMAL, so it may itself arm (`g` `y` leaves `y`
-/// pending).
+/// the pending state and is handled as in NORMAL, so it may itself arm (`g` `@` leaves `@`
+/// pending; `g` `y` drops the `g` and yanks).
 pub fn resolve_sequence(pending: Option<char>, key: &KeyInput) -> (Option<Action>, Option<char>, bool) {
     // C-REPEAT: a modifier's own press (the Shift of the `@` and of the `:` in `@:`) keeps the pending key.
     if pending.is_some() && is_modifier_sym(key.sym) {
@@ -359,7 +359,7 @@ pub fn resolve_mapping<'a>(typed: &[Option<MapKey>], maps: impl Iterator<Item = 
     }
 }
 
-/// The status bar's mode name. ESC1 and a pending `g`/`y` show their parent mode.
+/// The status bar's mode name. ESC1 and a pending `g`/`@` show their parent mode.
 pub fn mode_name(mode: KeyMode) -> &'static str {
     match mode {
         KeyMode::Input => "INPUT",
@@ -400,6 +400,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "refresh",
     "set",
     "source",
+    "yank",
 ];
 
 /// C-EDITURL: the commands that open a URL; `<name> ` typed fills in the page's URL, selected.
@@ -715,6 +716,11 @@ pub struct Keys {
     /// `field-result` is still awaited (`last` failed: ask for `first`; none: the message).
     gi_at: Option<Instant>,
     gi_waiting: bool,
+    /// C-YANK: the last `selection` request's number, and the (tab, request) whose answer `:yank`
+    /// still waits for (an older request's, another page's or one from before a navigation is
+    /// ignored).
+    yank_req: u64,
+    yank_waiting: Option<(u64, u64)>,
     /// C-SCRIPT: the user's scripts (`script.rs`); None until a file exists.
     pub scripts: Option<crate::script::Scripts>,
     /// C-SCRIPT-MAP: NORMAL key presses held back because they start a user mapping, oldest first,
@@ -755,6 +761,8 @@ impl Keys {
             page_key_at: None,
             gi_at: None,
             gi_waiting: false,
+            yank_req: 0,
+            yank_waiting: None,
             scripts: None,
             map_pending: Vec::new(),
             map_deadline: None,
@@ -1172,13 +1180,14 @@ impl Keys {
             Action::FocusField => self.focus_field(now),
             Action::HistoryBack => self.effects.push(Effect::Send(Command::Back)),
             Action::HistoryForward => self.effects.push(Effect::Send(Command::Forward)),
-            Action::YankUrl => self.run_command_line("let @+ = @%"),
+            // A key repeat never gets here (`action_ignores_repeat`): only the first press yanks.
+            Action::Yank => self.yank(),
             Action::RepeatLine => self.repeat_line(),
             Action::RepeatRepeat => self.repeat_repeat(),
         }
     }
 
-    /// Switches the mode. Leaving NORMAL drops a pending `g`/`y` and an open `:` line.
+    /// Switches the mode. Leaving NORMAL drops a pending `g`/`@` and an open `:` line.
     pub fn set_key_mode(&mut self, mode: KeyMode) {
         self.key_mode = mode;
         self.esc = EscState::Idle;
@@ -1300,6 +1309,34 @@ impl Keys {
         }
     }
 
+    /// `:yank` / `y` (C-YANK, T54): asks the current buffer's page for its selection; the answer
+    /// (`selection_result`) goes to the clipboard. Whether anything is selected only the page knows.
+    fn yank(&mut self) {
+        let Some(tab) = self.buffers.current_tab() else {
+            return self.fail(crate::registers::NOTHING_SELECTED.to_string());
+        };
+        self.yank_req += 1;
+        let req = self.yank_req;
+        self.yank_waiting = Some((tab, req));
+        self.effects.push(Effect::SendTo(tab, Command::Selection { req }));
+    }
+
+    /// The host's `selection` answer `req` from page `tab` (C-YANK): only the latest request's, for
+    /// the current buffer, before any navigation, is written to `+`; any other is ignored.
+    pub fn selection_result(&mut self, tab: u64, req: u64, text: &str) {
+        if self.yank_waiting != Some((tab, req)) || self.buffers.current_tab() != Some(tab) {
+            return;
+        }
+        self.yank_waiting = None;
+        let m = crate::registers::yank_message(text, self.clipboard.as_deref_mut());
+        // As `:let`: every message that is not `COPIED` is an error.
+        if m == crate::registers::COPIED {
+            self.message = m;
+        } else {
+            self.fail(m);
+        }
+    }
+
     fn open_line(&mut self) {
         self.vim_mode = VimMode::Command;
         self.cmd_history.end_browse();
@@ -1404,6 +1441,8 @@ impl Keys {
         self.page_key_at = None;
         self.gi_at = None;
         self.gi_waiting = false;
+        // C-YANK: the old document's selection is not what the user sees any more.
+        self.yank_waiting = None;
         if self.search.session {
             self.forget_session();
             self.message.clear();
@@ -1850,6 +1889,10 @@ impl Keys {
                 let url = self.help_url.clone();
                 send(self, Command::Open { url })
             }
+            // C-YANK (KEYS.md T54): the page's selection to `+`. `:yank link` / `:yank image` are
+            // reserved for C-CMDS.
+            ("yank", []) => self.yank(),
+            ("yank", _) => self.fail("web: usage: :yank".to_string()),
             // C4 (KEYS.md "Buffers"): camelCase names with vim's aliases.
             ("bufferAlternate", []) => self.buffer_alternate(),
             ("bufferAlternate", _) => self.fail("web: usage: :bufferAlternate".to_string()),
