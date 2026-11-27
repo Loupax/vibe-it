@@ -2,6 +2,20 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-27 The mapping timeout is `web.settings.mapTimeout`, default 250 ms (C-MAPTIMEOUT)
+
+Issue #772. With C-YANK, the URL copy `yy` is a user mapping, so a lone `y` waits the mapping timeout
+(KEYS.md T118) before it yanks. User, 2026-11-27: "the delay is a whole second by default?", then: "expose
+it via web.settings.mapTimeout and set a default of 250ms".
+
+- **`web.settings.mapTimeout`**, milliseconds, an integer from 1 to 10000 (anything else is a `TypeError`;
+  0 is refused because a mapping sharing a prefix with a shorter one could then never be typed). Default 250
+  (`config::MAP_TIMEOUT_MS`; was 1000, vim's `timeoutlen`). `:source` resets it. It takes effect on the next
+  wait; a wait already running keeps its deadline.
+- **`web.settings` is a new frozen object** for settings that belong to no source. This does not change the
+  2026-11-25 rule "these objects are where later settings of a source go, never `web` itself": the setting is on
+  `web.settings`, not on `web`. Source settings stay where they are.
+
 ## 2026-11-27 Yank the page's selection: `:yank` and `y`; the built-in `yy` goes (C-YANK)
 
 Issue #771. User, 2026-11-27: "I want to introduce a yank command, so I can copy selections from normal

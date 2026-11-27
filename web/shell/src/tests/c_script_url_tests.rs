@@ -177,7 +177,7 @@ web.command("K", () => {
     );
     assert_eq!(k.message, "", "{:?}", logs(&k));
     type_line(&mut k, "K");
-    assert_eq!(k.message, "true,true,true,bookmarks+buffers+cmd+command+history+map+on");
+    assert_eq!(k.message, "true,true,true,bookmarks+buffers+cmd+command+history+map+on+settings");
 }
 
 #[test]

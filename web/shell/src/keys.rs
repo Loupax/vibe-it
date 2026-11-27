@@ -330,7 +330,7 @@ pub fn parse_map_rhs(rhs: &str) -> Result<MapLine, String> {
 /// What the keys pending so far do (`resolve_mapping`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MapStep {
-    /// They are the start of a longer mapping: wait for the next key (up to `MAP_TIMEOUT_MS`).
+    /// They are the start of a longer mapping: wait for the next key (up to the mapping timeout, `web.settings.mapTimeout`, default `MAP_TIMEOUT_MS`).
     Wait,
     /// Mapping `index` matches the first `len` of them: run it; the rest are handled after.
     Fire { index: usize, len: usize },
@@ -724,7 +724,7 @@ pub struct Keys {
     /// C-SCRIPT: the user's scripts (`script.rs`); None until a file exists.
     pub scripts: Option<crate::script::Scripts>,
     /// C-SCRIPT-MAP: NORMAL key presses held back because they start a user mapping, oldest first,
-    /// and when the wait for the next key ends (`MAP_TIMEOUT_MS`). Empty while no mapping is typed.
+    /// and when the wait for the next key ends (the mapping timeout, `web.settings.mapTimeout`, default `MAP_TIMEOUT_MS`). Empty while no mapping is typed.
     map_pending: Vec<PendingKey>,
     map_deadline: Option<Instant>,
     /// A mapping timer is running (set by the compositor, `State::arm_map_timer`).
@@ -1021,7 +1021,8 @@ impl Keys {
             };
             match step {
                 MapStep::Wait => {
-                    self.map_deadline = Some(now + Duration::from_millis(MAP_TIMEOUT_MS));
+                    self.map_deadline =
+                        Some(now + Duration::from_millis(self.scripts.as_ref().map_or(MAP_TIMEOUT_MS, |s| s.map_timeout())));
                     break;
                 }
                 MapStep::Fire { index, len } => {

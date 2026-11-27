@@ -654,7 +654,7 @@ consulted at all); with mappings, keys that start none of them are handled at on
 
 | ID | Mode | Key | Condition | Next | Action |
 |---|---|---|---|---|---|
-| T118 | NORMAL | the keys of a mapping | typed in NORMAL (not in INPUT, the `:`/`/` lines or the picker), each before `MAP_TIMEOUT_MS` (1000, config.rs, vim's `timeoutlen`) after the one before | per rhs | the mapping runs instead of any built-in binding or sequence for those keys (T6-T21, T54, T56, T111: `j`, `gg`, `y`, even `:`; vim allows that too, so mapping `:` hides the command line unless the rhs opens it, e.g. `web.map("n", ";", ":")`; no guard. Esc cannot be mapped, so Esc Esc, T7 and T28 stay). A modifier key's own press (Shift for the `T` of `gT`) does not break the sequence. C-YANK: a mapping `yy` (the URL copy that used to be built in) makes a lone `y` wait the mapping timeout before it yanks, and `y` followed by a key that completes no mapping runs `y` (yank) and then that key (`y` `j`: yank, then scroll) |
+| T118 | NORMAL | the keys of a mapping | typed in NORMAL (not in INPUT, the `:`/`/` lines or the picker), each before `web.settings.mapTimeout` (default 250, `MAP_TIMEOUT_MS` in config.rs; vim's `timeoutlen`) after the one before | per rhs | the mapping runs instead of any built-in binding or sequence for those keys (T6-T21, T54, T56, T111: `j`, `gg`, `y`, even `:`; vim allows that too, so mapping `:` hides the command line unless the rhs opens it, e.g. `web.map("n", ";", ":")`; no guard. Esc cannot be mapped, so Esc Esc, T7 and T28 stay). A modifier key's own press (Shift for the `T` of `gT`) does not break the sequence. C-YANK: a mapping `yy` (the URL copy that used to be built in) makes a lone `y` wait the mapping timeout before it yanks, and `y` followed by a key that completes no mapping runs `y` (yank) and then that key (`y` `j`: yank, then scroll) |
 | T119 | NORMAL | the keys typed so far | they start a longer mapping | NORMAL (waiting) | nothing yet: wait for the next key, up to `MAP_TIMEOUT_MS` |
 | T120 | NORMAL (waiting) | a key that continues no mapping, or the timeout | - | per keys | the longest mapping the pending keys start with runs, else the first pending key is handled as without mappings (T6-T21: a `j` held all along scrolls until released; a `j` released meanwhile scrolls one step); the keys after it are matched again. A key of a mapping that opened the `:` line goes into the line. A replayed key never reaches the page (only a press handled at once can). A key after a half-typed built-in sequence (`g`, `@`) completes it unmapped, as vim reads the second key of `gg` with mappings off: with `gh` mapped, `gg` still scrolls to the top at once. An OS key repeat ends the wait at once. INPUT (a click into a field) or losing the keyboard focus drops the pending keys |
 | T121 | NORMAL | a mapping whose rhs is a `:` line ending in `<CR>` (`<Enter>`, `<Return>`; any case) | - | as the line's command | the line runs as `web.cmd` runs it (T115 for a user command); its error shows in the bar as the command's would |
@@ -697,6 +697,10 @@ Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked ou
 
 ## Decision log
 
+- 2026-11-27 (user, C-MAPTIMEOUT): "the delay is a whole second by default?", then "expose it via
+  web.settings.mapTimeout and set a default of 250ms". T118's wait is `web.settings.mapTimeout`
+  (integer 1..10000 ms, default 250 = `MAP_TIMEOUT_MS`; was 1000). Takes effect on the next wait.
+  DECISIONS.md "The mapping timeout".
 - 2026-11-27 (user, C-YANK): "I want to introduce a yank command, so I can copy selections from
   normal mode." `:yank` and `y` (T54, T183-T186) copy the page's selection to `+`. The built-in
   `yy` (T55) is removed: "I think we should also remove the built in yy and have it done in js
@@ -705,7 +709,7 @@ Esc Esc, so there is nothing left to switch off, and Esc Esc cannot be locked ou
   URL); that line stays as history. A search match left selected by `/foo` Esc is copied too (vim
   would not): "I say accept it." DECISIONS.md "Yank the page's selection".
 - 2026-11-24 (C-SCRIPT-MAP): key mappings (T118-T124). The implementer's choices, not asked:
-  `MAP_TIMEOUT_MS` 1000 (vim's `timeoutlen` default); the second key of a half-typed built-in
+  `MAP_TIMEOUT_MS` 1000 (vim's `timeoutlen` default; C-MAPTIMEOUT 2026-11-27: now 250, `web.settings.mapTimeout`); the second key of a half-typed built-in
   sequence is not mapped (vim's rule); modifier presses are ignored by the matcher; an OS repeat ends
   the wait; keys after a mapping that opened the `:` line go into it; mapping `:` is allowed (vim's
   behaviour, no guard; PR #735's question). DECISIONS.md "Key mappings: vim's matcher".

@@ -372,7 +372,8 @@ pub const SCRIPT_MEMORY_MAX: usize = 64 * 1024 * 1024;
 /// is refused unread. 1 MiB is far beyond any hand-written config.
 pub const SCRIPT_MODULE_MAX: u64 = 1024 * 1024;
 /// C-SCRIPT-MAP: while the keys typed in NORMAL are the start of a longer `web.map` mapping, the shell
-/// waits this many milliseconds for the next key (vim's `timeoutlen`, same default); then the keys are
+/// waits `web.settings.mapTimeout` milliseconds for the next key (vim's `timeoutlen`); then the keys are
 /// handled as without the mapping (or a shorter mapping they complete runs). With no mapping sharing a
-/// prefix with what is typed, nothing waits.
-pub const MAP_TIMEOUT_MS: u64 = 1000;
+/// prefix with what is typed, nothing waits. This constant is the default of `web.settings.mapTimeout`
+/// (C-MAPTIMEOUT): vim's default is 1000, web's is 250 (user, 2026-11-27).
+pub const MAP_TIMEOUT_MS: u64 = 250;

@@ -439,6 +439,8 @@ struct Registry {
     confirm: DeleteConfirm,
     /// C-FOCUSEXISTING: `web.buffers.focusExisting` (default false).
     focus_existing: bool,
+    /// C-MAPTIMEOUT: `web.settings.mapTimeout` in ms (None = `MAP_TIMEOUT_MS`).
+    map_timeout: Option<u64>,
     queue: Vec<ScriptLine>,
     commands: BTreeMap<String, Persistent<Function<'static>>>,
     ready: Vec<Persistent<Function<'static>>>,
@@ -634,6 +636,11 @@ impl Scripts {
     /// to a URL a buffer already shows switches to that buffer instead of opening a new one.
     pub fn focus_existing(&self) -> bool {
         self.reg.borrow().focus_existing
+    }
+
+    /// C-MAPTIMEOUT: `web.settings.mapTimeout`: how long the wait for the rest of a mapping lasts, in ms.
+    pub fn map_timeout(&self) -> u64 {
+        self.reg.borrow().map_timeout.unwrap_or(crate::config::MAP_TIMEOUT_MS)
     }
 
     /// C-SCRIPT-BUFLIST: the snapshot the next call's `web.buffers.list()` reads.
@@ -1004,6 +1011,31 @@ fn install_web<'js>(ctx: &Ctx<'js>, reg: &Rc<RefCell<Registry>>) -> rquickjs::Re
         }
         freeze.call::<_, Value>((obj.clone(),))?;
         web.set(name, obj)?;
+    }
+    // C-MAPTIMEOUT: `web.settings`, for settings that belong to no source.
+    {
+        let obj = Object::new(ctx.clone())?;
+        let r = reg.clone();
+        let get = Function::new(ctx.clone(), move || r.borrow().map_timeout.unwrap_or(crate::config::MAP_TIMEOUT_MS))?;
+        let r = reg.clone();
+        let set = Function::new(ctx.clone(), move |ctx: Ctx<'js>, v: Value<'js>| {
+            let ok = v.as_number().filter(|n| n.fract() == 0.0 && (1.0..=10000.0).contains(n));
+            let Some(n) = ok else {
+                return Err(Exception::throw_type(
+                    &ctx,
+                    "web.settings.mapTimeout must be an integer from 1 to 10000 (milliseconds)",
+                ));
+            };
+            r.borrow_mut().map_timeout = Some(n as u64);
+            Ok(())
+        })?;
+        let desc = Object::new(ctx.clone())?;
+        desc.set("get", get)?;
+        desc.set("set", set)?;
+        desc.set("enumerable", true)?;
+        define.call::<_, Value>((obj.clone(), "mapTimeout", desc))?;
+        freeze.call::<_, Value>((obj.clone(),))?;
+        web.set("settings", obj)?;
     }
     // Nothing else: `web` itself is frozen so a script cannot mistake an addition for an API.
     freeze.call::<_, Value>((web.clone(),))?;
