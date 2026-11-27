@@ -2,6 +2,20 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-27 The first Esc in INPUT is held back (C-ESCHOLD)
+
+Issue #775. In INPUT, Esc Esc switches to NORMAL, but the first Esc used to reach the page, and on sites like
+Google Drive and Workday Esc closes the view or leaves the page. User, 2026-11-27: "Let's go with A": hold
+the first Esc, the page gets it only if no second Esc follows.
+
+- Esc Esc within the wait: NORMAL, the page sees neither Esc. Another key or the timeout: the page gets the
+  held Esc first, then the key, in order. Focus loss drops the held Esc (KEYS.md T1-T4c).
+- The wait is the mapping timeout: "I think we already have a configuration item for the buffer between
+  motion keys, can't we use that?" So `web.settings.mapTimeout` (default 250 ms) also sets how long Esc Esc
+  waits; `ESC_ESC_MS` (300) is removed. A lone Esc reaches the page up to that long late (accepted).
+- When Esc Esc leaves a text field, the field keeps the focus (the page never saw an Esc that could blur it):
+  "yes that's fine".
+
 ## 2026-11-27 The mapping timeout is `web.settings.mapTimeout`, default 250 ms (C-MAPTIMEOUT)
 
 Issue #772. With C-YANK, the URL copy `yy` is a user mapping, so a lone `y` waits the mapping timeout

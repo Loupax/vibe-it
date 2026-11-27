@@ -561,7 +561,7 @@ fn map_no_regression_held_scroll_key_and_ctrl_caret() {
 fn map_no_regression_esc_esc_and_input_mode() {
     let esc = KeyInput::sym(Keysym::Escape);
     let mut ev = taps("i", 0, 10);
-    // In INPUT: Esc Esc within ESC_ESC_MS, a slow pair, mapped keys go to the page.
+    // In INPUT: Esc Esc within the mapping timeout, a slow pair, mapped keys go to the page.
     ev.extend([(esc, true, 100), (esc, false, 101)]);
     ev.extend(taps("Qg", 200, 10));
     ev.extend([(esc, true, 300), (esc, false, 301), (esc, true, 500), (esc, false, 501)]);
