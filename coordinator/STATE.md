@@ -709,3 +709,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-27 #774 C-YANK merged (3c57ac5), closes #771
 - y/:yank copy selection via selection command/event (length-only logs in host and shell). yy removed. 612 shell + 50 host tests, live 14/14 x3, c6 13/13 x3. Undecided: y with find open -> nothing selected (listed under Waiting on you). Host clippy has 2 pre-existing dead-code errors (filedialog Registry::len, notify RateLimit::allow); CI does not run host clippy. Installed 20261127-160757-991b9037. No agents running.
+
+## 2026-11-27 issue #775 -> C-ESCHOLD filed, waiting on #772
+- Filed (2ea59c51) as WAITING: depends on #772 (C-MAPTIMEOUT) which is not labelled ready. Commented; listed under Waiting on you.

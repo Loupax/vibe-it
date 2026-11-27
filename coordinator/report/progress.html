@@ -471,6 +471,7 @@ ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 <section>
   <h2>Waiting on you</h2>
   <ul id="waiting">
+    <li><b>#772 (C-MAPTIMEOUT) needs the <code>ready</code> label:</b> your issue #775 (C-ESCHOLD, Esc Esc holds the first Esc) is filed and waits for it, as the issue says.</li>
     <li><b>Your init.js after #773/#774:</b> add <code>web.map("n", "&lt;C-^&gt;", ":bufferAlternate&lt;CR&gt;");</code> and, if you want the URL copy back, <code>web.map("n", "yy", ":let @+ = @%&lt;CR&gt;");</code>. Optional (C-YANK): should <code>y</code> with a find still open end the find and copy the match? Today it says “nothing selected”.</li>
     <li><b>C-CLIPTYPES check (#766, your issue #764):</b> take a screenshot with your <code>grim | wl-copy</code> binding and paste it into a page in web (e.g. a GitHub comment box); copy rich text from a page and paste it into another app.</li>
     <li><b>C-CLOSE-POLITE check (#758, your issue #757):</b> open <code>web/shell/test/pages/beforeunload.html</code>, type in its field, click the window X: “Cancel” keeps web open, “Leave” closes it. Same with <code>:q</code> and Ctrl-C in a terminal.</li>
