@@ -714,3 +714,5 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 - Filed (2ea59c51) as WAITING: depends on #772 (C-MAPTIMEOUT) which is not labelled ready. Commented; listed under Waiting on you.
 
 - 2026-11-27 issue #772 labelled ready -> C-MAPTIMEOUT filed (b45aa3a9) and started (Sonnet, web/c-maptimeout). C-ESCHOLD (#775) now queued behind it, no longer waiting on the user.
+
+- 2026-11-27 #776 C-MAPTIMEOUT merged (01ae084), installed; closes #772. C-ESCHOLD (#775) started (Sonnet, web/c-eschold).

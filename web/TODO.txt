@@ -545,7 +545,7 @@ stop early on a hard failure.
       `await web.cmd("b app.slack.com")` falling back to `new`), DECISIONS.md. Tests: ok true/false for a good line,
       an unknown command, `:b nomatch`, a user command that throws; order of several awaited lines; promise ignored
       = no unhandled rejection; `:source` while a promise is pending drops it without error.
-- [ ] C-ESCHOLD [S] (after C-MAPTIMEOUT, #772) (issue #775; user, 2026-11-27: "Let's go with A")
+- [ ] C-ESCHOLD [S] [WIP] (after C-MAPTIMEOUT, #772, done) (issue #775; user, 2026-11-27: "Let's go with A")
       In INPUT the first Esc is held, not sent: Esc Esc within the mapping timeout -> NORMAL and the page sees neither (Drive,
       Workday); another key or the timeout sends the held Esc first, then the key (in order, via effects + held); focus loss
       drops it. ESC_ESC_MS removed; the wait is the mapping timeout. Starts only after #772 merges (default 250 ms), as the
