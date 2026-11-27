@@ -44,6 +44,11 @@ def main():
     ap.add_argument("--host-bin", default=os.path.join(WEB, "host-cef/target/debug/web-host-cef"))
     ap.add_argument("--inject", required=True, help="the inject binary (build web/tools/inject)")
     a = ap.parse_args()
+    # #770: no built-in Ctrl-^; the temporary profile (live.py isolates XDG_CONFIG_HOME) maps it.
+    prof = os.path.join(os.environ["XDG_CONFIG_HOME"], "web", "profiles", "default")
+    os.makedirs(prof, exist_ok=True)
+    with open(os.path.join(prof, "init.js"), "w") as f:
+        f.write('web.map("n", "<C-^>", ":bufferAlternate<CR>");\n')
     out = os.path.abspath(a.out)
     os.makedirs(out, exist_ok=True)
     state = os.path.join(out, "state")

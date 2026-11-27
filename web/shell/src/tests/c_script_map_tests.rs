@@ -237,6 +237,29 @@ fn map_overrides_gg_and_leaves_gi_and_a_lone_g_alone() {
 }
 
 #[test]
+fn map_ctrl_caret_to_buffer_alternate() {
+    // No built-in Ctrl-^ (#770): the mapping is the only way.
+    for lhs in ["<C-^>", "<C-6>"] {
+        let t = Instant::now();
+        let mut k = shell(&format!(r#"web.map("n", "{lhs}", ":bufferAlternate<CR>");"#));
+        k.buffers.tab_created(1, None);
+        k.open_buffer("https://b.test/");
+        k.buffers.tab_created(2, Some(1));
+        k.effects.clear();
+        let key = if lhs == "<C-^>" {
+            KeyInput::ch('^').ctrl()
+        } else {
+            KeyInput::ch('6').ctrl()
+        };
+        tap(&mut k, key, t);
+        assert_eq!(k.buffers.current, 1, "{lhs}");
+        assert_eq!(effects(&mut k), vec![Effect::Send(Command::ShowTab { tab: 1 })], "{lhs}");
+        tap(&mut k, key, t);
+        assert_eq!(k.buffers.current, 2, "{lhs}");
+    }
+}
+
+#[test]
 fn map_cr_runs_the_line() {
     let t = Instant::now();
     let mut k = shell(

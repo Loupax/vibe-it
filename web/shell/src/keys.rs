@@ -161,8 +161,6 @@ pub enum Action {
     HistoryForward,
     /// `yy` (T55): `:let @+ = @%`.
     YankUrl,
-    /// Ctrl-^ (C4, KEYS.md "Buffers"): the buffer shown before this one.
-    AlternateBuffer,
     /// The key press (and its release) goes to the page (T19: Enter; T18 ends an open find first).
     ToPage,
     /// `gi` (C-AUTOFOCUS, as Vimium): focus the last text field of the page, else the first visible
@@ -376,6 +374,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "bookmarkDelete",
     "bookmarkSearch",
     "buffer",
+    "bufferAlternate",
     "bufferDescribe",
     "bufferKill",
     "bufferList",
@@ -1176,7 +1175,6 @@ impl Keys {
             Action::YankUrl => self.run_command_line("let @+ = @%"),
             Action::RepeatLine => self.repeat_line(),
             Action::RepeatRepeat => self.repeat_repeat(),
-            Action::AlternateBuffer => self.buffer_alternate(),
         }
     }
 
@@ -1853,6 +1851,8 @@ impl Keys {
                 send(self, Command::Open { url })
             }
             // C4 (KEYS.md "Buffers"): camelCase names with vim's aliases.
+            ("bufferAlternate", []) => self.buffer_alternate(),
+            ("bufferAlternate", _) => self.fail("web: usage: :bufferAlternate".to_string()),
             ("bufferList", rest) | ("ls", rest) => self.buffer_list(&rest.join(" ")),
             ("buffer", rest) | ("b", rest) => self.buffer_command(rest),
             ("bufferNext", []) | ("bn", []) => self.buffer_step(1),
