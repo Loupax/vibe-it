@@ -706,3 +706,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-27 #773 C-BUFALT merged (06a0385), closes #770; C-YANK started
 - :bufferAlternate; Ctrl-^/Ctrl-6 bindings removed. 594 tests; c4_live.py writes the mapping into its temp profile (not run live). Installed 20261127-154221-4ed59c7c. C-YANK (#771) Opus agent started.
+
+## 2026-11-27 #774 C-YANK merged (3c57ac5), closes #771
+- y/:yank copy selection via selection command/event (length-only logs in host and shell). yy removed. 612 shell + 50 host tests, live 14/14 x3, c6 13/13 x3. Undecided: y with find open -> nothing selected (listed under Waiting on you). Host clippy has 2 pre-existing dead-code errors (filedialog Registry::len, notify RateLimit::allow); CI does not run host clippy. Installed 20261127-160757-991b9037. No agents running.
