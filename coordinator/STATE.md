@@ -700,3 +700,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-26 #768 C-SCRIPT-URL merged (a0e7e93), closes #767
 - web:url + web:api native modules; stack locations skip web: frames. 571 tests. Binary +58 KB. Installed 20261126-174641-e8850044. Agent worktree was locked by this session (pid of the coordinator); removed with -f -f after checking it was clean. Scripting guide v11. No agents running.
+
+## 2026-11-27 issues #770, #771 filed
+- C-BUFALT (#770) started (Sonnet). C-YANK (#771) queued behind it (same files). #771 mentions #772 (C-MAPTIMEOUT), not labelled ready: not filed.
