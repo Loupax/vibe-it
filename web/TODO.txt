@@ -545,12 +545,8 @@ stop early on a hard failure.
       `await web.cmd("b app.slack.com")` falling back to `new`), DECISIONS.md. Tests: ok true/false for a good line,
       an unknown command, `:b nomatch`, a user command that throws; order of several awaited lines; promise ignored
       = no unhandled rejection; `:source` while a promise is pending drops it without error.
-- [ ] [WIP] C-BUFALT [XS] (issue #770; user, 2026-11-27: "Remove it from the built-in Ctrl-^ hotkey so the init file is the
-      only source of truth") New `:bufferAlternate` (Keys::buffer_alternate, usage error with arguments); the built-in
-      Ctrl-^ / Ctrl-6 bindings and Action::AlternateBuffer are removed; users map it:
-      web.map("n", "<C-^>", ":bufferAlternate<CR>"). Docs name the command instead of the key. Full spec: issue #770.
-- [ ] C-YANK [S] (issue #771; user, 2026-11-27: "I want to introduce a yank command, so I can copy selections from normal
-      mode") (queued behind C-BUFALT: same files) `:yank` and `y` copy the page's current selection (focused frame; an
+- [ ] [WIP] C-YANK [S] (issue #771; user, 2026-11-27: "I want to introduce a yank command, so I can copy selections from normal
+      mode") `:yank` and `y` copy the page's current selection (focused frame; an
       input/textarea's selected part; never a password field) to `+` via a new `selection` command/event (the text never
       in the log); the built-in `yy` is removed (users map `yy` to `:let @+ = @%<CR>`). Full spec and decisions: issue #771.
 - [x] C-PICKDEL-MAP [S] (DONE 2026-11-25, a9ecd2c, #753: T167-T168; messages and script errors show beside the filter as T169) (after C-PICKDEL; user, 2026-11-25; KEYS.md T167-T168; SCRIPTING.md "web.map" mode "p") Picker

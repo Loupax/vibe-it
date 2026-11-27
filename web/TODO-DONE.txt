@@ -85,3 +85,9 @@
       (`change: name:size`), pick one file, several, a folder, cancel with Esc; an upload via FormData to a local server;
       confirm the `on_file_dialog called` line and that no GTK dialog shows. If on_file_dialog is NOT called in the
       Chrome runtime, the fallback is the chrome file-select helper (not planned yet).
+
+=== from TODO.txt: --- (no header)
+- [x] C-BUFALT DONE 06a0385 #773 [XS] (issue #770; user, 2026-11-27: "Remove it from the built-in Ctrl-^ hotkey so the init file is the
+      only source of truth") New `:bufferAlternate` (Keys::buffer_alternate, usage error with arguments); the built-in
+      Ctrl-^ / Ctrl-6 bindings and Action::AlternateBuffer are removed; users map it:
+      web.map("n", "<C-^>", ":bufferAlternate<CR>"). Docs name the command instead of the key. Full spec: issue #770.
