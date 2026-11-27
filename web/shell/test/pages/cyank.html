@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>cy start</title>
+<style>
+  body { margin: 0; font: 16px sans-serif; }
+  .b { position: fixed; left: 10px; width: 180px; height: 30px; }
+  #content { position: absolute; left: 220px; top: 10px; width: 600px; }
+  #fr { position: absolute; left: 220px; top: 420px; width: 400px; height: 120px; border: 1px solid #888; }
+</style>
+</head>
+<body>
+<!-- C-YANK live check (c_yank_live.py): each button makes a selection with a script and reports in the
+     title what the page itself reads as selected (URL-encoded), so the test can compare the desktop's
+     clipboard with it. -->
+<button class="b" id="b-para" style="top: 10px">para</button>
+<button class="b" id="b-first" style="top: 50px">first</button>
+<button class="b" id="b-input" style="top: 90px">input</button>
+<button class="b" id="b-area" style="top: 130px">area</button>
+<button class="b" id="b-pass" style="top: 170px">pass</button>
+<button class="b" id="b-fake" style="top: 210px">fake</button>
+<button class="b" id="b-none" style="top: 250px">none</button>
+<div id="content">
+  <div id="blocks"><p id="p1">First block line</p><p id="p2">Second block has a zebrafish</p></div>
+  <input id="inp" value="hello input world" size="30"><br>
+  <textarea id="area" rows="3" cols="30">line one
+line two
+line three</textarea><br>
+  <input id="pw" type="password" value="secret123">
+</div>
+<iframe id="fr" src="cyank-frame.html"></iframe>
+<script>
+  // The page's own references, kept before the `fake` button replaces them.
+  var gs = window.getSelection.bind(window);
+  var selStr = Selection.prototype.toString;
+  function seen() { return selStr.call(gs()); }
+  // n: a new title every time, so the same selection made twice is reported twice.
+  var n = 0;
+  function report(what, text) { document.title = "cy " + what + " n=" + (++n) + " sel=" + encodeURIComponent(text); }
+  function on(id, fn) { document.getElementById(id).addEventListener("click", fn); }
+  on("b-para", function () { gs().selectAllChildren(document.getElementById("blocks")); report("para", seen()); });
+  on("b-first", function () { gs().selectAllChildren(document.getElementById("p1")); report("first", seen()); });
+  on("b-none", function () { gs().removeAllRanges(); report("none", ""); });
+  on("b-input", function () {
+    var f = document.getElementById("inp");
+    f.focus();
+    f.setSelectionRange(6, 11);
+    report("input", f.value.slice(f.selectionStart, f.selectionEnd));
+  });
+  on("b-area", function () {
+    var f = document.getElementById("area");
+    f.focus();
+    f.setSelectionRange(5, 17);
+    report("area", f.value.slice(f.selectionStart, f.selectionEnd));
+  });
+  on("b-pass", function () {
+    var f = document.getElementById("pw");
+    f.focus();
+    f.select();
+    report("pass", "");
+  });
+  on("b-fake", function () {
+    gs().selectAllChildren(document.getElementById("p2"));
+    var real = seen();
+    window.getSelection = function () { return "fake"; };
+    document.getSelection = function () { return "fake"; };
+    Selection.prototype.toString = function () { return "fake"; };
+    report("fake", real);
+  });
+</script>
+</body>
+</html>

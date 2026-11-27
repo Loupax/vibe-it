@@ -4,7 +4,8 @@
 //! same way (`MIDDLE_MSG`, page.rs turns it into `open-link`), and a plain left-click on a
 //! `target=_blank` link (C-FOCUSEXISTING, `BLANK_MSG`, `blank-link`); so does a page's notification
 //! (C-BELL, notify.rs). `on_context_created` is where every injected script starts. C-AUTOFOCUS
-//! (field.rs) also answers the browser's `web-host.field` messages here.
+//! (field.rs) also answers the browser's `web-host.field` messages here, and C-YANK (selection.rs)
+//! its `web-host.selection` messages.
 
 use cef::*;
 
@@ -107,11 +108,16 @@ wrap_render_process_handler! {
             }
             // 5. C-FOCUSEXISTING: newtab::BLANK_JS (always: the shell decides what the click opens).
             link_click(context, "blank-click", BLANK_FN, BLANK_JS, BLANK_MSG);
+            // 6. C-YANK: selection.js (no listener; selection.rs keeps the function `selection` runs).
+            if let Some(f) = &frame {
+                crate::selection::install(f, context);
+            }
         }
 
         fn on_context_released(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, context: Option<&mut V8Context>) {
             if let Some(context) = context {
                 crate::field::released(context);
+                crate::selection::released(context);
             }
         }
 
@@ -122,7 +128,8 @@ wrap_render_process_handler! {
             _source_process: ProcessId,
             message: Option<&mut ProcessMessage>,
         ) -> i32 {
-            message.is_some_and(|m| crate::field::renderer_message(frame, m)) as i32
+            let (Some(m), mut frame) = (message, frame) else { return 0 };
+            (crate::field::renderer_message(frame.as_deref_mut(), m) || crate::selection::renderer_message(frame, m)) as i32
         }
 
         fn on_focused_node_changed(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, node: Option<&mut Domnode>) {

@@ -66,7 +66,7 @@ switch back; press <code>Esc</code> twice.</li>
 <tr><td><code>n</code> / <code>N</code></td><td>Next / previous match (the bar shows <code>[i/N]</code> and says when the search wrapped; <code>Pattern not found: ...</code> when there is none)</td></tr>
 <tr><td><code>Esc</code></td><td>Clear the highlights (the search text is kept for <code>n</code>). The current match stays selected, and a link or button holding it gets the focus</td></tr>
 <tr><td><code>Enter</code></td><td>Goes to the page, which acts on what has focus. After a search it first clears the highlights (as <code>Esc</code>), so it follows the link (or presses the button) holding the current match; a match in a text field focuses the field and switches to INPUT. With nothing focused it does nothing</td></tr>
-<tr><td><code>y</code> <code>y</code></td><td>Copy the page URL to the clipboard (same as <code>:let @+ = @%</code>)</td></tr>
+<tr><td><code>y</code></td><td>Copy the page's selection to the clipboard (<code>:yank</code>): what you selected with the mouse, the selected part of the focused field, or the match a search left selected (<code>/word</code> <code>Esc</code>)</td></tr>
 </table>
 <p>Scrolling is done by giving the page a real key press (<code>Down</code>,
 <code>PageDown</code>, <code>Home</code>, ...), so the page scrolls exactly as
@@ -80,7 +80,9 @@ maps keys in this mode, in vim's notation (<code>"gh"</code>, <code>"&lt;C-x&gt;
 without the final <code>&lt;CR&gt;</code>, <code>web.map("n", "ge", ":go ")</code> opens the command
 line with that text typed. A mapping wins over the keys above (even <code>:</code>, as in vim; Esc
 cannot be mapped). While the keys typed are the start of a longer mapping, web waits up to
-<code>MAP_TIMEOUT_MS</code> (1 s) for the next one, then handles them as without the mapping.</p>
+<code>MAP_TIMEOUT_MS</code> (1 s) for the next one, then handles them as without the mapping.
+The URL copy that used to be built in is a mapping now:
+<code>web.map("n", "yy", ":let @+ = @%&lt;CR&gt;")</code> (a lone <code>y</code> then yanks after the wait).</p>
 
 <h2>Command line</h2>
 <p>In NORMAL mode press <code>:</code>, type a command, then <code>Enter</code>
@@ -127,6 +129,7 @@ videos), then single pages. <code>https://</code>, <code>http://</code> and
 <tr><td><code>:historyFront</code></td><td>Go forward one page (same as <code>l</code>)</td></tr>
 <tr><td><code>:historyDelete [url]</code></td><td>Remove every visit of that exact URL (the page on screen when none is given) from the history file. In the lists of <code>:historySearch</code>, <code>:bookmarkSearch</code> and <code>:bufferList</code>, <code>Ctrl-d</code> deletes the selected row (the history entry, the bookmark, the buffer) after a <code>(y/n)</code> question in the status bar: <code>y</code> deletes, any other key cancels. A script can turn the question off with <code>web.history.deleteConfirmation = false</code> (likewise <code>web.bookmarks</code>, <code>web.buffers</code>). <code>web.buffers.list()</code> gives a script the open buffers (number, url, title, description, current, alternate, loading, crashed, unread); <code>import { URL } from "web:url"</code> gives it a read-only <code>URL</code> class to read them (<code>URL.parse(b.url)?.hostname</code>), and <code>import web from "web:api"</code> gives back the original <code>web</code> object even if the global was overwritten.<code>web.buffers.focusExisting = true</code> (default <code>false</code>): a plain click (or Enter) on a <code>target=_blank</code> link to the exact URL of an open buffer shows that buffer (<code>already open: [N] TITLE</code>) instead of opening a new one; a middle-click always opens a new buffer</td></tr>
 <tr><td><code>:let @&lt;dst&gt; = @&lt;src&gt;</code></td><td>Copy a register into another (vim's <code>:let @+ = @%</code>). <code>%</code> is the page URL as the status bar shows it (read-only), <code>+</code> is the system clipboard (<code>:let @+ = @%</code> copies the URL)</td></tr>
+<tr><td><code>:yank</code></td><td>Copy the page's selection to the clipboard (same as <code>y</code>). The bar says <code>Copied to clipboard</code>, or <code>web: nothing selected</code></td></tr>
 <tr><td><code>:set caret</code>, <code>:set nocaret</code></td><td>Turn Chromium's caret browsing on or off (an experiment; off at every start). With it on, a text caret sits in the page and the keys that scroll move it instead: <code>j</code>/<code>k</code> and the arrows move it by line or character (the page follows), <code>g</code> <code>g</code> and <code>G</code> go to the start and end of its line. <code>Ctrl</code>+<code>d</code>/<code>u</code> and <code>Space</code> still scroll. <code>/word</code> then <code>Esc</code> puts the caret on the word; on a link, <code>Enter</code> follows it</td></tr>
 <tr><td><code>:set caret?</code></td><td>Show whether caret browsing is on (<code>caret</code>) or off (<code>nocaret</code>)</td></tr>
 <tr><td><code>:forget-site [site]</code></td><td>Delete the cookies and stored data (localStorage, IndexedDB, caches, service workers) of a site and every host under it, http and https; with no argument, of the page on screen, which is then reloaded. The result shows in the status bar (<code>forgot ... ok</code>). History is kept. From a terminal, <code>web --forget-site SITE</code> does the same, through the running web if there is one (exit status 0 ok, 1 partial, 2 refused)</td></tr>

@@ -37,6 +37,7 @@ mod c_script_modules_tests;
 mod c_script_tests;
 mod c_script_url_tests;
 mod c_source_tests;
+mod c_yank_tests;
 mod completion_tests;
 mod history_tests;
 mod keys_tests;

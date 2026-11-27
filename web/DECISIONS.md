@@ -2,6 +2,31 @@
 
 A newer decision overrides an older one; add new ones at the top with the date.
 
+## 2026-11-27 Yank the page's selection: `:yank` and `y`; the built-in `yy` goes (C-YANK)
+
+Issue #771. User, 2026-11-27: "I want to introduce a yank command, so I can copy selections from normal
+mode."
+
+- **`:yank` (no argument), bound to `y`**, a plain one-key NORMAL binding like `j` or `n` (KEYS.md T54,
+  T183-T186). `:yank link` / `:yank image` stay reserved for the parked C-CMDS.
+- **The built-in `yy` goes; it is a user mapping now.** User: "I think we should also remove the built in
+  yy and have it done in js only, since all the functionality is already there." Then: "go ahead and update
+  it. I'll update my init files manually once it rolls out." The replacement:
+  `web.map("n", "yy", ":let @+ = @%<CR>");`. With it, the mapping wait (T118) does what a `y` timeout
+  would: `yy` copies the URL, a lone `y` yanks once the wait runs out. No new timer, no Y state. A deliberate
+  exception to SCRIPTING.md's "how it behaves by default stays in `shell/src/config.rs`": a profile with no
+  `init.js` has no `yy`. `:let @+ = @%` stays built in.
+- **What is copied is whatever the page has selected now**: made with the mouse, or the active match that
+  `/foo` Esc leaves selected (Chromium keeps it selected when the find ends; C-ENTER relies on that). vim
+  would not copy a search match. User: "I suppose it would make sense if we add regex matching at some
+  point. I say accept it."
+- **A keyboard way to make a selection (visual mode) is out of scope**; it stays parked with C5-ENTER /
+  QCURSOR-D.
+- **The host reads the selection, the shell writes register `+`**, the path `:let @+ = @%` uses
+  (PROTOCOL.md "Selection"). Not a Ctrl-C sent to the page (pages take Ctrl-C over, a focused field would
+  get it, and the shell could not tell "copied" from "nothing selected"). Not the primary selection the
+  shell already bridges (Chromium does not set primary for a find's match or a script's selection).
+
 ## 2026-11-27 Ctrl-^ is the command `:bufferAlternate`; no built-in key (C-BUFALT)
 
 Issue #770. User, 2026-11-27: "Create a github issue for exposing this as a command so I can customize it.

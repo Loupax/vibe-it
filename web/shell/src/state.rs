@@ -520,7 +520,12 @@ impl State {
                 return;
             }
         };
-        self.log(&format!("host event: {line}"));
+        match &ev {
+            // C-YANK: the selected text never goes to the log (a copied password, a message); its
+            // length does, as in the host's log.
+            Event::Selection { tab, req, text } => self.log(&format!("host event: selection {tab} {req} {} chars", text.chars().count())),
+            _ => self.log(&format!("host event: {line}")),
+        }
         // C-BELL: a notification of any buffer, shown or not.
         if let Event::Notify {
             tab,
@@ -552,6 +557,12 @@ impl State {
         }
         if let Event::FieldResult { tab, ref op, ok } = ev {
             self.keys.field_result(tab, op, ok);
+            self.apply_key_effects(0);
+            return;
+        }
+        // C-YANK: the answer to `:yank` / `y`.
+        if let Event::Selection { tab, req, ref text } = ev {
+            self.keys.selection_result(tab, req, text);
             self.apply_key_effects(0);
             return;
         }

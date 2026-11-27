@@ -111,6 +111,13 @@ pub enum Event {
         op: String,
         ok: bool,
     },
+    /// C-YANK: the answer to `selection` `req`: page `tab`'s selected text ("" when nothing is
+    /// selected). Never logged as is (`log_text`).
+    Selection {
+        tab: u64,
+        req: u64,
+        text: String,
+    },
     /// C-BELL: page `tab` showed a Web Notification (lengths capped and rate-limited by the host).
     Notify {
         tab: u64,
@@ -170,7 +177,8 @@ impl Event {
             | Event::FindResult { tab, .. }
             | Event::Crashed { tab, .. }
             | Event::PopupBlocked { tab, .. }
-            | Event::FieldResult { tab, .. } => Some(*tab),
+            | Event::FieldResult { tab, .. }
+            | Event::Selection { tab, .. } => Some(*tab),
             _ => None,
         }
     }
@@ -258,6 +266,11 @@ pub enum Command {
     /// C-AUTOFOCUS: focus the page's last text field or its first visible one; `field-result`.
     FocusField {
         which: FieldWhich,
+    },
+    /// C-YANK: the page's selected text (its focused frame's, else its main frame's); answered by
+    /// a `selection` event with the same `req`.
+    Selection {
+        req: u64,
     },
     /// C-CLOSE-POLITE: close every page politely (each page may ask with `beforeunload`; a page
     /// whose user stays stays open); the host exits after the last one has closed.
@@ -468,6 +481,15 @@ mod tests {
                     ok: true,
                 },
             ),
+            // C-YANK: newlines arrive escaped, on one line.
+            (
+                r#"{"event":"selection","tab":4,"req":7,"text":"hello\nwörld"}"#,
+                Event::Selection {
+                    tab: 4,
+                    req: 7,
+                    text: "hello\nwörld".into(),
+                },
+            ),
             (
                 r#"{"event":"load-error","tab":1,"code":-105,"name":"ERR_NAME_NOT_RESOLVED","text":"ERR_NAME_NOT_RESOLVED"}"#,
                 Event::LoadError {
@@ -624,6 +646,8 @@ mod tests {
                 Command::FocusField { which: FieldWhich::First },
                 r#"{"cmd":"focus-field","which":"first"}"#,
             ),
+            // C-YANK.
+            (Command::Selection { req: 7 }, r#"{"cmd":"selection","req":7}"#),
             (Command::Caret { on: true }, r#"{"cmd":"caret","on":true}"#),
             (Command::Caret { on: false }, r#"{"cmd":"caret","on":false}"#),
             (

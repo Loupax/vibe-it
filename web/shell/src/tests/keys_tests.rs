@@ -460,56 +460,67 @@ fn keys_t32_a_page_focus_keeps_normal_and_a_blur_changes_nothing() {
     assert!(!click_recent(Some(t), ms(t, crate::config::CLICK_FOCUS_MS + 1)), "an old click");
 }
 
-// ---------- T54-T56: yy (with a clipboard: c6_tests.rs) ----------
+// ---------- T54-T56: y (C-YANK; with a clipboard: c6_tests.rs, c_yank_tests.rs) ----------
+
+/// `keys()` with buffer 1 on page 1.
+fn keys_on_page() -> Keys {
+    let mut k = keys();
+    let _ = k.buffers.tab_created(1, None);
+    k.url = "https://example.com/".into();
+    k
+}
 
 #[test]
-fn keys_t54_t55_yy_runs_let_and_the_page_sees_nothing() {
+fn keys_t54_y_asks_for_the_selection_and_the_page_sees_nothing() {
     let t = Instant::now();
-    let mut k = keys();
-    k.url = "https://example.com/".into();
-    assert_eq!(tap(&mut k, KeyInput::ch('y'), t), (false, false));
-    assert!(k.message.is_empty(), "T54: one y does nothing");
-    assert_eq!(tap(&mut k, KeyInput::ch('y'), t), (false, false));
-    assert_eq!(k.message, CLIPBOARD_UNREACHABLE, "no desktop clipboard in this test");
+    let mut k = keys_on_page();
+    assert_eq!(tap(&mut k, KeyInput::ch('y'), t), (false, false), "T54: the page does not get y");
+    assert_eq!(effects(&mut k), vec![Effect::SendTo(1, Command::Selection { req: 1 })]);
+    assert!(k.message.is_empty(), "nothing to say until the page answers");
+    // T55 is gone: no built-in sequence starts with y.
     assert!(KEY_SEQUENCES.iter().any(|s| s.first == 'g' && s.second == 'g'));
-    assert!(KEY_SEQUENCES
-        .iter()
-        .any(|s| s.first == 'y' && s.second == 'y' && s.action == Action::YankUrl));
-    // In INPUT `yy` is the page's.
+    assert!(!KEY_SEQUENCES.iter().any(|s| s.first == 'y'), "no built-in yy");
+    // In INPUT `y` is the page's.
     let mut k = input_mode();
     assert_eq!(tap(&mut k, KeyInput::ch('y'), t), (true, true));
     assert_eq!(tap(&mut k, KeyInput::ch('y'), t), (true, true));
     assert!(k.message.is_empty());
+    assert!(effects(&mut k).is_empty());
 }
 
 #[test]
-fn keys_t55_yy_ignores_key_repeat() {
+fn keys_t54_y_ignores_key_repeat() {
     let t = Instant::now();
-    let mut k = keys();
-    k.url = "https://example.com/".into();
+    let mut k = keys_on_page();
     press(&mut k, KeyInput::ch('y'), t);
     press(&mut k, KeyInput::ch('y'), ms(t, 400)); // an OS repeat of the held y
-    assert!(k.message.is_empty());
+    assert_eq!(effects(&mut k), vec![Effect::SendTo(1, Command::Selection { req: 1 })]);
 }
 
 #[test]
-fn keys_t56_g_y_and_y_g_rearm() {
+fn keys_t56_g_y_yanks_and_y_g_g_rearms() {
     let t = Instant::now();
-    let mut k = keys();
-    k.url = "https://example.com/".into();
-    for c in ['g', 'y', 'y'] {
+    let mut k = keys_on_page();
+    for c in ['g', 'y'] {
         tap(&mut k, KeyInput::ch(c), t);
     }
-    assert_eq!(k.message, CLIPBOARD_UNREACHABLE, "g y leaves y pending");
-    let mut k = keys();
+    assert_eq!(
+        effects(&mut k),
+        vec![Effect::SendTo(1, Command::Selection { req: 1 })],
+        "g y: the g is dropped, y yanks"
+    );
+    let mut k = keys_on_page();
     for c in ['y', 'g', 'g'] {
         tap(&mut k, KeyInput::ch(c), t);
     }
     assert_eq!(
         effects(&mut k),
-        vec![Effect::KeyDown(evdev::KEY_HOME), Effect::KeyUp(evdev::KEY_HOME)]
+        vec![
+            Effect::SendTo(1, Command::Selection { req: 1 }),
+            Effect::KeyDown(evdev::KEY_HOME),
+            Effect::KeyUp(evdev::KEY_HOME)
+        ]
     );
-    assert!(k.message.is_empty());
 }
 
 // ---------- commands ----------

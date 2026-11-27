@@ -47,9 +47,9 @@ host-cef it is in CI (it needs only libxkbcommon to link).
 ## What C3 adds (KEYS.md)
 
 - **The key model** (`src/keys.rs`, pure, no Wayland): INPUT / NORMAL / COMMAND, Esc Esc,
-  the NORMAL bindings and the `gg`/`yy` sequences, the `:` line with its ghost completion
+  the NORMAL bindings and the `gg` sequence, the `:` line with its ghost completion
   (`src/completion.rs`), the commands `:go`, `:refresh [hard]`, `:historyBack`,
-  `:historyFront`, `:help`, `:let`, `:q`. The compositor's keyboard filter asks it about
+  `:historyFront`, `:help`, `:let`, `:yank` / `y` (C-YANK), `:q`. The compositor's keyboard filter asks it about
   every key event (modifiers included) and forwards only what it allows; a release goes
   to the page exactly when its press did. Starts in NORMAL.
 - **Settings** in `src/config.rs` (dwm `config.h`: edit and rebuild): `BINDINGS`,
@@ -91,7 +91,7 @@ host-cef it is in CI (it needs only libxkbcommon to link).
     to the page (a compositor selection served from memory) when the window gains focus, before
     a paste key reaches the page and before a middle click, only when it changed since it was
     last carried across.
-  - `yy`, `:let @+ = @%`, `@+` as a source, and paste (Ctrl-v, Ctrl-Shift-v, Shift-Insert) into
+  - `:let @+ = @%`, `:yank` / `y` (C-YANK), `@+` as a source, and paste (Ctrl-v, Ctrl-Shift-v, Shift-Insert) into
     the `:` and `/` lines read and write the desktop's clipboard as text through copypasta
     (smithay-clipboard on Wayland, x11-clipboard on X11; a worker thread, every wait bounded to
     1 s). While the desktop's clipboard is the page's own (Wayland), they read the page's copied
@@ -258,7 +258,7 @@ its KEYS.md rows): starts in NORMAL with the bar drawn; `j`/`k`/`G`/`gg`/Ctrl-d/
 scroll by real keys while the page never sees the bound keys; `/` opens the search line; `i`,
 typing, Esc Esc (the page sees exactly the first Esc), a slow Esc Esc; a click into a
 field enters INPUT, the page's own focus() does not; `:go`, `h`/`l`, the `:go` ghost from
-history with Tab and Enter, `:refresh [hard]`, `:help` and `:q` on it, `:let`/`yy` (C6),
+history with Tab and Enter, `:refresh [hard]`, `:help` and `:q` on it, `:let` (C6),
 Esc cancelling the line, a load error in the bar, the history file, `:q` quitting.
 Shifted characters are typed with a held Shift key (`hold:s`): inject's `type:` sends
 modifier state alone, which the shell (smithay's winit backend) does not see.

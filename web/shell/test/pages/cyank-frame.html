@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>cy frame</title></head>
+<body style="margin: 0; font: 16px sans-serif">
+<!-- C-YANK live check: the iframe of cyank.html. Its button selects the frame's paragraph and reports
+     it in the parent's title (same origin). -->
+<button id="b-frame" style="position: absolute; left: 5px; top: 5px; width: 150px; height: 30px">frame</button>
+<p id="fp" style="position: absolute; left: 5px; top: 50px; margin: 0">Text inside the frame</p>
+<script>
+  document.getElementById("b-frame").addEventListener("click", function () {
+    var s = window.getSelection();
+    s.selectAllChildren(document.getElementById("fp"));
+    parent.document.title = "cy frame n=" + Date.now() + " sel=" + encodeURIComponent(String(s));
+  });
+</script>
+</body>
+</html>

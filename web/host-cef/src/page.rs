@@ -494,7 +494,9 @@ wrap_client! {
             message: Option<&mut ProcessMessage>,
         ) -> i32 {
             let Some(msg) = message else { return 0 };
-            if crate::notify::handle_message(page_of(&browser), msg) || crate::field::result_message(page_of(&browser), msg) {
+            if crate::notify::handle_message(page_of(&browser), msg) || crate::field::result_message(page_of(&browser), msg)
+                || crate::selection::result_message(page_of(&browser), msg)
+            {
                 return 1;
             }
             let name = CefString::from(&msg.name()).to_string();
@@ -1545,6 +1547,8 @@ pub fn run_command(line: &str) {
             };
             crate::field::request(id, &browser, frame.as_deref(), op);
         }
+        // C-YANK: the focused frame's selection (else the main frame's).
+        Command::Selection { req } => crate::selection::request(id, &browser, req),
         Command::Zoom { factor } => match protocol::zoom_level(factor) {
             Ok(level) => {
                 if let Some(h) = host {

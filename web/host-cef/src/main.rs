@@ -51,6 +51,7 @@ mod notify;
 mod page;
 mod protocol;
 mod renderer;
+mod selection;
 mod term;
 
 use protocol::{host_options, normalize_argv};

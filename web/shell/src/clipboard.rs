@@ -9,7 +9,7 @@
 //! through x11-clipboard (CLIPBOARD and PRIMARY). Both come through `copypasta`, as in
 //! alacritty. On X11 this is the whole bridge, text only. On Wayland (C-CLIPTYPES) the page's
 //! selections follow the desktop's with every type (`desktop_selection.rs`), and this is used
-//! only for the shell's own text reads and writes (`yy`, `@+`, paste into the `:` and `/` lines).
+//! only for the shell's own text reads and writes (`:let @+ = @%`, `:yank`, `@+`, paste into the `:` and `/` lines).
 //!
 //! The clipboard libraries block, so they run on a worker thread; the compositor waits for an
 //! answer at most `WAIT`, so a desktop clipboard owner that never answers cannot freeze it.

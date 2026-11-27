@@ -1,5 +1,5 @@
-//! C6: KEYS.md "Paste", "Registers" (`+`), T22/T26 paste and T54-T56 `yy` with a desktop
-//! clipboard (a fake one here; `shell/test/c6_live.py` uses the nested desktop's real one).
+//! C6: KEYS.md "Paste", "Registers" (`+`), T22/T26 paste and `:let @+ = @%` (the URL copy the
+//! built-in `yy` did until C-YANK) with a desktop clipboard (a fake one here; `shell/test/c6_live.py` uses the nested desktop's real one).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -13,14 +13,14 @@ use crate::registers::{let_message, CLIPBOARD_EMPTY, CLIPBOARD_UNREACHABLE, COPI
 
 /// The desktop's clipboard as the test sees it: `None` = unreachable.
 #[derive(Default)]
-struct Fake {
+pub(super) struct Fake {
     clipboard: Option<String>,
     primary: Option<String>,
-    writes: usize,
+    pub(super) writes: usize,
 }
 
 #[derive(Clone, Default)]
-struct FakeClipboard(Rc<RefCell<Fake>>);
+pub(super) struct FakeClipboard(pub(super) Rc<RefCell<Fake>>);
 
 impl SystemClipboard for FakeClipboard {
     fn read(&mut self, which: Which) -> Result<String, String> {
@@ -44,7 +44,7 @@ impl SystemClipboard for FakeClipboard {
     }
 }
 
-fn fake(text: &str) -> FakeClipboard {
+pub(super) fn fake(text: &str) -> FakeClipboard {
     FakeClipboard(Rc::new(RefCell::new(Fake {
         clipboard: Some(text.to_string()),
         primary: Some(String::new()),
@@ -52,20 +52,20 @@ fn fake(text: &str) -> FakeClipboard {
     })))
 }
 
-fn unreachable_clipboard() -> FakeClipboard {
+pub(super) fn unreachable_clipboard() -> FakeClipboard {
     FakeClipboard::default()
 }
 
-const URL: &str = "https://example.com/a?b#c";
+pub(super) const URL: &str = "https://example.com/a?b#c";
 
-fn keys_with(cb: &FakeClipboard) -> Keys {
+pub(super) fn keys_with(cb: &FakeClipboard) -> Keys {
     let mut k = Keys::new(None, "file:///help.html".into(), None);
     k.clipboard = Some(Box::new(cb.clone()));
     k.url = URL.into();
     k
 }
 
-fn tap(k: &mut Keys, key: KeyInput) -> bool {
+pub(super) fn tap(k: &mut Keys, key: KeyInput) -> bool {
     let t = Instant::now();
     let c = key.sym.raw();
     let got = k.key(c, true, &key, t);
@@ -73,56 +73,36 @@ fn tap(k: &mut Keys, key: KeyInput) -> bool {
     got
 }
 
-fn type_str(k: &mut Keys, s: &str) {
+pub(super) fn type_str(k: &mut Keys, s: &str) {
     for c in s.chars() {
         tap(k, if c == ' ' { KeyInput::sym(Keysym::space) } else { KeyInput::ch(c) });
     }
 }
 
-fn clip(cb: &FakeClipboard) -> Option<String> {
+pub(super) fn clip(cb: &FakeClipboard) -> Option<String> {
     cb.0.borrow().clipboard.clone()
 }
 
-// ---------- T54-T56: yy ----------
+// ---------- the URL copy: `:let @+ = @%` typed (the built-in `yy` until C-YANK) ----------
+
+/// Types `:let @+ = @%` Enter, as a user (or their `yy` mapping) does.
+fn let_url(k: &mut Keys) {
+    type_str(k, ":let @+ = @%");
+    tap(k, KeyInput::sym(Keysym::Return));
+}
 
 #[test]
-fn c6_t55_yy_copies_the_url_to_the_clipboard() {
+fn c6_let_typed_copies_the_url_to_the_clipboard() {
     let cb = fake("old");
     let mut k = keys_with(&cb);
-    assert!(!tap(&mut k, KeyInput::ch('y')), "T54: the page does not get y");
-    assert_eq!(clip(&cb).as_deref(), Some("old"), "T54: one y copies nothing");
-    assert!(!tap(&mut k, KeyInput::ch('y')));
+    let_url(&mut k);
     assert_eq!(clip(&cb).as_deref(), Some(URL));
     assert_eq!(k.message, COPIED);
     assert_eq!(k.vim_mode, VimMode::Normal);
 }
 
 #[test]
-fn c6_t55_yy_ignores_key_repeat() {
-    let cb = fake("old");
-    let mut k = keys_with(&cb);
-    let t = Instant::now();
-    let y = KeyInput::ch('y');
-    k.key(y.sym.raw(), true, &y, t);
-    k.key(y.sym.raw(), true, &y, t); // an OS repeat of the held y
-    assert_eq!(clip(&cb).as_deref(), Some("old"));
-    assert_eq!(cb.0.borrow().writes, 0);
-}
-
-#[test]
-fn c6_t56_g_y_y_copies_and_y_g_g_does_not() {
-    let cb = fake("old");
-    let mut k = keys_with(&cb);
-    type_str(&mut k, "gyy");
-    assert_eq!(clip(&cb).as_deref(), Some(URL), "g y leaves y pending");
-    let cb = fake("old");
-    let mut k = keys_with(&cb);
-    type_str(&mut k, "ygg");
-    assert_eq!(clip(&cb).as_deref(), Some("old"));
-}
-
-#[test]
-fn c6_t55_yy_in_input_is_the_pages() {
+fn c6_t54_y_in_input_is_the_pages() {
     let cb = fake("old");
     let mut k = keys_with(&cb);
     k.set_key_mode(KeyMode::Input);
@@ -132,16 +112,16 @@ fn c6_t55_yy_in_input_is_the_pages() {
 }
 
 #[test]
-fn c6_t55_yy_with_no_url_or_no_clipboard() {
+fn c6_let_typed_with_no_url_or_no_clipboard() {
     let cb = fake("old");
     let mut k = keys_with(&cb);
     k.url.clear();
-    type_str(&mut k, "yy");
+    let_url(&mut k);
     assert_eq!(k.message, "web: no URL to copy");
     assert_eq!(clip(&cb).as_deref(), Some("old"));
     let cb = unreachable_clipboard();
     let mut k = keys_with(&cb);
-    type_str(&mut k, "yy");
+    let_url(&mut k);
     assert_eq!(k.message, CLIPBOARD_UNREACHABLE);
 }
 
