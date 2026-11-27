@@ -703,3 +703,6 @@ Also fixed in #729: stale Ctrl+Shift page modifiers after Ctrl-^ cancelled plain
 
 ## 2026-11-27 issues #770, #771 filed
 - C-BUFALT (#770) started (Sonnet). C-YANK (#771) queued behind it (same files). #771 mentions #772 (C-MAPTIMEOUT), not labelled ready: not filed.
+
+## 2026-11-27 #773 C-BUFALT merged (06a0385), closes #770; C-YANK started
+- :bufferAlternate; Ctrl-^/Ctrl-6 bindings removed. 594 tests; c4_live.py writes the mapping into its temp profile (not run live). Installed 20261127-154221-4ed59c7c. C-YANK (#771) Opus agent started.
